@@ -50,7 +50,7 @@ class DetNet(object):
             if verbose:
                 print('\nSeed for detector %s is %s'%(d,self.signals[d].seedUse))
     
-    def SNR(self, evParams, res=1000, return_all=False):
+    def SNR(self, evParams, res=1000, return_all=False, use_lensing=False):
         """
         Compute the *network signal-to-noise-ratio*, SNR, as a function of the parameters of the event(s).
         
@@ -65,7 +65,7 @@ class DetNet(object):
         snrs = {}
         utils.check_evparams(evParams)
         for d in self.signals.keys():
-            snr_ = self.signals[d].SNRInteg(evParams, res=res, return_all=return_all)
+            snr_ = self.signals[d].SNRInteg(evParams, res=res, return_all=return_all, use_lensing=use_lensing)
             if self.signals[d].detector_shape=='T' and return_all:
                 for i in range(3):
                    snrs[d+'_%s'%i] = snr_[i]
@@ -81,7 +81,7 @@ class DetNet(object):
             return net_snr #onp.squeeze(onp.sqrt(sum( onp.array(list(snrs.values()),dtype=object)**2)))
         
     
-    def FisherMatr(self, evParams, return_all=False, **kwargs):
+    def FisherMatr(self, evParams, return_all=False, use_lensing=False, **kwargs):
         #nparams = self.signals[list(self.signals.keys())[0]].wf_model.nParams
         #nevents = len(evParams[list(evParams.keys())[0]])
         #totF = onp.zeros((nparams,nparams,nevents))
@@ -100,7 +100,7 @@ class DetNet(object):
         for d in self.signals.keys():
             if self.verbose:
                 print('Computing Fisher for %s...' %d)
-            F_ = self.signals[d].FisherMatr(evParams, return_all=return_all, **kwargs) 
+            F_ = self.signals[d].FisherMatr(evParams, return_all=return_all, use_lensing=use_lensing, **kwargs) 
             #totF +=  self.signals[d].FisherMatr(evParams, **kwargs) 
             if self.signals[d].detector_shape=='T' and return_all:
                 for i in range(3):
