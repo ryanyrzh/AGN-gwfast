@@ -5,10 +5,8 @@
 #    license that can be found in the LICENSE file.
 
 
-#from jax.config import config
-#config.update("jax_enable_x64", True)
-import jax
-jax.config.update("jax_enable_x64", True)
+from jax import config
+config.update("jax_enable_x64", True)
 
 import numpy as np
 import jax.numpy as jnp
@@ -16,6 +14,11 @@ import json
 import h5py
 
 from gwfast import gwfastGlobals as glob
+
+from astropy.cosmology import Planck18 as cosmo
+
+zGridGlob = np.logspace(start=-6, stop=5, base=10, num=5000)
+dLGridGlob = cosmo.luminosity_distance(zGridGlob).value/1000.
 
 ##############################################################################
 # LOADING AND SAVING CATALOGS
@@ -750,24 +753,11 @@ def GPSt_to_LMST(t_GPS, lat, long):
     # Uncomment the next two lines in case of troubles with IERS
     #import astropy
     #astropy.utils.iers.conf.iers_degraded_accuracy='ignore'
+  
     loc = EarthLocation(lat=lat*u.deg, lon=long*u.deg)
     t = aspyt.Time(t_GPS, format='gps', location=(loc))
     LMST = t.sidereal_time('mean').value
     return jnp.array(LMST/24.)
-
-def GPSt_to_GMST_alt(t_GPS):
-    """
-    Compute the Greenwich Mean Sidereal Time (GMST) in units of fraction of day, from GPS time. This function does not rely on external libraries but is **approximate**.
-    The implementation is taken from `GWFish <https://github.com/janosch314/GWFish/tree/main>`_.
-    
-    :param array or float t_GPS: GPS time(s) to convert, in seconds.
-    
-    :return: Greenwich Mean Sidereal Time(s).
-    :rtype: array or float
-    
-    """
-    
-    return jnp.mod(9.533088395981618 + (t_GPS - 1126260000.) / 3600. * 24. / glob.siderealDay, 24.) / 24.
 
 ##############################################################################
 # SPHERICAL HARMONICS
@@ -1232,3 +1222,30 @@ class suppress_stdout_stderr(object):
         # Close all file descriptors
         for fd in self.null_fds + self.save_fds:
             os.close(fd)
+
+##############################################################################
+# LENSING
+##############################################################################
+
+def get_alpha_hat(R_orbit): # deflection angle
+    # R is radius of BBH orbit about AGN in units of Schwarzschild radii
+    return jnp.sqrt(2) / jnp.sqrt(R_orbit)
+
+def get_cos_phi_proj(iota, phi_L): # projection from orbital plane onto lensing plane
+    return jnp.sin(iota) * jnp.sin(phi_L) / (jnp.sqrt(jnp.cos(iota) ** 2 + jnp.sin(iota) ** 2 * jnp.sin(phi_L) ** 2))
+
+def get_delta_z(R_orbit, cos_phi_proj): # redshift difference between the unlensed waveform and the image
+    return 2 * cos_phi_proj / R_orbit, - 2 * cos_phi_proj / R_orbit
+
+def get_image_iota(iota, phi_L, alpha_hat): # angle between total angular momentum and observer position
+    # the formula used here was derived for inclination angle, not theta_jn! need to fix this!!
+    correction = alpha_hat * (jnp.sin(iota) * jnp.cos(iota) * jnp.cos(phi_L)) / jnp.sqrt(jnp.sin(iota) ** 2 * jnp.sin(phi_L) ** 2 + jnp.cos(iota) ** 2)
+    return jnp.arccos(jnp.cos(iota) - correction), jnp.arccos(jnp.cos(iota) + correction)
+
+def get_image_Phicoal(iota, phi_L, Phicoal, alpha_hat): # coalescence phase
+    correction = alpha_hat * (jnp.sin(Phicoal) * (1 / jnp.sin(iota)) * jnp.sin(phi_L)) / jnp.sqrt(jnp.sin(iota) ** 2 * jnp.sin(phi_L) ** 2 + jnp.cos(iota) ** 2)
+    return jnp.arccos(jnp.cos(Phicoal) + correction), jnp.arccos(jnp.cos(Phicoal) - correction)
+
+def get_image_psi(iota, phi_L, psi, alpha_hat): # polarization angle
+    correction = alpha_hat * ((1 / jnp.tan(iota)) * jnp.sin(phi_L) * jnp.sin(psi)) / jnp.sqrt(jnp.sin(iota) ** 2 * jnp.sin(phi_L) ** 2 + jnp.cos(iota) ** 2)
+    return jnp.arccos(jnp.cos(psi) - correction), jnp.arccos(jnp.cos(psi) + correction)

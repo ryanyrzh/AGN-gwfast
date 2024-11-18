@@ -8,9 +8,8 @@ import os
 import jax
 
 
-#from jax.config import config
-#config.update("jax_enable_x64", True)
-jax.config.update("jax_enable_x64", True)
+from jax import config
+config.update("jax_enable_x64", True)
 
 # We use both the original numpy, denoted as onp, and the JAX implementation of numpy, denoted as np
 import numpy as onp
@@ -31,8 +30,6 @@ from gwfast import gwfastGlobals as glob
 from gwfast import gwfastUtils as utils
 
 try:
-    import warnings
-    warnings.filterwarnings("ignore", "Wswiglal-redir-stdio")
     import lal
     import lalsimulation as lalsim
 except ModuleNotFoundError:
