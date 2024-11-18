@@ -3,4 +3,4 @@
 
 __version__ = "1.1.2"
 
-print("hello world")
+print("hello")
