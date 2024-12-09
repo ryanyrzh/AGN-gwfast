@@ -8,3 +8,6 @@ results/
 docs/build/
 poetry.lock
 dist/
+
+*.png
+*.pdf
