@@ -29,8 +29,8 @@ import numdifftools as ndt
 import copy
 from numdifftools.step_generators import MaxStepGenerator
 
-from gwfast_mod import gwfastUtils as utils
-from gwfast_mod import gwfastGlobals as glob
+from gwfast import gwfastUtils as utils
+from gwfast import gwfastGlobals as glob
 
 
 
