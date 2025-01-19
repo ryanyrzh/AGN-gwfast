@@ -554,7 +554,6 @@ class GWSignal(object):
                     'chi2x': chi2xUse, 'chi2y': chi2yUse, 'chi2z': chi2z,
                     'dL': dL, 'theta': theta, 'phi': phi, 'psi': psi, 'tcoal': tcoal}
 
-
         if self.wf_model.is_tidal:
             evParams['Lambda1'], evParams['Lambda2'] = \
                     utils.Lam12_from_Lamt_delLam(LambdaTilde, deltaLambda, etaUse)
@@ -574,18 +573,18 @@ class GWSignal(object):
             if not use_lensing:
                 # Compute Doppler contribution
                 t = tcoal - self.wf_model.tau_star(f, **evParams)/(3600.*24.)
-                tmpDeltLoc = self._DeltLoc(theta, phi, t) # in seconds
+                tmpDeltLoc = self._DeltLoc(theta, phi, t)  # in seconds
                 t = t + tmpDeltLoc/(3600.*24.)
                 #phiP is necessary if we write the signal as A*exp(i Psi) with A = sqrt(Ap^2 + Ac^2), uncomment if needed
                 #phiP = self._phiPhase(theta, phi, t, iota, psi)
             else:
                 t1 = tcoal - self.wf_model.tau_star(f, **evParams1)/(3600.*24.)
-                tmpDeltLoc1 = self._DeltLoc(theta, phi, t1) # in seconds
-                t1 = t1 + tmpDeltLoc1/(3600.*24.)
+                tmpDeltLoc1 = self._DeltLoc(theta, phi, t1)  # in seconds
+                t1 += tmpDeltLoc1/(3600.*24.)
 
                 t2 = tcoal - self.wf_model.tau_star(f, **evParams2)/(3600.*24.)
-                tmpDeltLoc2 = self._DeltLoc(theta, phi, t2) # in seconds
-                t2 = t2 + tmpDeltLoc2/(3600.*24.)
+                tmpDeltLoc2 = self._DeltLoc(theta, phi, t2)  # in seconds
+                t2 += tmpDeltLoc2/(3600.*24.)
         else:
             #phiP = Mc*0.
             if self.noMotion:
@@ -597,8 +596,8 @@ class GWSignal(object):
 
             if use_lensing:
                 # Without Earth motion, both images takes the same value.
-                t1 = t
-                t2 = t
+                t1, t2 = t, t
+                tmpDeltLoc1, tmpDeltLoc2 = tmpDeltLoc, tmpDeltLoc
 
         if not use_lensing:
             phiL = (2.*np.pi*f)*tmpDeltLoc
@@ -1023,9 +1022,9 @@ class GWSignal(object):
             res = np.amax(res)
         elif res is None and df is None:
             raise ValueError('Provide either resolution in frequency or step size.')
-        if spacing=='lin':
+        if spacing == 'lin':
             fgrids = np.linspace(fminarr, fcut, num=int(res))
-        elif spacing=='geom':
+        elif spacing == 'geom':
             fgrids = np.geomspace(fminarr, fcut, num=int(res))
 
         # Out of the provided PSD range, we use a constant value of 1, which results in completely negligible conntributions
