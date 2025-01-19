@@ -1283,7 +1283,7 @@ def get_image_psi(iota, phi_L, psi, alpha_hat): # polarization angle
     return jnp.arccos(jnp.cos(psi) - correction), jnp.arccos(jnp.cos(psi) + correction)
 
 
-def get_lensing_induced_changes(iota, phi_L, R_orbit, phi_coal, psi):
+def get_lensing_induced_shifts(iota, phi_L, R_orbit, phi_coal, psi):
     alpha_hat = _get_alpha_hat(R_orbit)
     sqrt_term = _sqrt_term(iota, phi_L)
     common_term = alpha_hat / _sqrt_term(iota, phi_L)
