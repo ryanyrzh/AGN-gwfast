@@ -4,7 +4,6 @@
 #    All rights reserved. Use of this source code is governed by the
 #    license that can be found in the LICENSE file.
 
-
 from jax import config
 config.update("jax_enable_x64", True)
 
@@ -18,7 +17,7 @@ from gwfast import gwfastGlobals as glob
 from astropy.cosmology import Planck18 as cosmo
 
 zGridGlob = np.logspace(start=-6, stop=5, base=10, num=5000)
-dLGridGlob = cosmo.luminosity_distance(zGridGlob).value/1000.
+dLGridGlob = cosmo.luminosity_distance(zGridGlob).value / 1000.
 
 ##############################################################################
 # LOADING AND SAVING CATALOGS
@@ -43,6 +42,7 @@ def get_event(evs, idx):
     except:
         res = {k: np.array( [res[k], ] )  for k in res.keys()}
     return res
+
 
 def get_events_subset(evs, detected):
     """
@@ -81,13 +81,13 @@ def save_data(fname, data, ):
     print('Saving to %s '%fname)
     with h5py.File(fname, 'w') as out:
 
-
         def cd(n, d):
             d = np.array(d)
             out.create_dataset(n, data=d, compression='gzip', shuffle=True)
 
         for key in data.keys():
             cd(key, data[key])
+
 
 def load_population(name, nEventsUse=None, calculate_params=[], keys_skip=[]):
 
@@ -139,7 +139,6 @@ def load_population(name, nEventsUse=None, calculate_params=[], keys_skip=[]):
         #else:
         #    raise NotImplementedError('Only conversion between Lambda1, Lambda2 and LambdaTilde, deltaLambda supported so far')
 
-
     events = check_evparams(events)
     return events
 
@@ -162,9 +161,10 @@ def ra_dec_from_th_phi_rad(theta, phi):
     :rtype: tuple(array, array) or tuple(float, float)
 
     """
-    ra = phi #np.rad2deg(phi)
-    dec = 0.5*np.pi - theta #np.rad2deg(0.5 * np.pi - theta)
+    ra = phi  # np.rad2deg(phi)
+    dec = 0.5*np.pi - theta  # np.rad2deg(0.5 * np.pi - theta)
     return ra, dec
+
 
 def th_phi_from_ra_dec_rad(ra, dec):
     """
@@ -213,6 +213,7 @@ def th_phi_from_ra_dec(ra, dec):
     phi = np.deg2rad(ra)
     return theta, phi
 
+
 def deg_min_sec_to_decimal_deg(d, m, s):
     """
     Convert one or multiple angles in degrees, minutes, seconds to decimal degrees.
@@ -226,6 +227,7 @@ def deg_min_sec_to_decimal_deg(d, m, s):
 
     """
     return d + m/60 + s/3600
+
 
 def hr_min_sec_to_decimal_deg(h, m, s):
     """
@@ -296,6 +298,7 @@ def rad_to_deg_min_sec(rad):
 
     return d, m, s
 
+
 def rad_to_hr_min_sec(rad):
     """
     Convert one or multiple angles in :math:`\\rm rad` to hours, minutes, seconds.
@@ -315,6 +318,7 @@ def rad_to_hr_min_sec(rad):
     s = np.round((m_exact - m)*60, 0).astype(int)
 
     return h, m, s
+
 
 def hr_min_sec_string(h,m,s):
     """
@@ -355,6 +359,7 @@ def deg_min_sec_string(d,m,s):
     except TypeError:
         return  str((d))+'°'+str((m))+'m'+str(s)+'s'
 
+
 def theta_to_dec_degminsec(theta):
     """
     Compute :math:`\\delta` in degree, minutes, seconds from :math:`\\theta`.
@@ -368,6 +373,7 @@ def theta_to_dec_degminsec(theta):
     dec = np.rad2deg(0.5 * np.pi - theta)
     return deg_min_sec_string(*rad_to_deg_min_sec(dec))
 
+
 def phi_to_ra_hrms(phi):
     """
     Compute :math:`\\alpha` in hours, minutes, seconds from :math:`\phi`.
@@ -380,6 +386,7 @@ def phi_to_ra_hrms(phi):
     """
     ra = np.rad2deg(phi)
     return hr_min_sec_string(*rad_to_hr_min_sec(ra))
+
 
 def phi_to_ra_degminsec(phi):
     """
@@ -418,6 +425,7 @@ def Lamt_delLam_from_Lam12(Lambda1, Lambda2, eta):
     delLam = 0.5*(Seta*(1. - 13272./1319.*eta + 8944./1319.*eta2)*(Lambda1 + Lambda2) + (1. - 15910./1319.*eta + 32850./1319.*eta2 + 3380./1319.*eta2*eta)*(Lambda1 - Lambda2))
 
     return Lamt, delLam
+
 
 def Lam12_from_Lamt_delLam(Lamt, delLam, eta):
     """
@@ -734,6 +742,7 @@ def TransformPrecessing_comp2angles(iota, S1x, S1y, S1z, S2x, S2y, S2z, Mc, eta,
 def GPSt_to_J200t(t_GPS):
     # According to https://www.andrews.edu/~tzs/timeconv/timedisplay.php the GPS time of J2000 is 630763148 s
     return t_GPS - 630763148.0
+
 
 def GPSt_to_LMST(t_GPS, lat, long):
     """
@@ -1223,18 +1232,77 @@ class suppress_stdout_stderr(object):
         for fd in self.null_fds + self.save_fds:
             os.close(fd)
 
+
 ##############################################################################
 # LENSING
 ##############################################################################
+def theta_in_terms_of_x_0(x_0, D_l):
+    '''
+    x_0: Minimal approach distance [R_Sch]
+    D_l: Lens distance [R_Sch]
+    '''
+    return x_0 / (D_l * jnp.sqrt(1 - 1/x_0))
 
-def _get_alpha_hat(R_orbit):
+
+def thin_lens_equation(x_0, beta, D_ls, D_l):
+    '''
+    x_0:    Minimal approach distance [R_Sch]
+    beta:   Angular source position [radian]
+    D_ls:   Lens-source plane distance [R_Sch]
+    D_l:    Lens distance [R_Sch]
+    '''
+    D_s = D_l + D_ls
+    theta = theta_in_terms_of_x_0(x_0, D_l)
+    return beta - theta + D_ls/D_s * alpha(x_0)
+
+
+def alpha(x_0):
+    '''
+    x_0: Minimal approach distance [R_Sch]
+    '''
+    # Alpha approximations
+    x2_coef = (15/16)*jnp.pi - 1
+    x2_coef = 0
+    return 2/x_0 + x2_coef / (x_0**2)
+
+
+def einstein_radius(D_ls, D_l):
+    '''
+    The Einstein radius
+    D_ls:   Lens-source plane distance [R_Sch]
+    D_l:    Lens distance [R_Sch]
+    '''
+    D_ratio = (1 + D_ls / D_l) * D_l**2
+    return jnp.sqrt(2 * D_ratio)
+
+
+def _get_alpha_hat(R_orbit, approx=1):
     '''
     Compute deflection angle from the orbital radius
     between the BBH and the SMBH.
 
+    This assumes β = 0.
+
     R_orbit -- Unit: Schwarschild radius
     '''
-    return jnp.sqrt(2 / R_orbit)
+    approx_simp = jnp.sqrt(2 / R_orbit)
+    match approx:
+        ## Approx 1: The simplest approximation
+        ## assuming α(x) to the first order
+        case 1:
+            return approx_simp
+        ## Approx 2: Fit with log(r) vs log(err)
+        ## still assuming α(x) to the first order
+        case 2:
+            idx = -0.5415779752686682
+            y0  = -0.6327303836364937
+            return (1 + 10**(y0) * R_orbit**(idx)) * approx_simp
+        ## Approx 3: Fit with log(r) vs log(err)
+        ## assuming α(x) to the send order
+        case 3:
+            idx = -0.5042733754506686
+            y0  = -0.2727560615461613
+            return (1 + 10**(y0) * R_orbit**(idx)) * approx_simp
 
 
 def _sqrt_term(iota, phi_L):
@@ -1335,13 +1403,17 @@ def get_lensed_parameter_sets(unlensed_bbh_params, phi_L=None, R_orbit=None):
     image_1_params['Mc'] *= ((1 + z) / (1 + z + delta_z)) ** (8/5)
     image_2_params['Mc'] *= ((1 + z) / (1 + z - delta_z)) ** (8/5)
 
-    image_1_params['iota'] = _new_angle_from_cosine_shift(iota, +delta_cos_iota)
-    image_2_params['iota'] = _new_angle_from_cosine_shift(iota, -delta_cos_iota)
+    image_1_params['iota'] = _new_angle_from_cosine_shift(iota, -delta_cos_iota)
+    image_2_params['iota'] = _new_angle_from_cosine_shift(iota, +delta_cos_iota)
 
     image_1_params['Phicoal'] = _new_angle_from_cosine_shift(phi_coal, +delta_cos_phi)
     image_2_params['Phicoal'] = _new_angle_from_cosine_shift(phi_coal, -delta_cos_phi)
 
-    image_1_params['psi'] = _new_angle_from_cosine_shift(psi, +delta_cos_psi)
-    image_2_params['psi'] = _new_angle_from_cosine_shift(psi, -delta_cos_psi)
+    image_1_params['psi'] = _new_angle_from_cosine_shift(psi, -delta_cos_psi)
+    image_2_params['psi'] = _new_angle_from_cosine_shift(psi, +delta_cos_psi)
+
+    # if cplx_return:
+    #     image_1_params = {key: value.astype('complex128') for key, value in image_1_params.items()}
+    #     image_2_params = {key: value.astype('complex128') for key, value in image_2_params.items()}
 
     return image_1_params, image_2_params
