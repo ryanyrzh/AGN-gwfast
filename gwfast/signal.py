@@ -1004,7 +1004,7 @@ class GWSignal(object):
 
         if use_lensing:
             try:
-                phi_L = evParams['phi_L'].astype('complex128'),
+                phi_L = evParams['phi_L'].astype('complex128')
                 R_orbit = evParams['R_orbit'].astype('complex128')
             except KeyError:
                 raise IOError('Lensing parameters are needed for `use_lensing=True`!')

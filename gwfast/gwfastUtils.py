@@ -1307,7 +1307,7 @@ def _get_alpha_hat(R_orbit, approx=1):
 
 def _sqrt_term(iota, phi_L):
     angle_sq = jnp.cos(iota) ** 2 + jnp.sin(iota) ** 2 * jnp.sin(phi_L) ** 2
-    return np.sqrt(angle_sq)
+    return jnp.sqrt(angle_sq)
 
 
 def _get_cos_phi_proj(iota, phi_L):
@@ -1398,7 +1398,7 @@ def get_lensed_parameter_sets(unlensed_bbh_params, phi_L=None, R_orbit=None):
     # doppler effect is treated as a change in the effective chirp mass
     # Question: Why use interp and not astropy?
     # z_at_value(Planck18.luminosity_distance, dL * u.Mpc)
-    z = np.interp(luminosity_distance, dLGridGlob, zGridGlob)
+    z = jnp.interp(luminosity_distance, dLGridGlob, zGridGlob)
 
     image_1_params['Mc'] *= ((1 + z) / (1 + z + delta_z)) ** (8/5)
     image_2_params['Mc'] *= ((1 + z) / (1 + z - delta_z)) ** (8/5)
