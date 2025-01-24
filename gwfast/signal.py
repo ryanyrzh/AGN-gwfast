@@ -800,7 +800,7 @@ class GWSignal(object):
                 htot1 = self.GWstrain(fgrids, evParams1['Mc'], evParams1['eta'], evParams1['dL'], evParams1['theta'], evParams1['phi'], evParams1['iota'], evParams1['psi'], evParams1['tcoal'], evParams1['Phicoal'], evParams1['chi1z'], evParams1['chi2z'], evParams1['chi1x'], evParams1['chi2x'], evParams1['chi1y'], evParams1['chi2y'], evParams1['LambdaTilde'], evParams1['deltaLambda'], evParams1['ecc'], evParams1['phi_L'], evParams1['R_orbit'], rot=0., is_m1m2=False, is_chi1chi2=True, is_prec_ang=False, return_single_comp=None, use_lensing=False)
                 htot2 = self.GWstrain(fgrids, evParams2['Mc'], evParams2['eta'], evParams2['dL'], evParams2['theta'], evParams2['phi'], evParams2['iota'], evParams2['psi'], evParams2['tcoal'], evParams2['Phicoal'], evParams2['chi1z'], evParams2['chi2z'], evParams2['chi1x'], evParams2['chi2x'], evParams2['chi1y'], evParams2['chi2y'], evParams2['LambdaTilde'], evParams2['deltaLambda'], evParams2['ecc'], evParams2['phi_L'], evParams2['R_orbit'], rot=0., is_m1m2=False, is_chi1chi2=True, is_prec_ang=False, return_single_comp=None, use_lensing=False)
                 Atot = abs(htot1 + htot2) ** 2
-                print(htot1)
+                # print(htot1)
 
             SNRsq = np.trapezoid(Atot/strainGrids, fgrids, axis=0)
             if self.DutyFactor is not None:
