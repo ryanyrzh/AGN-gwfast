@@ -633,12 +633,7 @@ class GWSignal(object):
                 hp, hc = hp1 + hp2, hc1 + hc2
                 Ap, Ac = np.abs(hp), np.abs(hc)
 
-                h_cplx = hp + hc
-                if h_cplx.ndim > 1:
-                    Psi = np.unwrap(np.angle(h_cplx.T))
-                    Psi = Psi.T
-                else:
-                    Psi = np.unwrap(np.angle(h_cplx))
+                Psi = np.unwrap(np.angle(hp+hc), axis=0)
 
             if return_single_comp is not None:
                 if (return_single_comp == 'Ap'):
@@ -706,13 +701,13 @@ class GWSignal(object):
                 elif (return_single_comp == 'Ac'):
                     return np.abs(hc)
                 elif (return_single_comp == 'Psip'):
-                    return np.unwrap(np.angle(hp))
+                    return np.unwrap(np.angle(hp), axis=0)
                 elif (return_single_comp == 'Psic'):
-                    return np.unwrap(np.angle(hc))
+                    return np.unwrap(np.angle(hc), axis=0)
                 elif (return_single_comp == 'At'):
                     return np.abs(hp + hc)
                 elif (return_single_comp == 'Psit'):
-                    return np.unwrap(np.angle(hp + hc))
+                    return np.unwrap(np.angle(hp + hc), axis=0)
                 else:
                     raise ValueError('Single component to return has to be among Ap, Ac, Psip, Psic')
             else:
