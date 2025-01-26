@@ -501,6 +501,8 @@ class GWSignal(object):
         :param array or float LambdaTilde: The adimensional tidal deformability(ies) of combination :math:`\\tilde{\Lambda}`.
         :param array or float deltaLambda: The adimensional tidal deformability(ies) of combination :math:`\delta\\tilde{\Lambda}`.
         :param array or float ecc: The orbital eccentricity(ies), :math:`e_0`.
+        :param array or float phi_L: The azimuthal angle of the lens.
+        :param array or float R_orbit: The orbital radius of the BBH away from the lens.
         :param float rot: Further rotation of the interferometer with respect to the :py:data:`self.xax` orientation, in degrees, needed for the triangular geometry.
         :param bool, optional is_m1m2: Boolean specifying if the ``Mc`` and ``eta`` inputs should be interpreted as the primary and secondary mass(es).
         :param bool, optional is_chi1chi2: Boolean specifying if the ``chiS`` and ``chiA`` inputs should be interpreted as the primary and secondary spin components along the axis :math:`z`.
@@ -592,7 +594,7 @@ class GWSignal(object):
             else:
                 t = tcoal
             tmpDeltLoc = self._DeltLoc(theta, phi, t) # in seconds
-            t = t + tmpDeltLoc/(3600.*24.)
+            t += tmpDeltLoc / (3600.*24.)
 
             if use_lensing:
                 # Without Earth motion, both images takes the same value.
@@ -631,7 +633,12 @@ class GWSignal(object):
                 hp, hc = hp1 + hp2, hc1 + hc2
                 Ap, Ac = np.abs(hp), np.abs(hc)
 
-                Psi = np.unwrap(np.angle(hp+hc))
+                h_cplx = hp + hc
+                if h_cplx.ndim > 1:
+                    Psi = np.unwrap(np.angle(h_cplx.T))
+                    Psi = Psi.T
+                else:
+                    Psi = np.unwrap(np.angle(h_cplx))
 
             if return_single_comp is not None:
                 if (return_single_comp == 'Ap'):
