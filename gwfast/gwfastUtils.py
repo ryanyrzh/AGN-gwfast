@@ -17,6 +17,9 @@ from gwfast import gwfastGlobals as glob
 from astropy.cosmology import Planck18 as cosmo
 import astropy.units as u
 
+zGridGlob = np.logspace(start=-6, stop=5, base=10, num=5000)
+dLGridGlob = cosmo.luminosity_distance(zGridGlob).value / 1000.
+
 ##############################################################################
 # LOADING AND SAVING CATALOGS
 ##############################################################################
@@ -1440,8 +1443,6 @@ def get_lensed_parameter_sets(unlensed_bbh_params, phi_L=None, R_orbit=None, M_l
 
     # doppler effect is treated as a change in the effective chirp mass
     # z_at_value(Planck18.luminosity_distance, dL * u.Mpc)
-    zGridGlob = np.logspace(start=-6, stop=5, base=10, num=5000)
-    dLGridGlob = cosmo.luminosity_distance(zGridGlob).value / 1000.
     z = jnp.interp(luminosity_distance, dLGridGlob, zGridGlob)
 
     alpha_hat = _get_alpha_hat(R_orbit)
