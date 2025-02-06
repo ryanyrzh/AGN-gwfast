@@ -15,9 +15,7 @@ import h5py
 from gwfast import gwfastGlobals as glob
 
 from astropy.cosmology import Planck18 as cosmo
-
-zGridGlob = np.logspace(start=-6, stop=5, base=10, num=5000)
-dLGridGlob = cosmo.luminosity_distance(zGridGlob).value / 1000.
+import astropy.units as u
 
 ##############################################################################
 # LOADING AND SAVING CATALOGS
@@ -1275,6 +1273,31 @@ def einstein_radius(D_ls, D_l):
     D_ratio = (1 + D_ls / D_l) * D_l**2
     return jnp.sqrt(2 * D_ratio)
 
+def get_R_Sch_from_Gpc(qty, M):
+    '''
+    Convert from Gpc to units of Schwarzschild radius of a given mass
+    qty: Distance to be converted [Gpc]
+    M: Mass for which to calculate R_Sch [M_sun]
+    '''
+    M_in_kg = (M * u.solMass).to(u.kg)
+    R_Sch_in_m = 2 * u.G * M_in_kg / (u.c)**2
+    R_Sch_in_pc = (R_Sch_in_m * u.m).to(u.pc)
+    return qty * 10**9 / R_Sch_in_pc
+
+
+def get_theta(M_lens, beta, D_ls, D_l):
+    '''
+    Dimensionless image positions.
+    M_lens: Lens mass [M_sun]
+    beta: Dimensionless source position
+    D_ls:   Lens-source plane distance [R_Sch]
+    D_l:    Lens distance [Gpc]
+    '''
+    D_l_in_R_Sch = get_R_Sch_from_Gpc(D_l, M_lens)
+    theta_E = einstein_radius(D_ls, D_l_in_R_Sch)
+    sqrt_term = jnp.sqrt(beta**2 / 4 + theta_E**2)
+    return beta/2 + sqrt_term, beta/2 - sqrt_term
+
 
 def _get_alpha_hat(R_orbit, approx=1):
     '''
@@ -1286,6 +1309,8 @@ def _get_alpha_hat(R_orbit, approx=1):
     R_orbit -- Unit: Schwarschild radius
     '''
     approx_simp = jnp.sqrt(2 / R_orbit)
+    # what do these cases mean?
+    # should we do this or use the analytic expression without small angle assumptions?
     match approx:
         ## Approx 1: The simplest approximation
         ## assuming α(x) to the first order
@@ -1322,36 +1347,38 @@ def _get_cos_phi_proj(iota, phi_L):
 
 def get_delta_z(R_orbit, cos_phi_proj):
     '''
-    Change in redshift in the image due to Doppler lensing.
+    Absolute first-order change in redshift in each image due to Doppler lensing.
 
     TODO: State our assumption here as well.
+    Assumptions: BBH in circular orbit around SMBH, orbital velocity << c
 
     R_orbit -- Unit: Schwarschild radius
     cos_phi_proj -- Dimensionless
     '''
-    return 2 * cos_phi_proj / R_orbit, - 2 * cos_phi_proj / R_orbit
+    return 2 * cos_phi_proj / R_orbit
 
 
-def get_image_iota(iota, phi_L, alpha_hat): # angle between total angular momentum and observer position
+def get_image_iota(iota, phi_L, alpha_hat, theta_1, theta_2, beta): # angle between total angular momentum and observer position
     # the formula used here was derived for inclination angle, not theta_jn! need to fix this!!
-    common_term = alpha_hat / _sqrt_term(iota, phi_L)
+    common_term = 1 / _sqrt_term(iota, phi_L)
     correction = common_term * (jnp.sin(iota) * jnp.cos(iota) * jnp.cos(phi_L))
-    return jnp.arccos(jnp.cos(iota) - correction), jnp.arccos(jnp.cos(iota) + correction)
+    return jnp.arccos(jnp.cos(iota) - (alpha_hat - theta_1 + beta) * correction), jnp.arccos(jnp.cos(iota) + (alpha_hat - theta_2 - beta) * correction)
 
 
-def get_image_Phicoal(iota, phi_L, Phicoal, alpha_hat): # coalescence phase
-    common_term = alpha_hat / _sqrt_term(iota, phi_L)
+def get_image_Phicoal(iota, phi_L, Phicoal, alpha_hat, theta_1, theta_2, beta): # coalescence phase
+    common_term = 1 / _sqrt_term(iota, phi_L)
     correction = common_term * (jnp.sin(Phicoal) * (1 / jnp.sin(iota)) * jnp.sin(phi_L))
-    return jnp.arccos(jnp.cos(Phicoal) + correction), jnp.arccos(jnp.cos(Phicoal) - correction)
+    return jnp.arccos(jnp.cos(Phicoal) + (alpha_hat - theta_1 + beta) * correction), jnp.arccos(jnp.cos(Phicoal) - (alpha_hat - theta_2 - beta) * correction)
 
 
-def get_image_psi(iota, phi_L, psi, alpha_hat): # polarization angle
-    common_term = alpha_hat / _sqrt_term(iota, phi_L)
+def get_image_psi(iota, phi_L, psi, alpha_hat, theta_1, theta_2, beta): # polarization angle
+    common_term = 1 / _sqrt_term(iota, phi_L)
     correction = common_term * ((1 / jnp.tan(iota)) * jnp.sin(phi_L) * jnp.sin(psi))
-    return jnp.arccos(jnp.cos(psi) - correction), jnp.arccos(jnp.cos(psi) + correction)
+    return jnp.arccos(jnp.cos(psi) - (alpha_hat - theta_1 + beta) * correction), jnp.arccos(jnp.cos(psi) + (alpha_hat - theta_2 - beta) * correction)
 
 
 def get_lensing_induced_shifts(iota, phi_L, R_orbit, phi_coal, psi):
+    # add theta_1, theta_2 and beta here as well
     alpha_hat = _get_alpha_hat(R_orbit)
     sqrt_term = _sqrt_term(iota, phi_L)
     common_term = alpha_hat / _sqrt_term(iota, phi_L)
@@ -1370,7 +1397,7 @@ def _new_angle_from_cosine_shift(angle, delta_cos):
     return jnp.arccos(jnp.cos(angle) + delta_cos)
 
 
-def get_lensed_parameter_sets(unlensed_bbh_params, phi_L=None, R_orbit=None):
+def get_lensed_parameter_sets(unlensed_bbh_params, phi_L=None, R_orbit=None, M_lens=None, beta=None):
     # First make sure we have the needed parameters.
     # If not given, try look for them in the params dict:
     if phi_L is None:
@@ -1379,41 +1406,92 @@ def get_lensed_parameter_sets(unlensed_bbh_params, phi_L=None, R_orbit=None):
         R_orbit = unlensed_bbh_params.get('R_orbit', None)
     if (phi_L is None) or (R_orbit is None):
         raise IOError('Cannot get lensed BBH parameters, insufficient lensing parameters.')
-
+    
     # Initialise the output dictionaries
     image_1_params = unlensed_bbh_params.copy()
     image_2_params = unlensed_bbh_params.copy()
 
     # Casting the angles into real
     iota = unlensed_bbh_params['iota'].real.astype('float64')
-    phi_coal = unlensed_bbh_params['Phicoal'].real.astype('float64')
+    Phicoal = unlensed_bbh_params['Phicoal'].real.astype('float64')
     psi = unlensed_bbh_params['psi'].real.astype('float64')
     luminosity_distance = unlensed_bbh_params['dL'].real.astype('float64')
 
-    # Get the change in parameters
-    delta_cos_iota, delta_cos_phi, delta_cos_psi, delta_z = \
-            get_lensing_induced_shifts(
-                    iota, phi_L, R_orbit, phi_coal, psi)
+    # Compute image positions
+    if M_lens is None:
+        M_lens = unlensed_bbh_params.get('M_lens', None)
+    if beta is None:
+        beta = unlensed_bbh_params.get('beta', None)
+    if (M_lens is None) or (beta is None):
+        beta = 0
+        theta_1 = 0
+        theta_2 = 0
+        print('Insufficient parameters (M_lens or beta not given). Source and image positions will be assumed to be negligible compared to alpha_hat (deflection angle).')
+    else:
+        theta_1, theta_2 = get_theta(M_lens, beta, R_orbit, luminosity_distance)
+
+    # # Get the change in parameters
+    # delta_cos_iota, delta_cos_phi, delta_cos_psi, delta_z = \
+    #         get_lensing_induced_shifts(
+    #                 iota, phi_L, R_orbit, phi_coal, psi)
+
+    cos_phi_proj = _get_cos_phi_proj(iota, phi_L)
+    delta_z = get_delta_z(R_orbit, cos_phi_proj)
 
     # doppler effect is treated as a change in the effective chirp mass
-    # Question: Why use interp and not astropy?
     # z_at_value(Planck18.luminosity_distance, dL * u.Mpc)
+    zGridGlob = np.logspace(start=-6, stop=5, base=10, num=5000)
+    dLGridGlob = cosmo.luminosity_distance(zGridGlob).value / 1000.
     z = jnp.interp(luminosity_distance, dLGridGlob, zGridGlob)
+
+    alpha_hat = _get_alpha_hat(R_orbit)
 
     image_1_params['Mc'] *= ((1 + z) / (1 + z + delta_z)) ** (8/5)
     image_2_params['Mc'] *= ((1 + z) / (1 + z - delta_z)) ** (8/5)
 
-    image_1_params['iota'] = _new_angle_from_cosine_shift(iota, -delta_cos_iota)
-    image_2_params['iota'] = _new_angle_from_cosine_shift(iota, +delta_cos_iota)
+    image_1_params['iota'], image_2_params['iota'] = get_image_iota(iota, phi_L, alpha_hat, theta_1, theta_2, beta)
+    image_1_params['Phicoal'], image_2_params['Phicoal'] = get_image_Phicoal(iota, phi_L, Phicoal, alpha_hat, theta_1, theta_2, beta)
+    image_1_params['psi'], image_2_params['psi'] = get_image_psi(iota, phi_L, psi, alpha_hat, theta_1, theta_2, beta)
 
-    image_1_params['Phicoal'] = _new_angle_from_cosine_shift(phi_coal, +delta_cos_phi)
-    image_2_params['Phicoal'] = _new_angle_from_cosine_shift(phi_coal, -delta_cos_phi)
+    # image_1_params['iota'] = _new_angle_from_cosine_shift(iota, -delta_cos_iota)
+    # image_2_params['iota'] = _new_angle_from_cosine_shift(iota, +delta_cos_iota)
 
-    image_1_params['psi'] = _new_angle_from_cosine_shift(psi, -delta_cos_psi)
-    image_2_params['psi'] = _new_angle_from_cosine_shift(psi, +delta_cos_psi)
+    # image_1_params['Phicoal'] = _new_angle_from_cosine_shift(phi_coal, +delta_cos_phi)
+    # image_2_params['Phicoal'] = _new_angle_from_cosine_shift(phi_coal, -delta_cos_phi)
+
+    # image_1_params['psi'] = _new_angle_from_cosine_shift(psi, -delta_cos_psi)
+    # image_2_params['psi'] = _new_angle_from_cosine_shift(psi, +delta_cos_psi)
 
     # if cplx_return:
     #     image_1_params = {key: value.astype('complex128') for key, value in image_1_params.items()}
     #     image_2_params = {key: value.astype('complex128') for key, value in image_2_params.items()}
 
     return image_1_params, image_2_params
+
+
+def get_lensing_time_delay(unlensed_bbh_params, M_lens=None, beta=None):
+    '''
+    Time difference between the two images in seconds.
+    M_lens: Lens mass [M_sun]
+    beta: Dimensionless source position
+    '''
+    # First make sure we have the needed parameters.
+    # If not given, try look for them in the params dict:
+    if M_lens is None:
+        M_lens = unlensed_bbh_params.get('M_lens', None)
+    if beta is None:
+        beta = unlensed_bbh_params.get('beta', None)
+    if (M_lens is None) or (beta is None):
+        time_delay = 0
+        print('Insufficient parameters (M_lens or beta not given). Time delay cannot be calculated.')
+
+    else:
+        M_lens_in_kg = (M_lens * u.solMass).to(u.kg)
+        M_lens_in_s = M_lens_in_kg * u.G / u.c**3
+        time_delay = 4 * M_lens_in_s * (beta * jnp.sqrt(beta**2 + 4) / 2 + jnp.log((jnp.sqrt(beta**2 + 4) + beta) / (jnp.sqrt(beta**2 + 4) - beta)))
+    
+    return time_delay
+
+def get_mag_factors(beta):
+    common_term = (beta**2 + 2) / (2 * beta * jnp.sqrt(beta**2 + 4))
+    return 1/2 + common_term, 1/2 - common_term
