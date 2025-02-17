@@ -1279,8 +1279,8 @@ def alpha(x_0):
 
 def einstein_radius(M_lens, D_ls, D_s):
     '''
-    Calculate Einstein radius in arcsec.
-    M_lens: Lens mass [M_sun]
+    Calculate Einstein radius [rad].
+    M_lens: Redshifted lens mass [M_sun]
     D_ls: Lens-source distance [R_Sch] (approximated as orbital radius)
     D_s: Source distance [Gpc]
     '''
@@ -1288,8 +1288,9 @@ def einstein_radius(M_lens, D_ls, D_s):
     D_ls_in_Gpc = get_Gpc_from_R_Sch(D_ls, M_lens)
     D_l_in_Gpc = D_s - D_ls_in_Gpc
     D_term = D_ls_in_Gpc / (D_l_in_Gpc * D_s)
-    einstein_radius = jnp.sqrt(M_term * D_term)
-    return einstein_radius
+    einstein_radius_in_arcsec = jnp.sqrt(M_term * D_term)
+    einstein_radius_in_rad = (einstein_radius_in_arcsec * u.arcsec).to(u.rad)
+    return einstein_radius_in_rad.value
 
 def get_Gpc_from_R_Sch(qty, M):
     M_in_kg = (M * u.solMass).to(u.kg)
@@ -1310,22 +1311,17 @@ def get_R_Sch_from_Gpc(qty, M):
     return qty * 10**9 / R_Sch_in_pc.value
 
 
-def get_theta(M_lens, beta, D_ls, D_l):
+def get_im_pos(src_pos):
     '''
-    Angular image positions.
-    M_lens: Lens mass [M_sun]
-    beta: Angular source position [rad]
-    D_ls: Lens-source plane distance [R_Sch]
-    D_l: Lens distance [Gpc]
+    Image positions, normalized by Einstein radius.
+    M_lens: Redshifted lens mass [M_sun]
+    src_pos: Source position [Einstein radius]
     '''
-    theta_E = einstein_radius(M_lens, D_ls, D_l) # arcsec
-    theta_E_in_rad = (theta_E * u.arcsec).to(u.rad)
-    sqrt_term = jnp.sqrt(beta**2 / 4 + (theta_E_in_rad.value)**2)
-    theta_1 = beta/2 + sqrt_term
-    theta_2 = beta/2 - sqrt_term
-    print('Image angular positions: %s, %s' % (theta_1, theta_2))
-    return theta_1, theta_2
-
+    sqrt_term = jnp.sqrt(src_pos**2 / 4 + 1)
+    im_pos_1 = src_pos/2 + sqrt_term
+    im_pos_2 = src_pos/2 - sqrt_term
+    print('Image positions: %s, %s' % (im_pos_1, im_pos_2))
+    return im_pos_1, im_pos_2
 
 def _get_alpha_hat(R_orbit, approx=1):
     '''
@@ -1373,19 +1369,6 @@ def _get_cos_phi_proj(iota, phi_L):
     return jnp.sin(iota) * jnp.sin(phi_L) / _sqrt_term(iota, phi_L)
 
 
-def get_delta_z(R_orbit, cos_phi_proj):
-    '''
-    Absolute first-order change in redshift in each image due to Doppler lensing.
-
-    TODO: State our assumption here as well.
-    Assumptions: BBH in circular orbit around SMBH, orbital velocity << c
-
-    R_orbit -- Unit: Schwarschild radius
-    cos_phi_proj -- Dimensionless
-    '''
-    return 2 * cos_phi_proj / R_orbit
-
-
 # def get_image_iota(iota, phi_L, alpha_hat, theta_1, theta_2, beta): # angle between total angular momentum and observer position
 #     # the formula used here was derived for inclination angle, not theta_jn! need to fix this!!
 #     common_term = 1 / _sqrt_term(iota, phi_L)
@@ -1410,7 +1393,7 @@ def get_lensing_induced_cosine_shifts(iota, phi_L, R_orbit, phi_coal, psi):
     Absolute shift = angular factor * cosine factor.
     This function calculates cosine factor, which solely depends on which angle we're shifting (iota, Phicoal, or psi),
     while the angular factor differentiates between the two images.
-    Orbit-induced Doppler shift is also calculated.
+    Orbit-induced Doppler shift is also calculated, assuming BBH is in circular orbit around AGN with orbital velocity << c.
     '''
     sqrt_term = _sqrt_term(iota, phi_L)
     common_term = 1 / _sqrt_term(iota, phi_L)
@@ -1425,15 +1408,23 @@ def get_lensing_induced_cosine_shifts(iota, phi_L, R_orbit, phi_coal, psi):
     return delta_cos_iota, delta_cos_phi, delta_cos_psi, delta_z
 
 
-def _new_angle_from_lensing_shift(angle, delta_cos, alpha_hat, theta_1, theta_2, beta):
+def _new_angle_from_lensing_shift(angle, delta_cos, alpha_hat, theta_E, src_pos, im_pos_1, im_pos_2):
+    '''
+    Alpha_hat and theta_E in rad, source and image positions in units of Einstein radius.
+    '''
+    # convert source and image positions into rad
+    src_pos_in_rad = src_pos * theta_E
+    im_pos_1_in_rad = im_pos_1 * theta_E
+    im_pos_2_in_rad = im_pos_2 * theta_E
+
     # angular factors for the two images
-    gamma_1 = alpha_hat - theta_1 + beta
-    gamma_2 = alpha_hat - theta_2 - beta
+    gamma_1 = alpha_hat - im_pos_1_in_rad + src_pos_in_rad
+    gamma_2 = alpha_hat - im_pos_2_in_rad - src_pos_in_rad
 
     return jnp.arccos(jnp.cos(angle) + gamma_1 * delta_cos), jnp.arccos(jnp.cos(angle) - gamma_2 * delta_cos)
 
 
-def get_lensed_parameter_sets(unlensed_bbh_params, phi_L=None, R_orbit=None, M_lens=None, beta=None):
+def get_lensed_parameter_sets(unlensed_bbh_params, phi_L=None, R_orbit=None, M_lens=None, src_pos=None):
     # First make sure we have the needed parameters.
     # If not given, try look for them in the params dict:
     if phi_L is None:
@@ -1456,13 +1447,14 @@ def get_lensed_parameter_sets(unlensed_bbh_params, phi_L=None, R_orbit=None, M_l
     # Compute image positions
     if M_lens is None:
         M_lens = unlensed_bbh_params.get('M_lens', None)
-    if beta is None:
-        beta = unlensed_bbh_params.get('beta', None)
-    if (M_lens is None) or (beta is None):
-        beta, theta_1, theta_2 = 0, 0, 0
-        print('Insufficient parameters (M_lens or beta not given). Source and image positions will be assumed to be negligible compared to alpha_hat (deflection angle).')
+    if src_pos is None:
+        src_pos = unlensed_bbh_params.get('src_pos', None)
+    if (M_lens is None) or (src_pos is None):
+        theta_E, src_pos, im_pos_1, im_pos_2 = 0, 0, 0, 0
+        print('Insufficient parameters (M_lens or src_pos not given). Source and image positions will be assumed to be negligible compared to alpha_hat (deflection angle).')
     else:
-        theta_1, theta_2 = get_theta(M_lens, beta, R_orbit, luminosity_distance)
+        theta_E = einstein_radius(M_lens, R_orbit, luminosity_distance) # rad, used later to convert dimensionless positions into radians
+        im_pos_1, im_pos_2 = get_im_pos(src_pos) # in units of Einstein radius
 
     # Get the change in parameters
     delta_cos_iota, delta_cos_phi, delta_cos_psi, delta_z = \
@@ -1475,14 +1467,11 @@ def get_lensed_parameter_sets(unlensed_bbh_params, phi_L=None, R_orbit=None, M_l
     image_1_params['Mc'] *= ((1 + z) / (1 + z + delta_z)) ** (8/5)
     image_2_params['Mc'] *= ((1 + z) / (1 + z - delta_z)) ** (8/5)
 
-    alpha_hat = _get_alpha_hat(R_orbit)
-    # image_1_params['iota'], image_2_params['iota'] = get_image_iota(iota, phi_L, alpha_hat, theta_1, theta_2, beta)
-    # image_1_params['Phicoal'], image_2_params['Phicoal'] = get_image_Phicoal(iota, phi_L, Phicoal, alpha_hat, theta_1, theta_2, beta)
-    # image_1_params['psi'], image_2_params['psi'] = get_image_psi(iota, phi_L, psi, alpha_hat, theta_1, theta_2, beta)
+    alpha_hat = _get_alpha_hat(R_orbit) # rad
 
-    image_1_params['iota'], image_2_params['iota'] = _new_angle_from_lensing_shift(iota, -delta_cos_iota, alpha_hat, theta_1, theta_2, beta)
-    image_1_params['Phicoal'], image_2_params['Phicoal'] = _new_angle_from_lensing_shift(Phicoal, +delta_cos_phi, alpha_hat, theta_1, theta_2, beta)
-    image_1_params['psi'],image_2_params['psi']  = _new_angle_from_lensing_shift(psi, -delta_cos_psi, alpha_hat, theta_1, theta_2, beta)
+    image_1_params['iota'], image_2_params['iota'] = _new_angle_from_lensing_shift(iota, -delta_cos_iota, alpha_hat, theta_E, src_pos, im_pos_1, im_pos_2)
+    image_1_params['Phicoal'], image_2_params['Phicoal'] = _new_angle_from_lensing_shift(Phicoal, +delta_cos_phi, alpha_hat, theta_E, src_pos, im_pos_1, im_pos_2)
+    image_1_params['psi'],image_2_params['psi']  = _new_angle_from_lensing_shift(psi, -delta_cos_psi, alpha_hat, theta_E, src_pos, im_pos_1, im_pos_2)
 
     # what does this do?
     # if cplx_return:
@@ -1493,22 +1482,20 @@ def get_lensed_parameter_sets(unlensed_bbh_params, phi_L=None, R_orbit=None, M_l
     return image_1_params, image_2_params
 
 
-def get_lensing_time_delay(unlensed_bbh_params, R_orbit=None, M_lens=None, beta=None):
+def get_lensing_time_delay(unlensed_bbh_params, M_lens=None, src_pos=None):
     '''
     Time difference between the two images in seconds, using point mass lens model.
-    M_lens: Lens mass [M_sun]
-    beta: Angular source position [rad]
+    M_lens: Redshifted lens mass [M_sun]
+    src_pos: Source position [Einstein radius]
     '''
     # First make sure we have the needed parameters.
     # If not given, try look for them in the params dict:
-    if R_orbit is None:
-        R_orbit = unlensed_bbh_params.get('R_orbit', None)
     if M_lens is None:
         M_lens = unlensed_bbh_params.get('M_lens', None)
-    if beta is None:
-        beta = unlensed_bbh_params.get('beta', None)
-    if (M_lens is None) or (beta is None):
-        print('Insufficient parameters (M_lens or beta not given). Time delay cannot be calculated.')
+    if src_pos is None:
+        src_pos = unlensed_bbh_params.get('src_pos', None)
+    if (M_lens is None) or (src_pos is None):
+        print('Insufficient parameters (M_lens or src_pos not given). Time delay cannot be calculated.')
         return 0
 
     M_lens_in_kg = (M_lens * u.solMass).to(u.kg)
@@ -1516,40 +1503,21 @@ def get_lensing_time_delay(unlensed_bbh_params, R_orbit=None, M_lens=None, beta=
     c = 2.979246 * 10e8
     M_lens_in_s = M_lens_in_kg.value * G / c**3
 
-    D_ls = R_orbit
-    D_s = unlensed_bbh_params['dL']
-
-    theta_E = einstein_radius(M_lens, D_ls, D_s) # arcsec
-    print('Einstein radius: %s arcsec' % (theta_E))
-    theta_E_in_rad = (theta_E * u.arcsec).to(u.rad)
-    src_pos = beta / theta_E_in_rad.value # dimensionless source position (in units of Einstein radius)
-    if src_pos > 1:
-        print('Source outside Einstein radius (source position %s)' % (src_pos))
     time_delay = 4 * M_lens_in_s * (src_pos * jnp.sqrt(src_pos**2 + 4) / 2 + jnp.log((jnp.sqrt(src_pos**2 + 4) + src_pos) / (jnp.sqrt(src_pos**2 + 4) - src_pos)))
     print("Lensing time delay: %s s" % (time_delay))
     return time_delay
 
-def get_mag_factors(unlensed_bbh_params, R_orbit=None, M_lens=None, beta=None):
+def get_mag_factors(unlensed_bbh_params, src_pos=None):
     '''
     Magnification factor for both images, using point mass lens model.
-    beta: Angular source position [rad]
+    M_lens: Redshifted lens mass [M_sun]
+    src_pos: Source position [Einstein radius]
     '''
-    if R_orbit is None:
-        R_orbit = unlensed_bbh_params.get('R_orbit', None)
-    if M_lens is None:
-        M_lens = unlensed_bbh_params.get('M_lens', None)
-    if beta is None:
-        beta = unlensed_bbh_params.get('beta', None)
-    if (M_lens is None) or (beta is None):
-        print('Insufficient parameters (M_lens or beta not given). Magnificationo factors will not be calculated.')
+    if src_pos is None:
+        src_pos = unlensed_bbh_params.get('src_pos', None)
+    if src_pos is None:
+        print('Source position not provided. Magnification factors will not be calculated.')
         return 1, 1
-    
-    D_ls = R_orbit # R_Sch
-    D_s = unlensed_bbh_params['dL'] # Gpc
-    
-    theta_E = einstein_radius(M_lens, D_ls, D_s) # arcsec
-    theta_E_in_rad = (theta_E * u.arcsec).to(u.rad)
-    src_pos = beta / theta_E_in_rad.value # dimensionless source position (in units of Einstein radius)
 
     common_term = (src_pos**2 + 2) / (2 * src_pos * jnp.sqrt(src_pos**2 + 4))
     mag_1, mag_2 = 1/2 + common_term, 1/2 - common_term
