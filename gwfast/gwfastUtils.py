@@ -15,11 +15,15 @@ import h5py
 from gwfast import gwfastGlobals as glob
 
 from astropy.cosmology import Planck18 as cosmo
-import astropy.units as u
-from astropy.units import cds
 
 zGridGlob = np.logspace(start=-6, stop=5, base=10, num=5000)
 dLGridGlob = cosmo.luminosity_distance(zGridGlob).value / 1000.
+
+# Constants in SI
+G = 6.6743 * 10e-11
+c = 2.979246 * 10e8
+M_sun = 2.9884 * 10e30
+Gpc = 3.0856776 * 10e25
 
 ##############################################################################
 # LOADING AND SAVING CATALOGS
@@ -1289,15 +1293,20 @@ def einstein_radius(M_lens, D_ls, D_s):
     D_l_in_Gpc = D_s - D_ls_in_Gpc
     D_term = D_ls_in_Gpc / (D_l_in_Gpc * D_s)
     einstein_radius_in_arcsec = jnp.sqrt(M_term * D_term)
-    einstein_radius_in_rad = (einstein_radius_in_arcsec * u.arcsec).to(u.rad)
-    return einstein_radius_in_rad.value
+    einstein_radius_in_rad = einstein_radius_in_arcsec * (1/3600) * (jnp.pi/180)
+    return einstein_radius_in_rad
 
 def get_Gpc_from_R_Sch(qty, M):
-    M_in_kg = (M * u.solMass).to(u.kg)
-    one_R_Sch = 2 * cds.G * M_in_kg / (cds.c)**2 # m
+    '''
+    Convert from units of Schwarzschild radius to Gpc for a given mass.
+    qty: Distance to be converted [R_Sch]
+    M: Mass corresponding to the Schwarzschild radius [M_sun]
+    '''
+    M_in_kg = M * M_sun
+    one_R_Sch = 2 * G * M_in_kg / c**2 # m
     qty_in_m = qty * one_R_Sch
-    qty_in_pc = (qty_in_m).to(u.pc)
-    return qty_in_pc.value * 10e-9
+    qty_in_Gpc = qty_in_m / Gpc
+    return qty_in_Gpc
 
 def get_R_Sch_from_Gpc(qty, M):
     '''
@@ -1305,10 +1314,10 @@ def get_R_Sch_from_Gpc(qty, M):
     qty: Distance to be converted [Gpc]
     M: Mass for which to calculate R_Sch [M_sun]
     '''
-    M_in_kg = (M * u.solMass).to(u.kg)
-    R_Sch_in_m = 2 * cds.G * M_in_kg / (cds.c)**2
-    R_Sch_in_pc = (R_Sch_in_m).to(u.pc)
-    return qty * 10**9 / R_Sch_in_pc.value
+    M_in_kg = M * M_sun
+    R_Sch_in_m = 2 * G * M_in_kg / c**2
+    R_Sch_in_Gpc = R_Sch_in_m / Gpc
+    return qty / R_Sch_in_Gpc
 
 
 def get_im_pos(src_pos):
@@ -1320,7 +1329,6 @@ def get_im_pos(src_pos):
     sqrt_term = jnp.sqrt(src_pos**2 / 4 + 1)
     im_pos_1 = src_pos/2 + sqrt_term
     im_pos_2 = src_pos/2 - sqrt_term
-    print('Image positions: %s, %s' % (im_pos_1, im_pos_2))
     return im_pos_1, im_pos_2
 
 def _get_alpha_hat(R_orbit, approx=1):
@@ -1471,14 +1479,12 @@ def get_lensed_parameter_sets(unlensed_bbh_params, R_orbit=None, M_lens=None, sr
     im_pos_1, im_pos_2 = get_im_pos(src_pos) # in units of Einstein radius
 
     phi_L = get_phi_L(iota, R_orbit, src_pos, theta_E, luminosity_distance, M_lens)
-    print("phi_L: ", phi_L)
 
     # Get the change in parameters
     delta_cos_iota, delta_cos_phi, delta_cos_psi, delta_z = \
             get_lensing_induced_cosine_shifts(
                     iota, phi_L, R_orbit, Phicoal, psi)
 
-    # z_at_value(Planck18.luminosity_distance, dL * u.Mpc)
     z = jnp.interp(luminosity_distance, dLGridGlob, zGridGlob)
     # doppler effect is treated as a change in the effective chirp mass
     image_1_params['Mc'] *= ((1 + z) / (1 + z + delta_z)) ** (8/5)
@@ -1495,7 +1501,6 @@ def get_lensed_parameter_sets(unlensed_bbh_params, R_orbit=None, M_lens=None, sr
     #     image_1_params = {key: value.astype('complex128') for key, value in image_1_params.items()}
     #     image_2_params = {key: value.astype('complex128') for key, value in image_2_params.items()}
 
-    print("Image 1 paramters: %s \nImage 2 parameters: %s" % (image_1_params, image_2_params))
     return image_1_params, image_2_params
 
 
@@ -1515,13 +1520,10 @@ def get_lensing_time_delay(unlensed_bbh_params, M_lens=None, src_pos=None):
         print('Insufficient parameters (M_lens or src_pos not given). Time delay cannot be calculated.')
         return 0
 
-    M_lens_in_kg = (M_lens * u.solMass).to(u.kg)
-    G = 6.6743 * 10e-11
-    c = 2.979246 * 10e8
-    M_lens_in_s = M_lens_in_kg.value * G / c**3
+    M_lens_in_kg = M_lens * M_sun
+    M_lens_in_s = M_lens_in_kg * G / c**3
 
     time_delay = 4 * M_lens_in_s * (src_pos * jnp.sqrt(src_pos**2 + 4) / 2 + jnp.log((jnp.sqrt(src_pos**2 + 4) + src_pos) / (jnp.sqrt(src_pos**2 + 4) - src_pos)))
-    print("Lensing time delay: %s s" % (time_delay))
     return time_delay
 
 def get_mag_factors(unlensed_bbh_params, src_pos=None):
@@ -1538,5 +1540,16 @@ def get_mag_factors(unlensed_bbh_params, src_pos=None):
 
     common_term = (src_pos**2 + 2) / (2 * src_pos * jnp.sqrt(src_pos**2 + 4))
     mag_1, mag_2 = 1/2 + common_term, 1/2 - common_term
-    print("Magnification factors: %s, %s" % (mag_1, mag_2))
+
     return mag_1, mag_2
+
+
+def lens(unlensed_bbh_params):
+    '''
+    Get lensed parameter sets, magnification factors, and time delay.
+    '''
+    image_1_params, image_2_params = get_lensed_parameter_sets(unlensed_bbh_params)
+    mag_1, mag_2 = get_mag_factors(unlensed_bbh_params)
+    time_delay = get_lensing_time_delay(unlensed_bbh_params)
+    print('Image 1 parameters: %s \nImage 2 parameters: %s \nMagnification factors: %s, %s \nTime delay: %s s' % (image_1_params, image_2_params, mag_1, mag_2, time_delay))
+    return
