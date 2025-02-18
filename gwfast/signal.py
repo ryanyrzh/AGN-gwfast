@@ -476,7 +476,7 @@ class GWSignal(object):
 
     def GWstrain(self, f, Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal,
                  chiS, chiA, chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda,
-                 ecc, phi_L=None, R_orbit=None, M_lens=None, src_pos=None, rot=0.,
+                 ecc, R_orbit=None, M_lens=None, src_pos=None, rot=0.,
                  is_m1m2=False, is_chi1chi2=False, is_prec_ang=False,
                  return_single_comp=None, use_lensing=False):
         """
@@ -501,8 +501,9 @@ class GWSignal(object):
         :param array or float LambdaTilde: The adimensional tidal deformability(ies) of combination :math:`\\tilde{\Lambda}`.
         :param array or float deltaLambda: The adimensional tidal deformability(ies) of combination :math:`\delta\\tilde{\Lambda}`.
         :param array or float ecc: The orbital eccentricity(ies), :math:`e_0`.
-        :param array or float phi_L: The azimuthal angle of the lens.
-        :param array or float R_orbit: The orbital radius of the BBH away from the lens.
+        :param array or float R_orbit: The orbital radius of the BBH about the AGN lens, in Schwarszchild radii.
+        :param array or float M_lens: The redshifted lens mass, in solar masses.
+        :param array or float src_pos: The dimensionless source position, in Einstein radii.
         :param float rot: Further rotation of the interferometer with respect to the :py:data:`self.xax` orientation, in degrees, needed for the triangular geometry.
         :param bool, optional is_m1m2: Boolean specifying if the ``Mc`` and ``eta`` inputs should be interpreted as the primary and secondary mass(es).
         :param bool, optional is_chi1chi2: Boolean specifying if the ``chiS`` and ``chiA`` inputs should be interpreted as the primary and secondary spin components along the axis :math:`z`.
@@ -566,7 +567,7 @@ class GWSignal(object):
         # Modifications from lensing goes the end
         if use_lensing:
             evParams1, evParams2 = \
-                    utils.get_lensed_parameter_sets(evParams, phi_L=phi_L, R_orbit=R_orbit, M_lens=M_lens, src_pos=src_pos)
+                    utils.get_lensed_parameter_sets(evParams, R_orbit=R_orbit, M_lens=M_lens, src_pos=src_pos)
 
         # Not sure what does this do, but it was set to zero in both cases
         # (with or without useEarthMotion)
@@ -810,8 +811,8 @@ class GWSignal(object):
                 Aps, Acs = self.GWAmplitudes(evParams, fgrids)
                 Atot = Aps*Aps + Acs*Acs
             else:
-                htot1 = self.GWstrain(fgrids, evParams1['Mc'], evParams1['eta'], evParams1['dL'], evParams1['theta'], evParams1['phi'], evParams1['iota'], evParams1['psi'], evParams1['tcoal'], evParams1['Phicoal'], evParams1['chi1z'], evParams1['chi2z'], evParams1['chi1x'], evParams1['chi2x'], evParams1['chi1y'], evParams1['chi2y'], evParams1['LambdaTilde'], evParams1['deltaLambda'], evParams1['ecc'], phi_L=evParams1['phi_L'], R_orbit=evParams1['R_orbit'], M_lens=evParams1['M_lens'], src_pos=evParams1['src_pos'], rot=0., is_m1m2=False, is_chi1chi2=True, is_prec_ang=False, return_single_comp=None, use_lensing=False)
-                htot2 = self.GWstrain(fgrids, evParams2['Mc'], evParams2['eta'], evParams2['dL'], evParams2['theta'], evParams2['phi'], evParams2['iota'], evParams2['psi'], evParams2['tcoal'], evParams2['Phicoal'], evParams2['chi1z'], evParams2['chi2z'], evParams2['chi1x'], evParams2['chi2x'], evParams2['chi1y'], evParams2['chi2y'], evParams2['LambdaTilde'], evParams2['deltaLambda'], evParams2['ecc'], phi_L=evParams2['phi_L'], R_orbit=evParams2['R_orbit'], M_lens=evParams2['M_lens'], src_pos=evParams2['src_pos'], rot=0., is_m1m2=False, is_chi1chi2=True, is_prec_ang=False, return_single_comp=None, use_lensing=False)
+                htot1 = self.GWstrain(fgrids, evParams1['Mc'], evParams1['eta'], evParams1['dL'], evParams1['theta'], evParams1['phi'], evParams1['iota'], evParams1['psi'], evParams1['tcoal'], evParams1['Phicoal'], evParams1['chi1z'], evParams1['chi2z'], evParams1['chi1x'], evParams1['chi2x'], evParams1['chi1y'], evParams1['chi2y'], evParams1['LambdaTilde'], evParams1['deltaLambda'], evParams1['ecc'], R_orbit=evParams1['R_orbit'], M_lens=evParams1['M_lens'], src_pos=evParams1['src_pos'], rot=0., is_m1m2=False, is_chi1chi2=True, is_prec_ang=False, return_single_comp=None, use_lensing=False)
+                htot2 = self.GWstrain(fgrids, evParams2['Mc'], evParams2['eta'], evParams2['dL'], evParams2['theta'], evParams2['phi'], evParams2['iota'], evParams2['psi'], evParams2['tcoal'], evParams2['Phicoal'], evParams2['chi1z'], evParams2['chi2z'], evParams2['chi1x'], evParams2['chi2x'], evParams2['chi1y'], evParams2['chi2y'], evParams2['LambdaTilde'], evParams2['deltaLambda'], evParams2['ecc'], R_orbit=evParams2['R_orbit'], M_lens=evParams2['M_lens'], src_pos=evParams2['src_pos'], rot=0., is_m1m2=False, is_chi1chi2=True, is_prec_ang=False, return_single_comp=None, use_lensing=False)
                 Atot = abs(htot1 + htot2) ** 2
                 # print(htot1)
 
@@ -827,8 +828,8 @@ class GWSignal(object):
                         Aps, Acs = self.GWAmplitudes(evParams, fgrids, rot=i*60.)
                         Atot = Aps*Aps + Acs*Acs
                     else:
-                        htot1 = self.GWstrain(fgrids, evParams1['Mc'], evParams1['eta'], evParams1['dL'], evParams1['theta'], evParams1['phi'], evParams1['iota'], evParams1['psi'], evParams1['tcoal'], evParams1['Phicoal'], evParams1['chi1z'], evParams1['chi2z'], evParams1['chi1x'], evParams1['chi2x'], evParams1['chi1y'], evParams1['chi2y'], evParams1['LambdaTilde'], evParams1['deltaLambda'], evParams1['ecc'], phi_L=evParams1['phi_L'], R_orbit=evParams1['R_orbit'], M_lens=evParams1['M_lens'], src_pos=evParams1['src_pos'], rot=i*60., is_m1m2=False, is_chi1chi2=True, is_prec_ang=False, return_single_comp=None, use_lensing=False)
-                        htot2 = self.GWstrain(fgrids, evParams2['Mc'], evParams2['eta'], evParams2['dL'], evParams2['theta'], evParams2['phi'], evParams2['iota'], evParams2['psi'], evParams2['tcoal'], evParams2['Phicoal'], evParams2['chi1z'], evParams2['chi2z'], evParams2['chi1x'], evParams2['chi2x'], evParams2['chi1y'], evParams2['chi2y'], evParams2['LambdaTilde'], evParams2['deltaLambda'], evParams2['ecc'], phi_L=evParams2['phi_L'], R_orbit=evParams2['R_orbit'], M_lens=evParams2['M_lens'], src_pos=evParams2['src_pos'], rot=i*60., is_m1m2=False, is_chi1chi2=True, is_prec_ang=False, return_single_comp=None, use_lensing=False)
+                        htot1 = self.GWstrain(fgrids, evParams1['Mc'], evParams1['eta'], evParams1['dL'], evParams1['theta'], evParams1['phi'], evParams1['iota'], evParams1['psi'], evParams1['tcoal'], evParams1['Phicoal'], evParams1['chi1z'], evParams1['chi2z'], evParams1['chi1x'], evParams1['chi2x'], evParams1['chi1y'], evParams1['chi2y'], evParams1['LambdaTilde'], evParams1['deltaLambda'], evParams1['ecc'], R_orbit=evParams1['R_orbit'], M_lens=evParams1['M_lens'], src_pos=evParams1['src_pos'], rot=i*60., is_m1m2=False, is_chi1chi2=True, is_prec_ang=False, return_single_comp=None, use_lensing=False)
+                        htot2 = self.GWstrain(fgrids, evParams2['Mc'], evParams2['eta'], evParams2['dL'], evParams2['theta'], evParams2['phi'], evParams2['iota'], evParams2['psi'], evParams2['tcoal'], evParams2['Phicoal'], evParams2['chi1z'], evParams2['chi2z'], evParams2['chi1x'], evParams2['chi2x'], evParams2['chi1y'], evParams2['chi2y'], evParams2['LambdaTilde'], evParams2['deltaLambda'], evParams2['ecc'], R_orbit=evParams2['R_orbit'], M_lens=evParams2['M_lens'], src_pos=evParams2['src_pos'], rot=i*60., is_m1m2=False, is_chi1chi2=True, is_prec_ang=False, return_single_comp=None, use_lensing=False)
                         Atot = abs(htot1 + htot2)**2
                     tmpSNRsq = np.trapezoid(Atot/strainGrids, fgrids, axis=0)
                     if self.DutyFactor is not None:
@@ -847,11 +848,11 @@ class GWSignal(object):
                     Aps3, Acs3 = - (Aps1 + Aps2), - (Acs1 + Acs2)
                     Atot3 = Aps3*Aps3 + Acs3*Acs3
                 else:
-                    htot1_1 = self.GWstrain(fgrids, evParams1['Mc'], evParams1['eta'], evParams1['dL'], evParams1['theta'], evParams1['phi'], evParams1['iota'], evParams1['psi'], evParams1['tcoal'], evParams1['Phicoal'], evParams1['chi1z'], evParams1['chi2z'], evParams1['chi1x'], evParams1['chi2x'], evParams1['chi1y'], evParams1['chi2y'], evParams1['LambdaTilde'], evParams1['deltaLambda'], evParams1['ecc'], phi_L=evParams1['phi_L'], R_orbit=evParams1['R_orbit'], M_lens=evParams1['M_lens'], src_pos=evParams1['src_pos'], rot=0., is_m1m2=False, is_chi1chi2=True, is_prec_ang=False, return_single_comp=None, use_lensing=False)
-                    htot2_1 = self.GWstrain(fgrids, evParams2['Mc'], evParams2['eta'], evParams2['dL'], evParams2['theta'], evParams2['phi'], evParams2['iota'], evParams2['psi'], evParams2['tcoal'], evParams2['Phicoal'], evParams2['chi1z'], evParams2['chi2z'], evParams2['chi1x'], evParams2['chi2x'], evParams2['chi1y'], evParams2['chi2y'], evParams2['LambdaTilde'], evParams2['deltaLambda'], evParams2['ecc'], phi_L=evParams2['phi_L'], R_orbit=evParams2['R_orbit'], M_lens=evParams2['M_lens'], src_pos=evParams2['src_pos'], rot=0., is_m1m2=False, is_chi1chi2=True, is_prec_ang=False, return_single_comp=None, use_lensing=False)
+                    htot1_1 = self.GWstrain(fgrids, evParams1['Mc'], evParams1['eta'], evParams1['dL'], evParams1['theta'], evParams1['phi'], evParams1['iota'], evParams1['psi'], evParams1['tcoal'], evParams1['Phicoal'], evParams1['chi1z'], evParams1['chi2z'], evParams1['chi1x'], evParams1['chi2x'], evParams1['chi1y'], evParams1['chi2y'], evParams1['LambdaTilde'], evParams1['deltaLambda'], evParams1['ecc'], R_orbit=evParams1['R_orbit'], M_lens=evParams1['M_lens'], src_pos=evParams1['src_pos'], rot=0., is_m1m2=False, is_chi1chi2=True, is_prec_ang=False, return_single_comp=None, use_lensing=False)
+                    htot2_1 = self.GWstrain(fgrids, evParams2['Mc'], evParams2['eta'], evParams2['dL'], evParams2['theta'], evParams2['phi'], evParams2['iota'], evParams2['psi'], evParams2['tcoal'], evParams2['Phicoal'], evParams2['chi1z'], evParams2['chi2z'], evParams2['chi1x'], evParams2['chi2x'], evParams2['chi1y'], evParams2['chi2y'], evParams2['LambdaTilde'], evParams2['deltaLambda'], evParams2['ecc'], R_orbit=evParams2['R_orbit'], M_lens=evParams2['M_lens'], src_pos=evParams2['src_pos'], rot=0., is_m1m2=False, is_chi1chi2=True, is_prec_ang=False, return_single_comp=None, use_lensing=False)
                     Atot1 = abs(htot1_1 + htot2_1)**2
-                    htot1_2 = self.GWstrain(fgrids, evParams1['Mc'], evParams1['eta'], evParams1['dL'], evParams1['theta'], evParams1['phi'], evParams1['iota'], evParams1['psi'], evParams1['tcoal'], evParams1['Phicoal'], evParams1['chi1z'], evParams1['chi2z'], evParams1['chi1x'], evParams1['chi2x'], evParams1['chi1y'], evParams1['chi2y'], evParams1['LambdaTilde'], evParams1['deltaLambda'], evParams1['ecc'], phi_L=evParams1['phi_L'], R_orbit=evParams1['R_orbit'], M_lens=evParams1['M_lens'], src_pos=evParams1['src_pos'], rot=60., is_m1m2=False, is_chi1chi2=True, is_prec_ang=False, return_single_comp=None, use_lensing=False)
-                    htot2_2 = self.GWstrain(fgrids, evParams2['Mc'], evParams2['eta'], evParams2['dL'], evParams2['theta'], evParams2['phi'], evParams2['iota'], evParams2['psi'], evParams2['tcoal'], evParams2['Phicoal'], evParams2['chi1z'], evParams2['chi2z'], evParams2['chi1x'], evParams2['chi2x'], evParams2['chi1y'], evParams2['chi2y'], evParams2['LambdaTilde'], evParams2['deltaLambda'], evParams2['ecc'], phi_L=evParams2['phi_L'], R_orbit=evParams2['R_orbit'], M_lens=evParams2['M_lens'], src_pos=evParams2['src_pos'], rot=60., is_m1m2=False, is_chi1chi2=True, is_prec_ang=False, return_single_comp=None, use_lensing=False)
+                    htot1_2 = self.GWstrain(fgrids, evParams1['Mc'], evParams1['eta'], evParams1['dL'], evParams1['theta'], evParams1['phi'], evParams1['iota'], evParams1['psi'], evParams1['tcoal'], evParams1['Phicoal'], evParams1['chi1z'], evParams1['chi2z'], evParams1['chi1x'], evParams1['chi2x'], evParams1['chi1y'], evParams1['chi2y'], evParams1['LambdaTilde'], evParams1['deltaLambda'], evParams1['ecc'], R_orbit=evParams1['R_orbit'], M_lens=evParams1['M_lens'], src_pos=evParams1['src_pos'], rot=60., is_m1m2=False, is_chi1chi2=True, is_prec_ang=False, return_single_comp=None, use_lensing=False)
+                    htot2_2 = self.GWstrain(fgrids, evParams2['Mc'], evParams2['eta'], evParams2['dL'], evParams2['theta'], evParams2['phi'], evParams2['iota'], evParams2['psi'], evParams2['tcoal'], evParams2['Phicoal'], evParams2['chi1z'], evParams2['chi2z'], evParams2['chi1x'], evParams2['chi2x'], evParams2['chi1y'], evParams2['chi2y'], evParams2['LambdaTilde'], evParams2['deltaLambda'], evParams2['ecc'], R_orbit=evParams2['R_orbit'], M_lens=evParams2['M_lens'], src_pos=evParams2['src_pos'], rot=60., is_m1m2=False, is_chi1chi2=True, is_prec_ang=False, return_single_comp=None, use_lensing=False)
                     Atot2 = abs(htot1_2 + htot2_2)**2
                     Atot3 = abs(htot1_1 + htot1_2 + htot2_1 + htot2_2)**2
 
@@ -1017,14 +1018,13 @@ class GWSignal(object):
 
         if use_lensing:
             try:
-                phi_L = evParams['phi_L'].astype('complex128')
                 R_orbit = evParams['R_orbit'].astype('complex128')
+                M_lens = evParams['M_lens'].astype('complex128')
+                src_pos = evParams['src_pos'].astype('complex128')
             except KeyError:
                 raise IOError('Lensing parameters are needed for `use_lensing=True`!')
-            M_lens = evParams.get('M_lens', None)
-            src_pos = evParams.get('src_pos', None)
         else:
-            phi_L, R_orbit, M_lens, src_pos = ZEROS, ZEROS, ZEROS, ZEROS
+            R_orbit, M_lens, src_pos = ZEROS, ZEROS, ZEROS
 
         fcut = self.wf_model.fcut(**evParams)
 
@@ -1059,7 +1059,7 @@ class GWSignal(object):
 
         if self.detector_shape=='L':
             # Compute derivatives
-            FisherDerivs = self._SignalDerivatives_use(fgrids, Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, ecc, phi_L, R_orbit, M_lens, src_pos, rot=0., use_m1m2=use_m1m2, use_chi1chi2=use_chi1chi2, use_prec_ang=use_prec_ang, computeAnalyticalDeriv=computeAnalyticalDeriv, computeDerivFinDiff=computeDerivFinDiff, use_lensing=use_lensing, **kwargs)
+            FisherDerivs = self._SignalDerivatives_use(fgrids, Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, ecc, R_orbit, M_lens, src_pos, rot=0., use_m1m2=use_m1m2, use_chi1chi2=use_chi1chi2, use_prec_ang=use_prec_ang, computeAnalyticalDeriv=computeAnalyticalDeriv, computeDerivFinDiff=computeDerivFinDiff, use_lensing=use_lensing, **kwargs)
             # Change the units of the tcoal derivative from days to seconds (this improves conditioning)
             FisherDerivs = onp.array(FisherDerivs)
             FisherDerivs[tcelem,:,:] /= (3600.*24.)
@@ -1084,7 +1084,7 @@ class GWSignal(object):
                 for i in range(3):
                     # Change rot and compute derivatives
                     FisherDerivs = self._SignalDerivatives_use(fgrids, Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, chi1x, chi2x, chi1y, chi2y,
-                                                               LambdaTilde, deltaLambda, ecc, phi_L, R_orbit, M_lens, src_pos, rot=i*60.,
+                                                               LambdaTilde, deltaLambda, ecc, R_orbit, M_lens, src_pos, rot=i*60.,
                                                                use_m1m2=use_m1m2, use_chi1chi2=use_chi1chi2, use_prec_ang=use_prec_ang,
                                                                computeAnalyticalDeriv=computeAnalyticalDeriv, computeDerivFinDiff=computeDerivFinDiff, use_lensing=use_lensing, **kwargs)
                     # Change the units of the tcoal derivative from days to seconds (this improves conditioning)
@@ -1112,7 +1112,7 @@ class GWSignal(object):
                 # The signal in 3 arms sums to zero for geometrical reasons, so we can use this to skip some calculations
 
                 # Compute derivatives
-                FisherDerivs1 = self._SignalDerivatives_use(fgrids, Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, ecc, phi_L, R_orbit, M_lens, src_pos, rot=0., use_m1m2=use_m1m2, use_chi1chi2=use_chi1chi2, use_prec_ang=use_prec_ang, computeAnalyticalDeriv=computeAnalyticalDeriv, computeDerivFinDiff=computeDerivFinDiff, use_lensing=use_lensing, **kwargs)
+                FisherDerivs1 = self._SignalDerivatives_use(fgrids, Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, ecc, R_orbit, M_lens, src_pos, rot=0., use_m1m2=use_m1m2, use_chi1chi2=use_chi1chi2, use_prec_ang=use_prec_ang, computeAnalyticalDeriv=computeAnalyticalDeriv, computeDerivFinDiff=computeDerivFinDiff, use_lensing=use_lensing, **kwargs)
                 # Change the units of the tcoal derivative from days to seconds (this improves conditioning)
                 FisherDerivs1 = onp.array(FisherDerivs1)
                 FisherDerivs1[tcelem,:,:] /= (3600.*24.)
@@ -1135,7 +1135,7 @@ class GWSignal(object):
                 #Fisher += tmpFisher
                 allFishers.append(tmpFisher)
 
-                FisherDerivs2 = self._SignalDerivatives_use(fgrids, Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, ecc, phi_L, R_orbit, M_lens, src_pos, rot=60., use_m1m2=use_m1m2, use_chi1chi2=use_chi1chi2, use_prec_ang=use_prec_ang, computeAnalyticalDeriv=computeAnalyticalDeriv, computeDerivFinDiff=computeDerivFinDiff, use_lensing=use_lensing, **kwargs)
+                FisherDerivs2 = self._SignalDerivatives_use(fgrids, Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, ecc, R_orbit, M_lens, src_pos, rot=60., use_m1m2=use_m1m2, use_chi1chi2=use_chi1chi2, use_prec_ang=use_prec_ang, computeAnalyticalDeriv=computeAnalyticalDeriv, computeDerivFinDiff=computeDerivFinDiff, use_lensing=use_lensing, **kwargs)
                 FisherDerivs2 = onp.array(FisherDerivs2)
                 FisherDerivs2[tcelem,:,:] /= (3600.*24.)
                 FisherIntegrands = (onp.conjugate(FisherDerivs2[:,:,onp.newaxis,:])*FisherDerivs2.transpose(1,0,2))
@@ -1185,7 +1185,7 @@ class GWSignal(object):
 
     def _SignalDerivatives(self, fgrids, Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal,
                            chiS, chiA, chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda,
-                           ecc, phi_L=None, R_orbit=None, M_lens=None, src_pos=None, rot=0.,
+                           ecc, R_orbit=None, M_lens=None, src_pos=None, rot=0.,
                            use_m1m2=False, use_chi1chi2=True, use_prec_ang=True,
                            computeDerivFinDiff=False, computeAnalyticalDeriv=True,
                            stepNDT=MaxStepGenerator(base_step=1e-5), methodNDT='central', use_lensing=False, **kwargs):
@@ -1261,195 +1261,192 @@ class GWSignal(object):
         nParams = self.wf_model.nParams
 
         if use_lensing:
-            derivargs = derivargs + (19,20,)
-            nParams = self.wf_model.nParams + 2
-            if not ((M_lens is None) or (src_pos is None)):
-                derivargs = derivargs + (21,22,)
-                nParams = self.wf_model.nParams + 2
+            derivargs = derivargs + (19,20,21,)
+            nParams = self.wf_model.nParams + 3
 
         if not computeDerivFinDiff:
             if self.wf_model.is_holomorphic:
-                GWstrainUse = lambda f, Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, ecc, phi_L, R_orbit, M_lens, src_pos: self.GWstrain(f, Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, ecc, phi_L, R_orbit, M_lens, src_pos, rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, is_prec_ang=use_prec_ang, use_lensing=use_lensing)
+                GWstrainUse = lambda f, Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, ecc, R_orbit, M_lens, src_pos: self.GWstrain(f, Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, ecc, R_orbit, M_lens, src_pos, rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, is_prec_ang=use_prec_ang, use_lensing=use_lensing)
 
-                FisherDerivs = np.asarray(vmap(jacrev(GWstrainUse, argnums=derivargs, holomorphic=True))(fgrids.T, Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, ecc, phi_L, R_orbit, M_lens, src_pos))
+                FisherDerivs = np.asarray(vmap(jacrev(GWstrainUse, argnums=derivargs, holomorphic=True))(fgrids.T, Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, ecc, R_orbit, M_lens, src_pos))
             else:
                 # In the non holomorphic case, to improve the accuracy, we compute separately the derivatives of the real and imaginary part of the strain as real functions
-                fgrids, Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, ecc, phi_L, R_orbit, M_lens, src_pos = np.real(fgrids), np.real(Mc), np.real(eta), np.real(dL), np.real(theta), np.real(phi), np.real(iota), np.real(psi), np.real(tcoal), np.real(Phicoal), np.real(chiS), np.real(chiA), np.real(chi1x), np.real(chi2x), np.real(chi1y), np.real(chi2y), np.real(LambdaTilde), np.real(deltaLambda), np.real(ecc), np.real(phi_L), np.real(R_orbit), np.real(M_lens), np.real(src_pos)
+                fgrids, Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, ecc, R_orbit, M_lens, src_pos = np.real(fgrids), np.real(Mc), np.real(eta), np.real(dL), np.real(theta), np.real(phi), np.real(iota), np.real(psi), np.real(tcoal), np.real(Phicoal), np.real(chiS), np.real(chiA), np.real(chi1x), np.real(chi2x), np.real(chi1y), np.real(chi2y), np.real(LambdaTilde), np.real(deltaLambda), np.real(ecc), np.real(R_orbit), np.real(M_lens), np.real(src_pos)
 
-                GWstrainUse_real = lambda f, Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, ecc, phi_L, R_orbit, M_lens, src_pos: np.real(self.GWstrain(f, Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, ecc, phi_L, R_orbit, M_lens, src_pos, rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, is_prec_ang=use_prec_ang, use_lensing=use_lensing))
-                GWstrainUse_imag = lambda f, Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, ecc, phi_L, R_orbit, M_lens, src_pos: np.imag(self.GWstrain(f, Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, ecc, phi_L, R_orbit, M_lens, src_pos, rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, is_prec_ang=use_prec_ang, use_lensing=use_lensing))
+                GWstrainUse_real = lambda f, Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, ecc, R_orbit, M_lens, src_pos: np.real(self.GWstrain(f, Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, ecc, R_orbit, M_lens, src_pos, rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, is_prec_ang=use_prec_ang, use_lensing=use_lensing))
+                GWstrainUse_imag = lambda f, Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, ecc, R_orbit, M_lens, src_pos: np.imag(self.GWstrain(f, Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, ecc, R_orbit, M_lens, src_pos, rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, is_prec_ang=use_prec_ang, use_lensing=use_lensing))
 
-                realDerivs = np.asarray(vmap(jacrev(GWstrainUse_real, argnums=derivargs))(fgrids.T, Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, ecc, phi_L, R_orbit, M_lens, src_pos))
-                imagDerivs = np.asarray(vmap(jacrev(GWstrainUse_imag, argnums=derivargs))(fgrids.T, Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, ecc, phi_L, R_orbit, M_lens, src_pos))
+                realDerivs = np.asarray(vmap(jacrev(GWstrainUse_real, argnums=derivargs))(fgrids.T, Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, ecc, R_orbit, M_lens, src_pos))
+                imagDerivs = np.asarray(vmap(jacrev(GWstrainUse_imag, argnums=derivargs))(fgrids.T, Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, ecc, R_orbit, M_lens, src_pos))
 
                 FisherDerivs = realDerivs + 1j*imagDerivs
         else:
             # Lensing edits incomplete for the case of computeDerivFinDiff
             if self.wf_model.is_newtonian:
                 if computeAnalyticalDeriv:
-                    GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, ecc, phi_L, R_orbit, rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2)
+                    GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, ecc, R_orbit, rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2)
                     evpars = [Mc]
                 else:
-                    GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], eta, pars[1], pars[2], pars[3], pars[4], pars[5], pars[6], pars[7], chiS, chiA, chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, ecc, phi_L, R_orbit, rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2)
+                    GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], eta, pars[1], pars[2], pars[3], pars[4], pars[5], pars[6], pars[7], chiS, chiA, chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, ecc, R_orbit, rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2)
                     evpars = [Mc, dL, theta, phi, iota, psi, tcoal, Phicoal]
             elif self.wf_model.is_tidal:
                 if self.wf_model.is_Precessing:
                     if not self.wf_model.is_eccentric:
                         if not use_lensing:
                             if not computeAnalyticalDeriv:
-                                GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], pars[2], pars[3], pars[4], pars[5], pars[6], pars[7], pars[8], pars[9], pars[10], pars[11], pars[12], pars[13], pars[14], pars[15], pars[16], ecc, phi_L, R_orbit, rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, is_prec_ang=use_prec_ang, use_lensing=use_lensing)
+                                GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], pars[2], pars[3], pars[4], pars[5], pars[6], pars[7], pars[8], pars[9], pars[10], pars[11], pars[12], pars[13], pars[14], pars[15], pars[16], ecc, R_orbit, rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, is_prec_ang=use_prec_ang, use_lensing=use_lensing)
                                 evpars = [Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda]
                             else:
-                                GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], dL, theta, phi, pars[2], psi, tcoal, Phicoal, pars[3], pars[4], pars[5], pars[6], pars[7], pars[8], pars[9], pars[10], ecc, phi_L, R_orbit, rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, is_prec_ang=use_prec_ang, use_lensing=use_lensing)
+                                GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], dL, theta, phi, pars[2], psi, tcoal, Phicoal, pars[3], pars[4], pars[5], pars[6], pars[7], pars[8], pars[9], pars[10], ecc, R_orbit, rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, is_prec_ang=use_prec_ang, use_lensing=use_lensing)
                                 evpars = [Mc, eta, iota, chiS, chiA, chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda]
                         else:
                             if not computeAnalyticalDeriv:
                                 GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], pars[2], pars[3], pars[4], pars[5], pars[6], pars[7], pars[8], pars[9], pars[10], pars[11], pars[12], pars[13], pars[14], pars[15], pars[16], ecc, pars[17], pars[18], rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, is_prec_ang=use_prec_ang, use_lensing=use_lensing)
-                                evpars = [Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, phi_L, R_orbit]
+                                evpars = [Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, R_orbit]
                             else:
                                 GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], dL, theta, phi, pars[2], psi, tcoal, Phicoal, pars[3], pars[4], pars[5], pars[6], pars[7], pars[8], pars[9], pars[10], ecc, pars[11], pars[12], rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, is_prec_ang=use_prec_ang, use_lensing=use_lensing)
-                                evpars = [Mc, eta, iota, chiS, chiA, chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, phi_L, R_orbit]
+                                evpars = [Mc, eta, iota, chiS, chiA, chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, R_orbit]
                     else:
                         if not use_lensing:
                             if not computeAnalyticalDeriv:
-                                GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], pars[2], pars[3], pars[4], pars[5], pars[6], pars[7], pars[8], pars[9], pars[10], pars[11], pars[12], pars[13], pars[14], pars[15], pars[16], pars[17], phi_L, R_orbit, rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, is_prec_ang=use_prec_ang, use_lensing=use_lensing)
+                                GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], pars[2], pars[3], pars[4], pars[5], pars[6], pars[7], pars[8], pars[9], pars[10], pars[11], pars[12], pars[13], pars[14], pars[15], pars[16], pars[17], R_orbit, rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, is_prec_ang=use_prec_ang, use_lensing=use_lensing)
                                 evpars = [Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, ecc]
                             else:
-                                GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], dL, theta, phi, pars[2], psi, tcoal, Phicoal, pars[3], pars[4], pars[5], pars[6], pars[7], pars[8], pars[9], pars[10], pars[11], phi_L, R_orbit, rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, is_prec_ang=use_prec_ang, use_lensing=use_lensing)
+                                GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], dL, theta, phi, pars[2], psi, tcoal, Phicoal, pars[3], pars[4], pars[5], pars[6], pars[7], pars[8], pars[9], pars[10], pars[11], R_orbit, rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, is_prec_ang=use_prec_ang, use_lensing=use_lensing)
                                 evpars = [Mc, eta, iota, chiS, chiA, chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, ecc]
                         else:
                             if not computeAnalyticalDeriv:
                                 GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], pars[2], pars[3], pars[4], pars[5], pars[6], pars[7], pars[8], pars[9], pars[10], pars[11], pars[12], pars[13], pars[14], pars[15], pars[16], pars[17], pars[18], pars[19], rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, is_prec_ang=use_prec_ang, use_lensing=use_lensing)
-                                evpars = [Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, ecc, phi_L, R_orbit]
+                                evpars = [Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, ecc, R_orbit]
                             else:
                                 GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], dL, theta, phi, pars[2], psi, tcoal, Phicoal, pars[3], pars[4], pars[5], pars[6], pars[7], pars[8], pars[9], pars[10], pars[11], pars[12], pars[13], rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, is_prec_ang=use_prec_ang, use_lensing=use_lensing)
-                                evpars = [Mc, eta, iota, chiS, chiA, chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, ecc, phi_L, R_orbit]
+                                evpars = [Mc, eta, iota, chiS, chiA, chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, ecc, R_orbit]
                 else:
                     if not self.wf_model.is_eccentric:
                         if not use_lensing:
                             if not computeAnalyticalDeriv:
-                                GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], pars[2], pars[3], pars[4], pars[5], pars[6], pars[7], pars[8], pars[9], pars[10], chi1x, chi2x, chi1y, chi2y, pars[11], pars[12], ecc, phi_L, R_orbit, rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, use_lensing=use_lensing)
+                                GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], pars[2], pars[3], pars[4], pars[5], pars[6], pars[7], pars[8], pars[9], pars[10], chi1x, chi2x, chi1y, chi2y, pars[11], pars[12], ecc, R_orbit, rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, use_lensing=use_lensing)
                                 evpars = [Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, LambdaTilde, deltaLambda]
                             else:
                                 if not self.wf_model.is_HigherModes:
-                                    GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], dL, theta, phi, iota, psi, tcoal, Phicoal, pars[2], pars[3], chi1x, chi2x, chi1y, chi2y, pars[4], pars[5], ecc, phi_L, R_orbit, rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, use_lensing=use_lensing)
+                                    GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], dL, theta, phi, iota, psi, tcoal, Phicoal, pars[2], pars[3], chi1x, chi2x, chi1y, chi2y, pars[4], pars[5], ecc, R_orbit, rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, use_lensing=use_lensing)
                                     evpars = [Mc, eta, chiS, chiA, LambdaTilde, deltaLambda]
                                 else:
-                                    GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], dL, theta, phi, pars[2], psi, tcoal, Phicoal, pars[3], pars[4], chi1x, chi2x, chi1y, chi2y, pars[5], pars[6], ecc, phi_L, R_orbit, rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, use_lensing=use_lensing)
+                                    GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], dL, theta, phi, pars[2], psi, tcoal, Phicoal, pars[3], pars[4], chi1x, chi2x, chi1y, chi2y, pars[5], pars[6], ecc, R_orbit, rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, use_lensing=use_lensing)
                                     evpars = [Mc, eta, iota, chiS, chiA, LambdaTilde, deltaLambda]
                         else:
                             if not computeAnalyticalDeriv:
-                                GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], pars[2], pars[3], pars[4], pars[5], pars[6], pars[7], pars[8], pars[9], pars[10], chi1x, chi2x, chi1y, chi2y, pars[11], pars[12], ecc, pars[13], pars[14], phi_L, R_orbit, rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, use_lensing=use_lensing)
-                                evpars = [Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, LambdaTilde, deltaLambda, phi_L, R_orbit]
+                                GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], pars[2], pars[3], pars[4], pars[5], pars[6], pars[7], pars[8], pars[9], pars[10], chi1x, chi2x, chi1y, chi2y, pars[11], pars[12], ecc, pars[13], pars[14], R_orbit, rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, use_lensing=use_lensing)
+                                evpars = [Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, LambdaTilde, deltaLambda, R_orbit]
                             else:
                                 if not self.wf_model.is_HigherModes:
                                     GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], dL, theta, phi, iota, psi, tcoal, Phicoal, pars[2], pars[3], chi1x, chi2x, chi1y, chi2y, pars[4], pars[5], ecc, pars[6], pars[7], rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, use_lensing=use_lensing)
-                                    evpars = [Mc, eta, chiS, chiA, LambdaTilde, deltaLambda, phi_L, R_orbit]
+                                    evpars = [Mc, eta, chiS, chiA, LambdaTilde, deltaLambda, R_orbit]
                                 else:
                                     GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], dL, theta, phi, pars[2], psi, tcoal, Phicoal, pars[3], pars[4], chi1x, chi2x, chi1y, chi2y, pars[5], pars[6], ecc, pars[7], pars[8], rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, use_lensing=use_lensing)
-                                    evpars = [Mc, eta, iota, chiS, chiA, LambdaTilde, deltaLambda, phi_L, R_orbit]
+                                    evpars = [Mc, eta, iota, chiS, chiA, LambdaTilde, deltaLambda, R_orbit]
                     else:
                         if not use_lensing:
                             if not computeAnalyticalDeriv:
-                                GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], pars[2], pars[3], pars[4], pars[5], pars[6], pars[7], pars[8], pars[9], pars[10], chi1x, chi2x, chi1y, chi2y, pars[11], pars[12], pars[13], phi_L, R_orbit, rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, use_lensing=use_lensing)
+                                GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], pars[2], pars[3], pars[4], pars[5], pars[6], pars[7], pars[8], pars[9], pars[10], chi1x, chi2x, chi1y, chi2y, pars[11], pars[12], pars[13], R_orbit, rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, use_lensing=use_lensing)
                                 evpars = [Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, LambdaTilde, deltaLambda, ecc]
                             else:
                                 if not self.wf_model.is_HigherModes:
-                                    GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], dL, theta, phi, iota, psi, tcoal, Phicoal, pars[2], pars[3], chi1x, chi2x, chi1y, chi2y, pars[4], pars[5], pars[6], phi_L, R_orbit, rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, use_lensing=use_lensing)
+                                    GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], dL, theta, phi, iota, psi, tcoal, Phicoal, pars[2], pars[3], chi1x, chi2x, chi1y, chi2y, pars[4], pars[5], pars[6], R_orbit, rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, use_lensing=use_lensing)
                                     evpars = [Mc, eta, chiS, chiA, LambdaTilde, deltaLambda, ecc]
                                 else:
-                                    GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], dL, theta, phi, pars[2], psi, tcoal, Phicoal, pars[3], pars[4], chi1x, chi2x, chi1y, chi2y, pars[5], pars[6], pars[7], phi_L, R_orbit, rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, use_lensing=use_lensing)
+                                    GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], dL, theta, phi, pars[2], psi, tcoal, Phicoal, pars[3], pars[4], chi1x, chi2x, chi1y, chi2y, pars[5], pars[6], pars[7], R_orbit, rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, use_lensing=use_lensing)
                                     evpars = [Mc, eta, iota, chiS, chiA, LambdaTilde, deltaLambda, ecc]
                         else:
                             if not computeAnalyticalDeriv:
                                 GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], pars[2], pars[3], pars[4], pars[5], pars[6], pars[7], pars[8], pars[9], pars[10], chi1x, chi2x, chi1y, chi2y, pars[11], pars[12], pars[13], pars[14], pars[15], rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, use_lensing=use_lensing)
-                                evpars = [Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, LambdaTilde, deltaLambda, ecc, phi_L, R_orbit]
+                                evpars = [Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, LambdaTilde, deltaLambda, ecc, R_orbit]
                             else:
                                 if not self.wf_model.is_HigherModes:
                                     GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], dL, theta, phi, iota, psi, tcoal, Phicoal, pars[2], pars[3], chi1x, chi2x, chi1y, chi2y, pars[4], pars[5], pars[6], pars[7], pars[8], rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, use_lensing=use_lensing)
-                                    evpars = [Mc, eta, chiS, chiA, LambdaTilde, deltaLambda, ecc, phi_L, R_orbit]
+                                    evpars = [Mc, eta, chiS, chiA, LambdaTilde, deltaLambda, ecc, R_orbit]
                                 else:
                                     GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], dL, theta, phi, pars[2], psi, tcoal, Phicoal, pars[3], pars[4], chi1x, chi2x, chi1y, chi2y, pars[5], pars[6], pars[8], pars[9], rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, use_lensing=use_lensing)
-                                    evpars = [Mc, eta, iota, chiS, chiA, LambdaTilde, deltaLambda, ecc, phi_L, R_orbit]
+                                    evpars = [Mc, eta, iota, chiS, chiA, LambdaTilde, deltaLambda, ecc, R_orbit]
             else:
                 if self.wf_model.is_Precessing:
                     if not self.wf_model.is_eccentric:
                         if not use_lensing:
                             if not computeAnalyticalDeriv:
-                                GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], pars[2], pars[3], pars[4], pars[5], pars[6], pars[7], pars[8], pars[9], pars[10], pars[11], pars[12], pars[13], pars[14], LambdaTilde, deltaLambda, ecc, phi_L, R_orbit, rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, is_prec_ang=use_prec_ang, use_lensing=use_lensing)
+                                GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], pars[2], pars[3], pars[4], pars[5], pars[6], pars[7], pars[8], pars[9], pars[10], pars[11], pars[12], pars[13], pars[14], LambdaTilde, deltaLambda, ecc, R_orbit, rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, is_prec_ang=use_prec_ang, use_lensing=use_lensing)
                                 evpars = [Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, chi1x, chi2x, chi1y, chi2y]
                             else:
-                                GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], dL, theta, phi, pars[2], psi, tcoal, Phicoal, pars[3], pars[4], pars[5], pars[6], pars[7], pars[8], LambdaTilde, deltaLambda, ecc, phi_L, R_orbit, rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, is_prec_ang=use_prec_ang, use_lensing=use_lensing)
+                                GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], dL, theta, phi, pars[2], psi, tcoal, Phicoal, pars[3], pars[4], pars[5], pars[6], pars[7], pars[8], LambdaTilde, deltaLambda, ecc, R_orbit, rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, is_prec_ang=use_prec_ang, use_lensing=use_lensing)
                                 evpars = [Mc, eta, iota, chiS, chiA, chi1x, chi2x, chi1y, chi2y]
                         else:
                             if not computeAnalyticalDeriv:
                                 GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], pars[2], pars[3], pars[4], pars[5], pars[6], pars[7], pars[8], pars[9], pars[10], pars[11], pars[12], pars[13], pars[14], LambdaTilde, deltaLambda, ecc, pars[15], pars[16], rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, is_prec_ang=use_prec_ang, use_lensing=use_lensing)
-                                evpars = [Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, chi1x, chi2x, chi1y, chi2y, phi_L, R_orbit]
+                                evpars = [Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, chi1x, chi2x, chi1y, chi2y, R_orbit]
                             else:
                                 GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], dL, theta, phi, pars[2], psi, tcoal, Phicoal, pars[3], pars[4], pars[5], pars[6], pars[7], pars[8], LambdaTilde, deltaLambda, ecc, pars[9], pars[10], rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, is_prec_ang=use_prec_ang, use_lensing=use_lensing)
-                                evpars = [Mc, eta, iota, chiS, chiA, chi1x, chi2x, chi1y, chi2y, phi_L, R_orbit]
+                                evpars = [Mc, eta, iota, chiS, chiA, chi1x, chi2x, chi1y, chi2y, R_orbit]
                     else:
                         if not use_lensing:
                             if not computeAnalyticalDeriv:
-                                GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], pars[2], pars[3], pars[4], pars[5], pars[6], pars[7], pars[8], pars[9], pars[10], pars[11], pars[12], pars[13], pars[14], LambdaTilde, deltaLambda, pars[15], phi_L, R_orbit, rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, is_prec_ang=use_prec_ang, use_lensing=use_lensing)
+                                GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], pars[2], pars[3], pars[4], pars[5], pars[6], pars[7], pars[8], pars[9], pars[10], pars[11], pars[12], pars[13], pars[14], LambdaTilde, deltaLambda, pars[15], R_orbit, rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, is_prec_ang=use_prec_ang, use_lensing=use_lensing)
                                 evpars = [Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, chi1x, chi2x, chi1y, chi2y, ecc]
                             else:
-                                GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], dL, theta, phi, pars[2], psi, tcoal, Phicoal, pars[3], pars[4], pars[5], pars[6], pars[7], pars[8], LambdaTilde, deltaLambda, pars[9], phi_L, R_orbit, rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, is_prec_ang=use_prec_ang, use_lensing=use_lensing)
+                                GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], dL, theta, phi, pars[2], psi, tcoal, Phicoal, pars[3], pars[4], pars[5], pars[6], pars[7], pars[8], LambdaTilde, deltaLambda, pars[9], R_orbit, rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, is_prec_ang=use_prec_ang, use_lensing=use_lensing)
                                 evpars = [Mc, eta, iota, chiS, chiA, chi1x, chi2x, chi1y, chi2y, ecc]
                         else:
                             if not computeAnalyticalDeriv:
                                 GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], pars[2], pars[3], pars[4], pars[5], pars[6], pars[7], pars[8], pars[9], pars[10], pars[11], pars[12], pars[13], pars[14], LambdaTilde, deltaLambda, pars[15], pars[16], pars[17], rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, is_prec_ang=use_prec_ang, use_lensing=use_lensing)
-                                evpars = [Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, chi1x, chi2x, chi1y, chi2y, ecc, phi_L, R_orbit]
+                                evpars = [Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, chi1x, chi2x, chi1y, chi2y, ecc, R_orbit]
                             else:
                                 GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], dL, theta, phi, pars[2], psi, tcoal, Phicoal, pars[3], pars[4], pars[5], pars[6], pars[7], pars[8], LambdaTilde, deltaLambda, pars[9], pars[10], pars[11], rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, is_prec_ang=use_prec_ang, use_lensing=use_lensing)
-                                evpars = [Mc, eta, iota, chiS, chiA, chi1x, chi2x, chi1y, chi2y, ecc, phi_L, R_orbit]
+                                evpars = [Mc, eta, iota, chiS, chiA, chi1x, chi2x, chi1y, chi2y, ecc, R_orbit]
                 else:
                     if not self.wf_model.is_eccentric:
                         if not use_lensing:
                             if not computeAnalyticalDeriv:
-                                GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], pars[2], pars[3], pars[4], pars[5], pars[6], pars[7], pars[8], pars[9], pars[10], chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, ecc, phi_L, R_orbit, rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, use_lensing=use_lensing)
+                                GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], pars[2], pars[3], pars[4], pars[5], pars[6], pars[7], pars[8], pars[9], pars[10], chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, ecc, R_orbit, rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, use_lensing=use_lensing)
                                 evpars = [Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA]
                             else:
                                 if not self.wf_model.is_HigherModes:
-                                    GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], dL, theta, phi, iota, psi, tcoal, Phicoal, pars[2], pars[3], chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, ecc, phi_L, R_orbit, rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, use_lensing=use_lensing)
+                                    GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], dL, theta, phi, iota, psi, tcoal, Phicoal, pars[2], pars[3], chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, ecc, R_orbit, rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, use_lensing=use_lensing)
                                     evpars = [Mc, eta, chiS, chiA]
                                 else:
-                                    GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], dL, theta, phi, pars[2], psi, tcoal, Phicoal, pars[3], pars[4], chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, ecc, phi_L, R_orbit, rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, use_lensing=use_lensing)
+                                    GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], dL, theta, phi, pars[2], psi, tcoal, Phicoal, pars[3], pars[4], chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, ecc, R_orbit, rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, use_lensing=use_lensing)
                                     evpars = [Mc, eta, iota, chiS, chiA]
                         else:
                             if not computeAnalyticalDeriv:
                                 GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], pars[2], pars[3], pars[4], pars[5], pars[6], pars[7], pars[8], pars[9], pars[10], chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, ecc, pars[11], pars[12], rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, use_lensing=use_lensing)
-                                evpars = [Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, phi_L, R_orbit]
+                                evpars = [Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, R_orbit]
                             else:
                                 if not self.wf_model.is_HigherModes:
                                     GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], dL, theta, phi, iota, psi, tcoal, Phicoal, pars[2], pars[3], chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, ecc, pars[4], pars[5], rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, use_lensing=use_lensing)
-                                    evpars = [Mc, eta, chiS, chiA, phi_L, R_orbit]
+                                    evpars = [Mc, eta, chiS, chiA, R_orbit]
                                 else:
                                     GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], dL, theta, phi, pars[2], psi, tcoal, Phicoal, pars[3], pars[4], chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, ecc, pars[5], pars[6], rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, use_lensing=use_lensing)
-                                    evpars = [Mc, eta, iota, chiS, chiA, phi_L, R_orbit]
+                                    evpars = [Mc, eta, iota, chiS, chiA, R_orbit]
                     else:
                         if not use_lensing:
                             if not computeAnalyticalDeriv:
-                                GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], pars[2], pars[3], pars[4], pars[5], pars[6], pars[7], pars[8], pars[9], pars[10], chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, pars[11], phi_L, R_orbit, rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, use_lensing=use_lensing)
+                                GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], pars[2], pars[3], pars[4], pars[5], pars[6], pars[7], pars[8], pars[9], pars[10], chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, pars[11], R_orbit, rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, use_lensing=use_lensing)
                                 evpars = [Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, ecc]
                             else:
                                 if not self.wf_model.is_HigherModes:
-                                    GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], dL, theta, phi, iota, psi, tcoal, Phicoal, pars[2], pars[3], chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, pars[4], phi_L, R_orbit, rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, use_lensing=use_lensing)
+                                    GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], dL, theta, phi, iota, psi, tcoal, Phicoal, pars[2], pars[3], chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, pars[4], R_orbit, rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, use_lensing=use_lensing)
                                     evpars = [Mc, eta, chiS, chiA, ecc]
                                 else:
-                                    GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], dL, theta, phi, pars[2], psi, tcoal, Phicoal, pars[3], pars[4], chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, pars[5], phi_L, R_orbit, rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, use_lensing=use_lensing)
+                                    GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], dL, theta, phi, pars[2], psi, tcoal, Phicoal, pars[3], pars[4], chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, pars[5], R_orbit, rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, use_lensing=use_lensing)
                                     evpars = [Mc, eta, iota, chiS, chiA, ecc]
                         else:
                             if not computeAnalyticalDeriv:
                                 GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], pars[2], pars[3], pars[4], pars[5], pars[6], pars[7], pars[8], pars[9], pars[10], chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, pars[11], pars[12], pars[13], rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, use_lensing=use_lensing)
-                                evpars = [Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, ecc, phi_L, R_orbit]
+                                evpars = [Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, ecc, R_orbit]
                             else:
                                 if not self.wf_model.is_HigherModes:
                                     GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], dL, theta, phi, iota, psi, tcoal, Phicoal, pars[2], pars[3], chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, pars[4], pars[5], pars[6], rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, use_lensing=use_lensing)
-                                    evpars = [Mc, eta, chiS, chiA, ecc, phi_L, R_orbit]
+                                    evpars = [Mc, eta, chiS, chiA, ecc, R_orbit]
                                 else:
                                     GWstrainUse = lambda pars: self.GWstrain(fgrids, pars[0], pars[1], dL, theta, phi, pars[2], psi, tcoal, Phicoal, pars[3], pars[4], chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, pars[5], pars[6], pars[7], rot=rot, is_m1m2=use_m1m2, is_chi1chi2=use_chi1chi2, use_lensing=use_lensing)
-                                    evpars = [Mc, eta, iota, chiS, chiA, ecc, phi_L, R_orbit]
+                                    evpars = [Mc, eta, iota, chiS, chiA, ecc, R_orbit]
 
             dh = ndt.Jacobian(GWstrainUse, step=stepNDT, method=methodNDT, order=2, n=1)
             FisherDerivs = np.asarray(dh(evpars))
@@ -1464,7 +1461,7 @@ class GWSignal(object):
             else:
                 NAnalyticalDerivs = 6
 
-            dL_deriv, theta_deriv, phi_deriv, iota_deriv, psi_deriv, tc_deriv, Phicoal_deriv = self._AnalyticalDerivatives(fgrids, Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, ecc, phi_L, R_orbit, M_lens, src_pos, rot=rot, use_m1m2=use_m1m2, use_chi1chi2=use_chi1chi2, use_prec_ang=use_prec_ang, use_lensing=use_lensing)
+            dL_deriv, theta_deriv, phi_deriv, iota_deriv, psi_deriv, tc_deriv, Phicoal_deriv = self._AnalyticalDerivatives(fgrids, Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, ecc, R_orbit, M_lens, src_pos, rot=rot, use_m1m2=use_m1m2, use_chi1chi2=use_chi1chi2, use_prec_ang=use_prec_ang, use_lensing=use_lensing)
             if (not self.wf_model.is_HigherModes) and (not self.wf_model.is_Precessing):
                 if not self.wf_model.is_newtonian:
                     tmpsplit1, tmpsplit2, _ = onp.vsplit(FisherDerivs, onp.array([inputNumdL, nParams-NAnalyticalDerivs]))
@@ -1537,7 +1534,7 @@ class GWSignal(object):
             # convert angles and iota
                 iota, chi1xUse, chi1yUse, chi1z, chi2xUse, chi2yUse, chi2z = utils.TransformPrecessing_angles2comp(thetaJN=iota, phiJL=chi1y, theta1=chi1x, theta2=chi2x, phi12=chi2y, chi1=chiS, chi2=chiA, Mc=McUse, eta=etaUse, fRef=self.fmin, phiRef=0.)
 
-        if use_lensing: # to be modified!!! what is happening here???
+        if use_lensing: # to be modified!!!! what is happening here???
             alpha_hat = utils.get_alpha_hat(R_orbit)
             iotaUse = utils.get_image_iota(iota, phi_L, alpha_hat)[0]
             Phicoal = utils.get_image_Phicoal(iota, phi_L, Phicoal, alpha_hat)[0]

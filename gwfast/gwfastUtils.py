@@ -1352,6 +1352,26 @@ def _get_alpha_hat(R_orbit, approx=1):
             idx = -0.5042733754506686
             y0  = -0.2727560615461613
             return (1 + 10**(y0) * R_orbit**(idx)) * approx_simp
+        
+
+def get_phi_L(iota, R_orbit, src_pos, theta_E, D_l, M_lens):
+    '''
+    Lens position in the source frame (origin is at source), 
+    defined as π minus the angle between lens position and observer position.
+    iota: Inclination angle [rad]
+    R_orbit: Orbital radius of BBH about AGN [R_Sch]
+    src_pos: Dimensionless source position [Einstein radius]
+    theta_E: Einstein radius [rad]
+    D_l: Source distance [Gpc]
+    M_lens: Redshifted lens mass [M_sun]
+    '''
+    # Convert source position into units of R_Sch
+    src_pos_in_rad = src_pos * theta_E
+    src_pos_in_Gpc = src_pos_in_rad * D_l
+    src_pos_in_RSch = get_R_Sch_from_Gpc(src_pos_in_Gpc, M_lens)
+
+    cos_phi_L = - jnp.sqrt(R_orbit**2 - src_pos_in_RSch**2) / (R_orbit * jnp.sin(iota))
+    return jnp.arccos(cos_phi_L)
 
 
 def _sqrt_term(iota, phi_L):
@@ -1424,15 +1444,17 @@ def _new_angle_from_lensing_shift(angle, delta_cos, alpha_hat, theta_E, src_pos,
     return jnp.arccos(jnp.cos(angle) + gamma_1 * delta_cos), jnp.arccos(jnp.cos(angle) - gamma_2 * delta_cos)
 
 
-def get_lensed_parameter_sets(unlensed_bbh_params, phi_L=None, R_orbit=None, M_lens=None, src_pos=None):
+def get_lensed_parameter_sets(unlensed_bbh_params, R_orbit=None, M_lens=None, src_pos=None):
     # First make sure we have the needed parameters.
     # If not given, try look for them in the params dict:
-    if phi_L is None:
-        phi_L = unlensed_bbh_params.get('phi_L', None)
     if R_orbit is None:
         R_orbit = unlensed_bbh_params.get('R_orbit', None)
-    if (phi_L is None) or (R_orbit is None):
-        raise IOError('Cannot get lensed BBH parameters, insufficient lensing parameters.')
+    if M_lens is None:
+        M_lens = unlensed_bbh_params.get('M_lens', None)
+    if src_pos is None:
+        src_pos = unlensed_bbh_params.get('src_pos', None)
+    if (R_orbit is None) or (M_lens is None) or (src_pos is None):
+        raise IOError('Insufficient lensing parameters (R_orbit, M_lens or src_pos not provided).')
     
     # Initialise the output dictionaries
     image_1_params = unlensed_bbh_params.copy()
@@ -1445,16 +1467,11 @@ def get_lensed_parameter_sets(unlensed_bbh_params, phi_L=None, R_orbit=None, M_l
     luminosity_distance = unlensed_bbh_params['dL'].real.astype('float64')
 
     # Compute image positions
-    if M_lens is None:
-        M_lens = unlensed_bbh_params.get('M_lens', None)
-    if src_pos is None:
-        src_pos = unlensed_bbh_params.get('src_pos', None)
-    if (M_lens is None) or (src_pos is None):
-        theta_E, src_pos, im_pos_1, im_pos_2 = 0, 0, 0, 0
-        print('Insufficient parameters (M_lens or src_pos not given). Source and image positions will be assumed to be negligible compared to alpha_hat (deflection angle).')
-    else:
-        theta_E = einstein_radius(M_lens, R_orbit, luminosity_distance) # rad, used later to convert dimensionless positions into radians
-        im_pos_1, im_pos_2 = get_im_pos(src_pos) # in units of Einstein radius
+    theta_E = einstein_radius(M_lens, R_orbit, luminosity_distance) # rad, used later to convert dimensionless positions into radians
+    im_pos_1, im_pos_2 = get_im_pos(src_pos) # in units of Einstein radius
+
+    phi_L = get_phi_L(iota, R_orbit, src_pos, theta_E, luminosity_distance, M_lens)
+    print("phi_L: ", phi_L)
 
     # Get the change in parameters
     delta_cos_iota, delta_cos_phi, delta_cos_psi, delta_z = \
