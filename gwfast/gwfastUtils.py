@@ -1360,7 +1360,10 @@ def _get_alpha_hat(R_orbit, approx=1):
             idx = -0.5042733754506686
             y0  = -0.2727560615461613
             return (1 + 10**(y0) * R_orbit**(idx)) * approx_simp
-        
+
+def find_quadratic_roots(a, b, c):
+    delta = jnp.sqrt(b**2 - 4 * a * c)
+    return (- b + delta) / (2 * a), (- b - delta) / (2 * a)
 
 def get_phi_L(iota, R_orbit, src_pos, theta_E, D_l, M_lens):
     '''
@@ -1376,9 +1379,10 @@ def get_phi_L(iota, R_orbit, src_pos, theta_E, D_l, M_lens):
     # Convert source position into units of R_Sch
     src_pos_in_rad = src_pos * theta_E
     src_pos_in_Gpc = src_pos_in_rad * D_l
-    src_pos_in_RSch = get_R_Sch_from_Gpc(src_pos_in_Gpc, M_lens)
+    src_pos_in_R_Sch = get_R_Sch_from_Gpc(src_pos_in_Gpc, M_lens)
 
-    cos_phi_L = - jnp.sqrt(R_orbit**2 - src_pos_in_RSch**2) / (R_orbit * jnp.sin(iota))
+    cos_phi_L = - jnp.sqrt(R_orbit**2 - src_pos_in_R_Sch**2) / (R_orbit * jnp.sin(iota))
+    print(cos_phi_L)
     return jnp.arccos(cos_phi_L)
 
 
