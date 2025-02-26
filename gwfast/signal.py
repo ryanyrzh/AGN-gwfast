@@ -1047,7 +1047,7 @@ class GWSignal(object):
 
         nParams = self.wf_model.nParams
         if use_lensing:
-            nParams = self.wf_model.nParams + 2
+            nParams = self.wf_model.nParams + 3
         tcelem = self.wf_model.ParNums['tcoal']
 
         if (self.wf_model.is_LAL) and (not computeDerivFinDiff):

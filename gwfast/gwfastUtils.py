@@ -1382,7 +1382,6 @@ def get_phi_L(iota, R_orbit, src_pos, theta_E, D_l, M_lens):
     src_pos_in_R_Sch = get_R_Sch_from_Gpc(src_pos_in_Gpc, M_lens)
 
     cos_phi_L = - jnp.sqrt(R_orbit**2 - src_pos_in_R_Sch**2) / (R_orbit * jnp.sin(iota))
-    print(cos_phi_L)
     return jnp.arccos(cos_phi_L)
 
 
