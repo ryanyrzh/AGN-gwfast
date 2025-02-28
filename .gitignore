@@ -9,5 +9,6 @@ docs/build/
 poetry.lock
 dist/
 
+*.ipynb_checkpoints/
 *.png
 *.pdf
