@@ -20,10 +20,10 @@ zGridGlob = np.logspace(start=-6, stop=5, base=10, num=5000)
 dLGridGlob = cosmo.luminosity_distance(zGridGlob).value / 1000.
 
 # Constants in SI
-G = 6.6743 * 10e-11
-c = 2.979246 * 10e8
-M_sun = 2.9884 * 10e30
-Gpc = 3.0856776 * 10e25
+G = 6.6743 * 1e-11
+c = 2.979246 * 1e8
+M_sun = 2.9884 * 1e30
+Gpc = 3.0856776 * 1e25
 
 ##############################################################################
 # LOADING AND SAVING CATALOGS
