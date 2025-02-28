@@ -855,38 +855,66 @@ def compute_localization_region(Cov, parNum, thFid, perc_level=90, units='SqDeg'
     if units=='Sterad':
         return DelOmegaSr
     elif units=='SqDeg':
-        return  (180/onp.pi)**2*DelOmegaSr
-
-
+        return (180/onp.pi)**2*DelOmegaSr
 
 
 ##############################################################################
 # PLOTTING TOOLS (ELLIPSES)
 ##############################################################################
-
 import matplotlib.pyplot as plt
-def plot_contours(Covariance, parameters:list, indices:list, event=None, my_scales={}, plt_labels={}):
+
+
+def plot_corners(covariance, parameters:list, indices:list,
+                 event=None, labels={}, **kwargs):
+    '''
+    covariance:  The covariance matrix
+    parameters:  List of parameters to plot
+    indices:     Indices of that list of parameters,
+                 correspond to where the parameter is in the cov. matrix
+    event:       Mean values of the parameters, typically is
+                 the truth value used for the Fisher analysis.
+    labels:      Axis labels to use for each parameter,
+                 should be a dictionary:
+                 {parameters: the_labels}
+    '''
+
+    color = kwargs.get('color', 'C3')
 
     n_params = len(parameters)
     assert len(parameters) == len(indices), "Number of parameters and indices not match"
 
-    param_pair, idx_pair = [], []
-    for idx, key1 in enumerate(parameters):
-        for jdx, key2 in enumerate(parameters[idx:]):
-            param_pair.append((key1, key2))
-            idx_pair.append((idx, jdx))
-
     fig, axes = plt.subplots(n_params, n_params,
-                             figsize=(3.1*n_params, 3.1*n_params))
+                             figsize=(1.7*n_params, 1.7*n_params),
+                             gridspec_kw={'wspace': 0.01, 'hspace': 0.01},
+                             constrained_layout=True,
+                             sharex='col', sharey='row')
 
+    for col, (idx, key1) in enumerate(zip(indices, parameters)):
+        for row, (jdx, key2) in enumerate(zip(indices, parameters)):
+            if col > row:
+                fig.delaxes(axes[row][col])
+                continue
 
-        confidence_ellipse(Covariance[onp.ix_(plot_idx, plot_idx)], ax,
-                       event[plotvar[0]], event[plotvar[1]],
-                       edgecolor='red',
-                      n_std=2.0)
+            # We want lower-triangle
+            ax = axes[row, col]
+            idx_pair = (idx, jdx)
 
+            confidence_ellipse(
+                    covariance[onp.ix_(idx_pair, idx_pair)], ax,
+                    event[key1], event[key2],
+                    edgecolor=color, n_std=2.0)
 
+            ax.scatter(event[key1], event[key2], c='red', s=3)
+            if row == n_params - 1:
+                ax.set_xlabel(labels.get(key1, key1), fontsize=15)
+            if col == 0:
+                ax.set_ylabel(labels.get(key2, key2), fontsize=15)
+            if row != col:
+                ax.tick_params(axis='both', which='both', direction='in',
+                               left=True, right=True, top=True, bottom=True)
 
+    # Not sure what does the `my_scales` do, skipping.
+    return fig
 
 
 def plot_contours(Covariance, plot_vars, plot_idxs, event, my_scales, plt_labels):
