@@ -1,14 +1,11 @@
-
 .DS_Store
-gwfast/__pycache__
-notebooks/.ipynb_checkpoints
+*__pycache__
+*.ipynb_checkpoints/
+*.png
+*.pdf
 
 data/
 results/
 docs/build/
 poetry.lock
 dist/
-
-*.ipynb_checkpoints/
-*.png
-*.pdf
