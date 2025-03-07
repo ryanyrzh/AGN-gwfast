@@ -1549,7 +1549,7 @@ def get_mag_factors(unlensed_bbh_params, src_pos=None):
 
 def lens(unlensed_bbh_params):
     '''
-    Get lensed parameter sets, magnification factors, and time delay.
+    Print lensed parameter sets, magnification factors, and time delay.
     '''
     image_1_params, image_2_params = get_lensed_parameter_sets(unlensed_bbh_params)
     mag_1, mag_2 = get_mag_factors(unlensed_bbh_params)

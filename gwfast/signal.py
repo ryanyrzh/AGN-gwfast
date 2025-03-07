@@ -677,7 +677,7 @@ class GWSignal(object):
         else:
             iota1 = evParams1['iota']
             psi1 = evParams1['psi']
-            Phicoal1 = evParams1['phi']
+            Phicoal1 = evParams1['Phicoal']
             Fp1, Fc1 = self._PatternFunction(theta, phi, t1, psi1, rot=rot)
             hp1, hc1 = self.wf_model.hphc(f, **evParams1)
             hp1 = hp1 * Fp1 * phase_shift_factor * np.exp(1j*(phiL1 - Phicoal1))
@@ -689,7 +689,7 @@ class GWSignal(object):
 
             iota2 = evParams2['iota']
             psi2 = evParams2['psi']
-            Phicoal2 = evParams2['phi']
+            Phicoal2 = evParams2['Phicoal']
             Fp2, Fc2 = self._PatternFunction(theta, phi, t2, psi2, rot=rot)
             hp2, hc2 = self.wf_model.hphc(f, **evParams2)
             hp2 = hp2 * Fp2 * phase_shift_factor * np.exp(1j*(phiL2 - Phicoal2))
@@ -707,23 +707,23 @@ class GWSignal(object):
             hp = np.sqrt(np.abs(mag_1)) * hp1 + np.sqrt(np.abs(mag_2)) * time_delay_phase_shift * hp2
             hc = np.sqrt(np.abs(mag_1)) * hc1 + np.sqrt(np.abs(mag_2)) * time_delay_phase_shift * hc2
 
-            if return_single_comp is not None:
-                if (return_single_comp == 'Ap'):
-                    return np.abs(hp)
-                elif (return_single_comp == 'Ac'):
-                    return np.abs(hc)
-                elif (return_single_comp == 'Psip'):
-                    return np.unwrap(np.angle(hp), axis=0)
-                elif (return_single_comp == 'Psic'):
-                    return np.unwrap(np.angle(hc), axis=0)
-                elif (return_single_comp == 'At'):
-                    return np.abs(hp + hc)
-                elif (return_single_comp == 'Psit'):
-                    return np.unwrap(np.angle(hp + hc), axis=0)
-                else:
-                    raise ValueError('Single component to return has to be among Ap, Ac, Psip, Psic')
+        if return_single_comp is not None:
+            if (return_single_comp == 'Ap'):
+                return np.abs(hp)
+            elif (return_single_comp == 'Ac'):
+                return np.abs(hc)
+            elif (return_single_comp == 'Psip'):
+                return np.unwrap(np.angle(hp), axis=0)
+            elif (return_single_comp == 'Psic'):
+                return np.unwrap(np.angle(hc), axis=0)
+            elif (return_single_comp == 'At'):
+                return np.abs(hp + hc)
+            elif (return_single_comp == 'Psit'):
+                return np.unwrap(np.angle(hp + hc), axis=0)
             else:
-                return hp + hc
+                raise ValueError('Single component to return has to be among Ap, Ac, Psip, Psic')
+        else:
+            return hp + hc
 
     def SNRInteg(self, evParams, res=1000, return_all=False, use_lensing=False):
         """
