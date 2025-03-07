@@ -701,7 +701,7 @@ class GWSignal(object):
 
             # Time delay and magnification
             time_delay = utils.get_lensing_time_delay(evParams, M_lens, src_pos)
-            time_delay_phase_shift = np.exp(- 1j * f * time_delay)
+            time_delay_phase_shift = np.exp(2j * np.pi * f * time_delay)
             mag_1, mag_2 = utils.get_mag_factors(evParams, src_pos)
 
             hp = np.sqrt(np.abs(mag_1)) * hp1 + np.sqrt(np.abs(mag_2)) * time_delay_phase_shift * hp2
