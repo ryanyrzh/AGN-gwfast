@@ -1555,4 +1555,15 @@ def lens(unlensed_bbh_params):
     mag_1, mag_2 = get_mag_factors(unlensed_bbh_params)
     time_delay = get_lensing_time_delay(unlensed_bbh_params)
     print('Image 1 parameters: %s \nImage 2 parameters: %s \nMagnification factors: %s, %s \nTime delay: %s s' % (image_1_params, image_2_params, mag_1, mag_2, time_delay))
+    
+    iota = unlensed_bbh_params['iota']
+    dL = unlensed_bbh_params['dL']
+    R_orbit = unlensed_bbh_params['R_orbit']
+    M_lens = unlensed_bbh_params['R_orbit']
+
+    R_orbit_in_Gpc = get_Gpc_from_R_Sch(R_orbit, M_lens)
+    R_orbit_in_rad = R_orbit_in_Gpc / dL
+    theta_E = einstein_radius(M_lens, R_orbit, dL) # rad
+    min_src_pos = R_orbit_in_rad * jnp.abs(jnp.cos(iota)) / theta_E
+    print('Minimum source position: %s' % (min_src_pos))
     return
