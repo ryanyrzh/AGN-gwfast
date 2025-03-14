@@ -1489,9 +1489,11 @@ def get_lensed_parameter_sets(unlensed_bbh_params, R_orbit=None, M_lens=None, sr
                     iota, phi_L, R_orbit, Phicoal, psi)
 
     # z = jnp.interp(luminosity_distance, dLGridGlob, zGridGlob)
-    # relative-motion-induced redshift changes the effective chirp mass
+    # relative-motion-induced redshift can be modeled as changes in effective chirp mass and effective luminosity distance
     image_1_params['Mc'] *= (1 + delta_z)
     image_2_params['Mc'] *= (1 - delta_z)
+    image_1_params['dL'] *= (1 + delta_z)**2
+    image_2_params['dL'] *= (1 - delta_z)**2
 
     alpha_hat = _get_alpha_hat(R_orbit) # rad
 
