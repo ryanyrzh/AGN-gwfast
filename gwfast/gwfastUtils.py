@@ -14,10 +14,10 @@ import h5py
 
 from gwfast import gwfastGlobals as glob
 
-from astropy.cosmology import Planck18 as cosmo
+# from astropy.cosmology import Planck18 as cosmo
 
-zGridGlob = np.logspace(start=-6, stop=5, base=10, num=5000)
-dLGridGlob = cosmo.luminosity_distance(zGridGlob).value / 1000.
+# zGridGlob = np.logspace(start=-6, stop=5, base=10, num=5000)
+# dLGridGlob = cosmo.luminosity_distance(zGridGlob).value / 1000.
 
 # Constants in SI
 G = 6.6743 * 1e-11
@@ -1488,10 +1488,10 @@ def get_lensed_parameter_sets(unlensed_bbh_params, R_orbit=None, M_lens=None, sr
             get_lensing_induced_cosine_shifts(
                     iota, phi_L, R_orbit, Phicoal, psi)
 
-    z = jnp.interp(luminosity_distance, dLGridGlob, zGridGlob)
-    # doppler effect is treated as a change in the effective chirp mass
-    image_1_params['Mc'] *= ((1 + z) / (1 + z + delta_z)) ** (8/5)
-    image_2_params['Mc'] *= ((1 + z) / (1 + z - delta_z)) ** (8/5)
+    # z = jnp.interp(luminosity_distance, dLGridGlob, zGridGlob)
+    # relative-motion-induced redshift changes the effective chirp mass
+    image_1_params['Mc'] *= (1 + delta_z)
+    image_2_params['Mc'] *= (1 - delta_z)
 
     alpha_hat = _get_alpha_hat(R_orbit) # rad
 
