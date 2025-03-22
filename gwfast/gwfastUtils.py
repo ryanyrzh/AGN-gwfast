@@ -1424,7 +1424,7 @@ def get_lensing_induced_cosine_shifts(iota, phi_L, R_orbit, phi_coal, psi):
     Absolute shift = angular factor * cosine factor.
     This function calculates cosine factor, which solely depends on which angle we're shifting (iota, Phicoal, or psi),
     while the angular factor differentiates between the two images.
-    Orbit-induced Doppler shift is also calculated, assuming BBH is in circular orbit around AGN with orbital velocity << c.
+    Redshifts induced by environmental effects are also calculated, including orbit-induced redshift and gravitational redshift.
     '''
     sqrt_term = _sqrt_term(iota, phi_L)
     common_term = 1 / _sqrt_term(iota, phi_L)
@@ -1434,9 +1434,11 @@ def get_lensing_induced_cosine_shifts(iota, phi_L, R_orbit, phi_coal, psi):
     delta_cos_psi = common_term * ((1 / jnp.tan(iota)) * jnp.sin(phi_L) * jnp.sin(psi))
 
     cos_phi_proj = jnp.sin(iota) * jnp.sin(phi_L) / sqrt_term
-    delta_z = 2 * cos_phi_proj / R_orbit
+    z_orbit = 2 * cos_phi_proj / R_orbit
 
-    return delta_cos_iota, delta_cos_phi, delta_cos_psi, delta_z
+    z_grav = jnp.sqrt(1 - 1 / R_orbit) - 1
+
+    return delta_cos_iota, delta_cos_phi, delta_cos_psi, z_orbit, z_grav
 
 
 def _new_angle_from_lensing_shift(angle, delta_cos, alpha_hat, theta_E, src_pos, im_pos_1, im_pos_2):
@@ -1484,16 +1486,15 @@ def get_lensed_parameter_sets(unlensed_bbh_params, R_orbit=None, M_lens=None, sr
     phi_L = get_phi_L(iota, R_orbit, src_pos, theta_E, luminosity_distance, M_lens)
 
     # Get the change in parameters
-    delta_cos_iota, delta_cos_phi, delta_cos_psi, delta_z = \
+    delta_cos_iota, delta_cos_phi, delta_cos_psi, z_orbit, z_grav = \
             get_lensing_induced_cosine_shifts(
                     iota, phi_L, R_orbit, Phicoal, psi)
 
-    # z = jnp.interp(luminosity_distance, dLGridGlob, zGridGlob)
-    # relative-motion-induced redshift can be modeled as changes in effective chirp mass and effective luminosity distance
-    image_1_params['Mc'] *= (1 + delta_z)
-    image_2_params['Mc'] *= (1 - delta_z)
-    image_1_params['dL'] *= (1 + delta_z)**2
-    image_2_params['dL'] *= (1 - delta_z)**2
+    # Environemental effects (orbit-induced redshift and gravitational redshift) can be modeled as changes in effective chirp mass and effective luminosity distance
+    image_1_params['Mc'] *= (1 + z_orbit) * (1 + z_grav)
+    image_2_params['Mc'] *= (1 - z_orbit) * (1 + z_grav)
+    image_1_params['dL'] *= (1 + z_orbit)**2 * (1 + z_grav)
+    image_2_params['dL'] *= (1 - z_orbit)**2 * (1 + z_grav)
 
     alpha_hat = _get_alpha_hat(R_orbit) # rad
 
