@@ -1,0 +1,29 @@
+import os
+import sys
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.colors import LogNorm
+
+# SCRIPT_DIR = os.path.dirname(os.path.realpath(os.path.join(os.getcwd())))
+# sys.path.append(SCRIPT_DIR)
+sys.path.append(os.path.normpath(os.path.join(os.getcwd())))
+
+
+import gwfast.gwfastUtils as utils
+
+
+M_lens = np.linspace(1e4, 1e5, 200)
+src_pos = np.linspace(0.01, 0.5, 100)
+
+time_delay = utils.get_lensing_time_delay([], M_lens[:,np.newaxis], src_pos[np.newaxis,:])
+
+fig, ax = plt.subplots()
+im = ax.pcolormesh(src_pos, M_lens, time_delay, shading='nearest', norm=LogNorm())
+fig.colorbar(im)
+ax.set_ylabel(r'$M_{lens}/M_{\odot}$')
+ax.set_xlabel(r'$y$')
+ax.set_title('Time delay [s]')
+
+plt.show()
+
+fig.savefig('time_delay_plot.png')
