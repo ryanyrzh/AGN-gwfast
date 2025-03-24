@@ -17,7 +17,8 @@ config.update("jax_enable_x64", True)
 import numpy as onp
 import copy
 import mpmath
-import scipy
+from scipy.stats import norm
+from scipy.linalg import eigh
 
 try:
     onp.float128(1.)
@@ -230,11 +231,11 @@ def CheckFisher(FisherM, condNumbMax=1.0e15, use_mpmath=True, verbose=False):
 
     """
 
-    # Being the Fisher symmetric by definition, we can use the numpy.linalg function 'eigh', to speed up a bit
+    # Being the Fisher symmetric by definition, we can use the scipy.linalg function 'eigh', to speed up a bit
     # The input has size (Npar,Npar,Nev), so we have to swap
 
     if not use_mpmath:
-        evals, evecs = scipy.linalg.eigh(FisherM.transpose(2,0,1))
+        evals, evecs = eigh(FisherM.transpose(2,0,1))
     else:
         evals = onp.zeros(FisherM.shape[1:][::-1])
         evecs = onp.zeros(FisherM.shape[::-1])
@@ -255,7 +256,7 @@ def CheckFisher(FisherM, condNumbMax=1.0e15, use_mpmath=True, verbose=False):
                     print(e)
                     print('Trying with scipy')
                     try:
-                        evals[k, :], evecs[k, :, :] = scipy.linalg.eigh(FisherM[:,:,k])
+                        evals[k, :], evecs[k, :, :] = eigh(FisherM[:,:,k])
                     except Exception as e:
                         print(e)
                         print('Event is number %s' %k)
@@ -1016,13 +1017,13 @@ def confidence_ellipse(cov, ax, mean_x, mean_y, n_std=3.0, facecolor='none', **k
     ellipse = Ellipse((0, 0), width=ell_radius_x * 2, height=ell_radius_y * 2,
                       facecolor=facecolor, **kwargs)
 
-    # Calculating the stdandard deviation of x from
-    # the squareroot of the variance and multiplying
+    # Calculating the standard deviation of x from
+    # the square root of the variance and multiplying
     # with the given number of standard deviations.
     scale_x = onp.sqrt(cov[0, 0]) * n_std
     #mean_x = np.mean(x)
 
-    # calculating the stdandard deviation of y ...
+    # calculating the standard deviation of y ...
     scale_y = onp.sqrt(cov[1, 1]) * n_std
     #mean_y = np.mean(y)
 
