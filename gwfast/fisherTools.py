@@ -888,7 +888,7 @@ def plot_corners(covariance, parameters:list, indices:list,
                              figsize=(1.7*n_params, 1.7*n_params),
                              gridspec_kw={'wspace': 0.01, 'hspace': 0.01},
                              constrained_layout=True,
-                             sharex='col', sharey='row')
+                             sharex='col')
 
     for col, (idx, key1) in enumerate(zip(indices, parameters)):
         for row, (jdx, key2) in enumerate(zip(indices, parameters)):
@@ -900,19 +900,48 @@ def plot_corners(covariance, parameters:list, indices:list,
             ax = axes[row, col]
             idx_pair = (idx, jdx)
 
+            if row == n_params - 1:
+                ax.set_xlabel(labels.get(key1, key1), fontsize=15)
+
+            if row == col:
+                # For this part, we use float64 for plotting purpose
+                # as SciPy norm does not support float128
+                mu = float(event[key1])
+                std = onp.sqrt(covariance[idx, jdx]).astype('f8')
+                norm_rv = norm(mu, std)
+                x_range = onp.linspace(-2.5*std, 2.5*std, 500) + mu
+                ax.plot(x_range, norm_rv.pdf(x_range), color=color)
+
+                # Get the 90% Credible intervals
+                # Make use of the symmetric property here
+                CI_90 = norm_rv.ppf([0.05, 0.5, 0.95])
+                interval = onp.diff(CI_90)[0]
+                ax.set_title(fr'${mu:.3f} \pm {interval:.3f}$')
+
+                ax.axvline(CI_90[0], ls='--', color='grey')
+                ax.axvline(CI_90[2], ls='--', color='grey')
+                ax.set_yticks([])
+                continue
+
             confidence_ellipse(
                     covariance[onp.ix_(idx_pair, idx_pair)], ax,
                     event[key1], event[key2],
                     edgecolor=color, n_std=2.0)
 
             ax.scatter(event[key1], event[key2], c='red', s=3)
-            if row == n_params - 1:
-                ax.set_xlabel(labels.get(key1, key1), fontsize=15)
             if col == 0:
                 ax.set_ylabel(labels.get(key2, key2), fontsize=15)
+            else:
+                ax.set_yticklabels([])
             if row != col:
                 ax.tick_params(axis='both', which='both', direction='in',
                                left=True, right=True, top=True, bottom=True)
+
+    # Need to reset the share-y axes except the diagonal.
+    for row, jdx in enumerate(indices):
+        limits = axes[row, row].get_xlim()
+        for ax in axes[row, :row]:
+            ax.set_ylim(limits)
 
     # Not sure what does the `my_scales` do, skipping.
     return fig
