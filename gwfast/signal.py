@@ -27,6 +27,10 @@ from numdifftools.step_generators import MaxStepGenerator
 from gwfast import gwfastUtils as utils
 from gwfast import gwfastGlobals as glob
 
+TWOPI = 2.0 * np.pi
+DAY_TO_SEC = 3600.0 * 24.0
+DEG_TO_RAD = np.pi / 180
+
 
 class GWSignal(object):
     """
@@ -116,10 +120,9 @@ class GWSignal(object):
         self.verbose = verbose
         self.detector_shape = detector_shape
 
-        self.det_lat_rad = det_lat * np.pi / 180.0
-        self.det_long_rad = det_long * np.pi / 180.0
-
-        self.det_xax_rad = det_xax * np.pi / 180.0
+        self.det_lat_rad = det_lat * DEG_TO_RAD
+        self.det_long_rad = det_long * DEG_TO_RAD
+        self.det_xax_rad = det_xax * DEG_TO_RAD
 
         self.IntTablePath = IntTablePath
         # This is the percentage of time each arm of the detector (or the whole detector for an L) is supposed to be operational, between 0 and 1, default is None, resulting in a detector always online
@@ -263,21 +266,27 @@ class GWSignal(object):
 
         """
 
-        def IntegrandC(f, Mc, tcoal, n):
-            t = tcoal - 2.18567 * ((1.21 / Mc) ** (5.0 / 3.0)) * (
-                (100 / f[:, onp.newaxis]) ** (8.0 / 3.0)
-            ) / (3600.0 * 24)
-            return (f[:, onp.newaxis] ** (-7.0 / 3.0)) * np.cos(n * 2.0 * np.pi * t)
+        def _integrand(f, Mc, tcoal):
+            time = (
+                tcoal
+                - 2.18567
+                * ((1.21 / Mc) ** (5.0 / 3.0))
+                * ((100 / f[:, onp.newaxis]) ** (8.0 / 3.0))
+                / DAY_TO_SEC
+            )
+            return (f[:, onp.newaxis] ** (-7.0 / 3.0)), time
 
-        def IntegrandS(f, Mc, tcoal, n):
-            t = tcoal - 2.18567 * ((1.21 / Mc) ** (5.0 / 3.0)) * (
-                (100 / f[:, onp.newaxis]) ** (8.0 / 3.0)
-            ) / (3600.0 * 24)
-            return (f[:, onp.newaxis] ** (-7.0 / 3.0)) * np.sin(n * 2.0 * np.pi * t)
+        def CosineIntegrand(f, Mc, tcoal, n):
+            freq, time = _integrand(f=f, Mc=Mc, tcoal=tcoal)
+            return freq * np.cos(n * TWOPI * time)
+
+        def SineIntegrand(f, Mc, tcoal, n):
+            freq, time = _integrand(f=f, Mc=Mc, tcoal=tcoal)
+            return freq * np.sine(n * TWOPI * time)
 
         Mcgrid = onp.linspace(Mcmin, Mcmax, res)
         etagrid = onp.linspace(etamin, 0.25, res)
-        tcgrid = onp.linspace(0.0, 2.0 * np.pi, res)
+        tcgrid = onp.linspace(0.0, TWOPI, res)
 
         Igrid = onp.zeros((res, res, res, 9))
 
@@ -289,16 +298,13 @@ class GWSignal(object):
         for i, Mc in enumerate(Mcgrid):
             for j, eta in enumerate(etagrid):
                 tmpev = {
-                    "Mc": np.array(
-                        [
-                            Mc,
-                        ]
-                    ),
+                    "Mc": np.array([Mc]),
                     "eta": np.array([eta]),
                 }
                 fcut = self.wf_model.fcut(**tmpev)
                 mask = (self.strainFreq >= self.fmin) & (self.strainFreq <= fcut)
                 # for k,tc in enumerate(tcgrid):
+                # TODO: Use some kind of expand axis
                 fgrids = (
                     np.ones((res, len(self.strainFreq[mask]))) * self.strainFreq[mask]
                 )
@@ -306,10 +312,10 @@ class GWSignal(object):
                     np.ones((res, len(self.noiseCurve[mask]))) * self.noiseCurve[mask]
                 )
                 for m in range(4):
-                    tmpIntegrandC = IntegrandC(
+                    tmpIntegrandC = CosineIntegrand(
                         self.strainFreq[mask], Mc, tcgrid, m + 1.0
                     )
-                    tmpIntegrandS = IntegrandS(
+                    tmpIntegrandS = SineIntegrand(
                         self.strainFreq[mask], Mc, tcgrid, m + 1.0
                     )
                     Igrid[i, j, :, m] = onp.trapz(
@@ -319,7 +325,7 @@ class GWSignal(object):
                         tmpIntegrandS / noisegrids.T, fgrids.T, axis=0
                     )
 
-                tmpIntegrand = IntegrandC(self.strainFreq[mask], Mc, tcgrid, 0.0)
+                tmpIntegrand = CosineIntegrand(self.strainFreq[mask], Mc, tcgrid, 0.0)
                 Igrid[i, j, :, 8] = onp.trapz(
                     tmpIntegrand / noisegrids.T, fgrids.T, axis=0
                 )
@@ -377,10 +383,6 @@ class GWSignal(object):
                     etas = np.array(inp["eta"])
                     tcs = np.array(inp["tc"])
                     Igrid = np.array(inp["Integs"])
-                    # res = inp.attrs['npoints']
-                    # etamin =  inp.attrs['etamin']
-                    # Mcmin = inp.attrs['Mcmin']
-                    # Mcmax = inp.attrs['Mcmax']
                     if self.verbose:
                         print("Attributes of pre-computed integrals: ")
                         print([(k, inp.attrs[k]) for k in inp.attrs.keys()])
@@ -431,28 +433,28 @@ class GWSignal(object):
                 * np.sin(2 * (self.det_xax_rad + rot))
                 * (3.0 - np.cos(2.0 * self.det_lat_rad))
                 * (3.0 - np.cos(2.0 * dec))
-                * np.cos(2.0 * (ra - phir - 2.0 * np.pi * t))
+                * np.cos(2.0 * (ra - phir - TWOPI * t))
             )
             a2 = (
                 0.25
                 * np.cos(2 * (self.det_xax_rad + rot))
                 * np.sin(self.det_lat_rad)
                 * (3.0 - np.cos(2.0 * dec))
-                * np.sin(2.0 * (ra - phir - 2.0 * np.pi * t))
+                * np.sin(2.0 * (ra - phir - TWOPI * t))
             )
             a3 = (
                 0.25
                 * np.sin(2 * (self.det_xax_rad + rot))
                 * np.sin(2.0 * self.det_lat_rad)
                 * np.sin(2.0 * dec)
-                * np.cos(ra - phir - 2.0 * np.pi * t)
+                * np.cos(ra - phir - TWOPI * t)
             )
             a4 = (
                 0.5
                 * np.cos(2 * (self.det_xax_rad + rot))
                 * np.cos(self.det_lat_rad)
                 * np.sin(2.0 * dec)
-                * np.sin(ra - phir - 2.0 * np.pi * t)
+                * np.sin(ra - phir - TWOPI * t)
             )
             a5 = (
                 3.0
@@ -468,32 +470,32 @@ class GWSignal(object):
                 np.cos(2 * (self.det_xax_rad + rot))
                 * np.sin(self.det_lat_rad)
                 * np.sin(dec)
-                * np.cos(2.0 * (ra - phir - 2.0 * np.pi * t))
+                * np.cos(2.0 * (ra - phir - TWOPI * t))
             )
             b2 = (
                 0.25
                 * np.sin(2 * (self.det_xax_rad + rot))
                 * (3.0 - np.cos(2.0 * self.det_lat_rad))
                 * np.sin(dec)
-                * np.sin(2.0 * (ra - phir - 2.0 * np.pi * t))
+                * np.sin(2.0 * (ra - phir - TWOPI * t))
             )
             b3 = (
                 np.cos(2 * (self.det_xax_rad + rot))
                 * np.cos(self.det_lat_rad)
                 * np.cos(dec)
-                * np.cos(ra - phir - 2.0 * np.pi * t)
+                * np.cos(ra - phir - TWOPI * t)
             )
             b4 = (
                 0.5
                 * np.sin(2 * (self.det_xax_rad + rot))
                 * np.sin(2.0 * self.det_lat_rad)
                 * np.cos(dec)
-                * np.sin(ra - phir - 2.0 * np.pi * t)
+                * np.sin(ra - phir - TWOPI * t)
             )
 
             return b1 + b2 + b3 + b4
 
-        rot_rad = rot * np.pi / 180.0
+        rot_rad = rot * DEG_TO_RAD
 
         ras, decs = self._ra_dec_from_th_phi(theta, phi)
         afac = afun(ras, decs, t, rot_rad)
@@ -517,7 +519,6 @@ class GWSignal(object):
         phiP = -np.arctan2(np.cos(iota) * Fc, 0.5 * (1.0 + ((np.cos(iota)) ** 2)) * Fp)
 
         # The contriution to the amplitude is negligible, so we do not compute it
-
         return phiP
 
     def _DeltLoc(self, theta, phi, t):
@@ -539,13 +540,13 @@ class GWSignal(object):
             np.cos(decs)
             * np.cos(ras)
             * np.cos(self.det_lat_rad)
-            * np.cos(self.det_long_rad + 2.0 * np.pi * t)
+            * np.cos(self.det_long_rad + TWOPI * t)
         )
         comp2 = (
             np.cos(decs)
             * np.sin(ras)
             * np.cos(self.det_lat_rad)
-            * np.sin(self.det_long_rad + 2.0 * np.pi * t)
+            * np.sin(self.det_long_rad + TWOPI * t)
         )
         comp3 = np.sin(decs) * np.sin(self.det_lat_rad)
         # The minus sign arises from the definition of the unit vector pointing to the source
@@ -580,14 +581,14 @@ class GWSignal(object):
 
         if self.noMotion:
             t = 0.0
-            t = t + self._DeltLoc(theta, phi, t) / (3600.0 * 24.0)
+            t = t + self._DeltLoc(theta, phi, t) / DAY_TO_SEC
         else:
             if self.useEarthMotion:
-                t = tcoal - self.wf_model.tau_star(f, **evParams) / (3600.0 * 24)
-                t = t + self._DeltLoc(theta, phi, t) / (3600.0 * 24.0)
+                t = tcoal - self.wf_model.tau_star(f, **evParams) / DAY_TO_SEC
+                t = t + self._DeltLoc(theta, phi, t) / DAY_TO_SEC
             else:
                 t = tcoal  # - self.wf_model.tau_star(self.fmin, **evParams)/(3600.*24)
-                t = t + self._DeltLoc(theta, phi, t) / (3600.0 * 24.0)
+                t = t + self._DeltLoc(theta, phi, t) / DAY_TO_SEC
         # wfAmpl = self.wf_model.Ampl(f, **evParams)
         Fp, Fc = self._PatternFunction(theta, phi, t, psi, rot=rot)
 
@@ -618,7 +619,7 @@ class GWSignal(object):
         tcoal, Phicoal = evParams["tcoal"], evParams["Phicoal"]
         PhiGw = self.wf_model.Phi(f, **evParams)
 
-        return 2.0 * np.pi * f * (tcoal * 3600.0 * 24.0) - Phicoal - PhiGw
+        return TWOPI * f * (tcoal * DAY_TO_SEC) - Phicoal - PhiGw
 
     def GWstrain(
         self,
@@ -771,19 +772,19 @@ class GWSignal(object):
         phiD = ZEROS
         if self.useEarthMotion:
             if not use_lensing:
-                t = tcoal - self.wf_model.tau_star(f, **evParams) / (3600.0 * 24.0)
+                t = tcoal - self.wf_model.tau_star(f, **evParams) / DAY_TO_SEC
                 tmpDeltLoc = self._DeltLoc(theta, phi, t)  # in seconds
-                t = t + tmpDeltLoc / (3600.0 * 24.0)
+                t = t + tmpDeltLoc / DAY_TO_SEC
                 # phiP is necessary if we write the signal as A*exp(i Psi) with A = sqrt(Ap^2 + Ac^2), uncomment if needed
                 # phiP = self._phiPhase(theta, phi, t, iota, psi)
             else:
-                t1 = tcoal - self.wf_model.tau_star(f, **evParams1) / (3600.0 * 24.0)
+                t1 = tcoal - self.wf_model.tau_star(f, **evParams1) / DAY_TO_SEC
                 tmpDeltLoc1 = self._DeltLoc(theta, phi, t1)  # in seconds
-                t1 += tmpDeltLoc1 / (3600.0 * 24.0)
+                t1 += tmpDeltLoc1 / DAY_TO_SEC
 
-                t2 = tcoal - self.wf_model.tau_star(f, **evParams2) / (3600.0 * 24.0)
+                t2 = tcoal - self.wf_model.tau_star(f, **evParams2) / DAY_TO_SEC
                 tmpDeltLoc2 = self._DeltLoc(theta, phi, t2)  # in seconds
-                t2 += tmpDeltLoc2 / (3600.0 * 24.0)
+                t2 += tmpDeltLoc2 / DAY_TO_SEC
         else:
             # phiP = Mc*0.
             if self.noMotion:
@@ -791,7 +792,7 @@ class GWSignal(object):
             else:
                 t = tcoal
             tmpDeltLoc = self._DeltLoc(theta, phi, t)  # in seconds
-            t += tmpDeltLoc / (3600.0 * 24.0)
+            t += tmpDeltLoc / DAY_TO_SEC
 
             if use_lensing:
                 # Without Earth motion, both images takes the same value.
@@ -799,10 +800,10 @@ class GWSignal(object):
                 tmpDeltLoc1, tmpDeltLoc2 = tmpDeltLoc, tmpDeltLoc
 
         if not use_lensing:
-            phiL = (2.0 * np.pi * f) * tmpDeltLoc
+            phiL = (TWOPI * f) * tmpDeltLoc
         else:
-            phiL1 = (2.0 * np.pi * f) * tmpDeltLoc1
-            phiL2 = (2.0 * np.pi * f) * tmpDeltLoc2
+            phiL1 = (TWOPI * f) * tmpDeltLoc1
+            phiL2 = (TWOPI * f) * tmpDeltLoc2
 
         # Moving on to combining the strain with the antenna patterns
         need_HM = (self.wf_model.is_HigherModes) or (self.wf_model.is_Precessing)
@@ -867,9 +868,7 @@ class GWSignal(object):
                 return (Ap + 1j * Ac) * np.exp(Psi * 1j)
             # return np.sqrt(Ap*Ap + Ac*Ac)*np.exp((Psi+phiP)*1j)
 
-        phase_shift_factor = np.exp(
-            1j * (phiD + 2.0 * np.pi * f * (tcoal * 3600.0 * 24.0))
-        )
+        phase_shift_factor = np.exp(1j * (phiD + TWOPI * f * (tcoal * DAY_TO_SEC)))
         # It appears that using LAL or not only matters in the antenna pattern, combining both cases.
         if not use_lensing:
             # If the waveform includes higher modes or precessing spins, it is not possible to compute amplitude and phase separately, make all together
@@ -1705,7 +1704,7 @@ class GWSignal(object):
             )
             # Change the units of the tcoal derivative from days to seconds (this improves conditioning)
             FisherDerivs = onp.array(FisherDerivs)
-            FisherDerivs[tcelem, :, :] /= 3600.0 * 24.0
+            FisherDerivs[tcelem, :, :] /= DAY_TO_SEC
 
             FisherIntegrands = onp.conjugate(
                 FisherDerivs[:, :, onp.newaxis, :]
@@ -1769,7 +1768,7 @@ class GWSignal(object):
                     )
                     # Change the units of the tcoal derivative from days to seconds (this improves conditioning)
                     FisherDerivs = onp.array(FisherDerivs)
-                    FisherDerivs[tcelem, :, :] /= 3600.0 * 24.0
+                    FisherDerivs[tcelem, :, :] /= DAY_TO_SEC
                     FisherIntegrands = onp.conjugate(
                         FisherDerivs[:, :, onp.newaxis, :]
                     ) * FisherDerivs.transpose(1, 0, 2)
@@ -1837,7 +1836,7 @@ class GWSignal(object):
                 )
                 # Change the units of the tcoal derivative from days to seconds (this improves conditioning)
                 FisherDerivs1 = onp.array(FisherDerivs1)
-                FisherDerivs1[tcelem, :, :] /= 3600.0 * 24.0
+                FisherDerivs1[tcelem, :, :] /= DAY_TO_SEC
 
                 FisherIntegrands = onp.conjugate(
                     FisherDerivs1[:, :, onp.newaxis, :]
@@ -1901,7 +1900,7 @@ class GWSignal(object):
                     **kwargs,
                 )
                 FisherDerivs2 = onp.array(FisherDerivs2)
-                FisherDerivs2[tcelem, :, :] /= 3600.0 * 24.0
+                FisherDerivs2[tcelem, :, :] /= DAY_TO_SEC
                 FisherIntegrands = onp.conjugate(
                     FisherDerivs2[:, :, onp.newaxis, :]
                 ) * FisherDerivs2.transpose(1, 0, 2)
@@ -2070,25 +2069,8 @@ class GWSignal(object):
                 if not self.wf_model.is_Precessing:
                     derivargs = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 16, 17)
                 else:
-                    derivargs = (
-                        1,
-                        2,
-                        3,
-                        4,
-                        5,
-                        6,
-                        7,
-                        8,
-                        9,
-                        10,
-                        11,
-                        12,
-                        13,
-                        14,
-                        15,
-                        16,
-                        17,
-                    )
+                    # All 17 parameters are used
+                    derivargs = tuple(range(17))
         if not self.wf_model.is_tidal:
             derivargs = derivargs[:-2]
 
@@ -4273,9 +4255,9 @@ class GWSignal(object):
 
         if self.useEarthMotion:
             # Compute Doppler contribution
-            tnoloc = tcoal - self.wf_model.tau_star(f, **evParams) / (3600.0 * 24.0)
+            tnoloc = tcoal - self.wf_model.tau_star(f, **evParams) / DAY_TO_SEC
             tmpDeltLoc = self._DeltLoc(theta, phi, tnoloc)  # in seconds
-            t = tnoloc + tmpDeltLoc / (3600.0 * 24.0)
+            t = tnoloc + tmpDeltLoc / DAY_TO_SEC
             phiD = Mc * 0.0
             # phiP is necessary if we write the signal as A*exp(i Psi) with A = sqrt(Ap^2 + Ac^2), uncomment if necessary
             # phiP = self._phiPhase(theta, phi, t, iota, psi)
@@ -4287,11 +4269,11 @@ class GWSignal(object):
             else:
                 tnoloc = tcoal
             tmpDeltLoc = self._DeltLoc(theta, phi, tnoloc)  # in seconds
-            t = tnoloc + tmpDeltLoc / (3600.0 * 24.0)
+            t = tnoloc + tmpDeltLoc / DAY_TO_SEC
 
-        phiL = (2.0 * np.pi * f) * tmpDeltLoc
+        phiL = (TWOPI * f) * tmpDeltLoc
 
-        rot_rad = rot * np.pi / 180.0
+        rot_rad = rot * DEG_TO_RAD
 
         def afun(ra, dec, t, rot):
             phir = self.det_long_rad
@@ -4300,28 +4282,28 @@ class GWSignal(object):
                 * np.sin(2 * (self.det_xax_rad + rot))
                 * (3.0 - np.cos(2.0 * self.det_lat_rad))
                 * (3.0 - np.cos(2.0 * dec))
-                * np.cos(2.0 * (ra - phir - 2.0 * np.pi * t))
+                * np.cos(2.0 * (ra - phir - TWOPI * t))
             )
             a2 = (
                 0.25
                 * np.cos(2 * (self.det_xax_rad + rot))
                 * np.sin(self.det_lat_rad)
                 * (3.0 - np.cos(2.0 * dec))
-                * np.sin(2.0 * (ra - phir - 2.0 * np.pi * t))
+                * np.sin(2.0 * (ra - phir - TWOPI * t))
             )
             a3 = (
                 0.25
                 * np.sin(2 * (self.det_xax_rad + rot))
                 * np.sin(2.0 * self.det_lat_rad)
                 * np.sin(2.0 * dec)
-                * np.cos(ra - phir - 2.0 * np.pi * t)
+                * np.cos(ra - phir - TWOPI * t)
             )
             a4 = (
                 0.5
                 * np.cos(2 * (self.det_xax_rad + rot))
                 * np.cos(self.det_lat_rad)
                 * np.sin(2.0 * dec)
-                * np.sin(ra - phir - 2.0 * np.pi * t)
+                * np.sin(ra - phir - TWOPI * t)
             )
             a5 = (
                 3.0
@@ -4337,27 +4319,27 @@ class GWSignal(object):
                 np.cos(2 * (self.det_xax_rad + rot))
                 * np.sin(self.det_lat_rad)
                 * np.sin(dec)
-                * np.cos(2.0 * (ra - phir - 2.0 * np.pi * t))
+                * np.cos(2.0 * (ra - phir - TWOPI * t))
             )
             b2 = (
                 0.25
                 * np.sin(2 * (self.det_xax_rad + rot))
                 * (3.0 - np.cos(2.0 * self.det_lat_rad))
                 * np.sin(dec)
-                * np.sin(2.0 * (ra - phir - 2.0 * np.pi * t))
+                * np.sin(2.0 * (ra - phir - TWOPI * t))
             )
             b3 = (
                 np.cos(2 * (self.det_xax_rad + rot))
                 * np.cos(self.det_lat_rad)
                 * np.cos(dec)
-                * np.cos(ra - phir - 2.0 * np.pi * t)
+                * np.cos(ra - phir - TWOPI * t)
             )
             b4 = (
                 0.5
                 * np.sin(2 * (self.det_xax_rad + rot))
                 * np.sin(2.0 * self.det_lat_rad)
                 * np.cos(dec)
-                * np.sin(ra - phir - 2.0 * np.pi * t)
+                * np.sin(ra - phir - TWOPI * t)
             )
 
             return b1 + b2 + b3 + b4
@@ -4375,9 +4357,9 @@ class GWSignal(object):
         )
 
         hp, hc = wfhp * Fp * np.exp(
-            1j * (2.0 * np.pi * f * (tcoal * 3600.0 * 24.0) - Phicoal + phiD + phiL)
+            1j * (TWOPI * f * (tcoal * DAY_TO_SEC) - Phicoal + phiD + phiL)
         ), wfhc * Fc * np.exp(
-            1j * (2.0 * np.pi * f * (tcoal * 3600.0 * 24.0) - Phicoal + phiD + phiL)
+            1j * (TWOPI * f * (tcoal * DAY_TO_SEC) - Phicoal + phiD + phiL)
         )
 
         def psi_par_deriv():
@@ -4394,9 +4376,9 @@ class GWSignal(object):
             )
 
             return wfhp * Fp_psider * np.exp(
-                1j * (2.0 * np.pi * f * (tcoal * 3600.0 * 24.0) - Phicoal + phiD + phiL)
+                1j * (TWOPI * f * (tcoal * DAY_TO_SEC) - Phicoal + phiD + phiL)
             ) + wfhc * Fc_psider * np.exp(
-                1j * (2.0 * np.pi * f * (tcoal * 3600.0 * 24.0) - Phicoal + phiD + phiL)
+                1j * (TWOPI * f * (tcoal * DAY_TO_SEC) - Phicoal + phiD + phiL)
             )
 
         def phi_par_deriv():
@@ -4407,18 +4389,18 @@ class GWSignal(object):
                     -np.cos(dec)
                     * np.sin(ra)
                     * np.cos(self.det_lat_rad)
-                    * np.cos(self.det_long_rad + 2.0 * np.pi * t)
+                    * np.cos(self.det_long_rad + TWOPI * t)
                 )
                 comp2 = (
                     np.cos(dec)
                     * np.cos(ra)
                     * np.cos(self.det_lat_rad)
-                    * np.sin(self.det_long_rad + 2.0 * np.pi * t)
+                    * np.sin(self.det_long_rad + TWOPI * t)
                 )
 
                 Delt_phider = -glob.REarth * (comp1 + comp2) / glob.clight
 
-                return Delt_phider / (3600.0 * 24.0)  # in days
+                return Delt_phider / DAY_TO_SEC  # in days
 
             def afun_phider(ra, dec, t, rot):
                 phir = self.det_long_rad
@@ -4428,7 +4410,7 @@ class GWSignal(object):
                     * (3.0 - np.cos(2.0 * self.det_lat_rad))
                     * (3.0 - np.cos(2.0 * dec))
                     * (-2.0)
-                    * np.sin(2.0 * (ra - phir - 2.0 * np.pi * t))
+                    * np.sin(2.0 * (ra - phir - TWOPI * t))
                 )
                 a2 = (
                     0.25
@@ -4436,21 +4418,21 @@ class GWSignal(object):
                     * np.sin(self.det_lat_rad)
                     * (3.0 - np.cos(2.0 * dec))
                     * 2.0
-                    * np.cos(2.0 * (ra - phir - 2.0 * np.pi * t))
+                    * np.cos(2.0 * (ra - phir - TWOPI * t))
                 )
                 a3 = (
                     -0.25
                     * np.sin(2 * (self.det_xax_rad + rot))
                     * np.sin(2.0 * self.det_lat_rad)
                     * np.sin(2.0 * dec)
-                    * np.sin(ra - phir - 2.0 * np.pi * t)
+                    * np.sin(ra - phir - TWOPI * t)
                 )
                 a4 = (
                     0.5
                     * np.cos(2 * (self.det_xax_rad + rot))
                     * np.cos(self.det_lat_rad)
                     * np.sin(2.0 * dec)
-                    * np.cos(ra - phir - 2.0 * np.pi * t)
+                    * np.cos(ra - phir - TWOPI * t)
                 )
 
                 return a1 - a2 + a3 - a4
@@ -4463,7 +4445,7 @@ class GWSignal(object):
                     * np.sin(self.det_lat_rad)
                     * np.sin(dec)
                     * (-2.0)
-                    * np.sin(2.0 * (ra - phir - 2.0 * np.pi * t))
+                    * np.sin(2.0 * (ra - phir - TWOPI * t))
                 )
                 b2 = (
                     0.25
@@ -4471,30 +4453,30 @@ class GWSignal(object):
                     * (3.0 - np.cos(2.0 * self.det_lat_rad))
                     * np.sin(dec)
                     * 2.0
-                    * np.cos(2.0 * (ra - phir - 2.0 * np.pi * t))
+                    * np.cos(2.0 * (ra - phir - TWOPI * t))
                 )
                 b3 = (
                     -np.cos(2 * (self.det_xax_rad + rot))
                     * np.cos(self.det_lat_rad)
                     * np.cos(dec)
-                    * np.sin(ra - phir - 2.0 * np.pi * t)
+                    * np.sin(ra - phir - TWOPI * t)
                 )
                 b4 = (
                     0.5
                     * np.sin(2 * (self.det_xax_rad + rot))
                     * np.sin(2.0 * self.det_lat_rad)
                     * np.cos(dec)
-                    * np.cos(ra - phir - 2.0 * np.pi * t)
+                    * np.cos(ra - phir - TWOPI * t)
                 )
 
                 return b1 + b2 + b3 + b4
 
             locDt_phider = Delt_loc_phider(ras, decs, tnoloc)
             afac_phider = afun_phider(ras, decs, t, rot_rad) * (
-                1.0 - 2.0 * np.pi * locDt_phider
+                1.0 - TWOPI * locDt_phider
             )
             bfac_phider = bfun_phider(ras, decs, t, rot_rad) * (
-                1.0 - 2.0 * np.pi * locDt_phider
+                1.0 - TWOPI * locDt_phider
             )
 
             Fp_phider = np.sin(self.angbtwArms) * (
@@ -4508,30 +4490,18 @@ class GWSignal(object):
                 wfhp
                 * Fp_phider
                 * np.exp(
-                    1j
-                    * (
-                        2.0 * np.pi * f * (tcoal * 3600.0 * 24.0)
-                        - Phicoal
-                        + phiD
-                        + phiL
-                    )
+                    1j * (TWOPI * f * (tcoal * DAY_TO_SEC) - Phicoal + phiD + phiL)
                 )
             )
             ampC_phider = (
                 wfhc
                 * Fc_phider
                 * np.exp(
-                    1j
-                    * (
-                        2.0 * np.pi * f * (tcoal * 3600.0 * 24.0)
-                        - Phicoal
-                        + phiD
-                        + phiL
-                    )
+                    1j * (TWOPI * f * (tcoal * DAY_TO_SEC) - Phicoal + phiD + phiL)
                 )
             )
             phiD_phideriv = 0.0
-            phiL_phideriv = 2.0 * np.pi * f * locDt_phider * (3600.0 * 24.0)
+            phiL_phideriv = TWOPI * f * locDt_phider * DAY_TO_SEC
 
             return (
                 ampP_phider
@@ -4547,26 +4517,26 @@ class GWSignal(object):
                     np.sin(dec)
                     * np.cos(ra)
                     * np.cos(self.det_lat_rad)
-                    * np.cos(self.det_long_rad + 2.0 * np.pi * t)
+                    * np.cos(self.det_long_rad + TWOPI * t)
                 )
                 comp2 = (
                     np.sin(dec)
                     * np.sin(ra)
                     * np.cos(self.det_lat_rad)
-                    * np.sin(self.det_long_rad + 2.0 * np.pi * t)
+                    * np.sin(self.det_long_rad + TWOPI * t)
                 )
                 comp3 = -np.cos(dec) * np.sin(self.det_lat_rad)
 
                 Delt_thder = -glob.REarth * (comp1 + comp2 + comp3) / glob.clight
 
-                return Delt_thder / (3600.0 * 24.0)  # in days
+                return Delt_thder / DAY_TO_SEC  # in days
 
             def afun_thder(ra, dec, t, rot, loc_thder):
                 phir = self.det_long_rad
                 a1 = 0.0625 * np.sin(2 * (self.det_xax_rad + rot)) * (
                     3.0 - np.cos(2.0 * self.det_lat_rad)
                 ) * (-2.0 * np.sin(2.0 * dec)) * np.cos(
-                    2.0 * (ra - phir - 2.0 * np.pi * t)
+                    2.0 * (ra - phir - TWOPI * t)
                 ) + 0.0625 * np.sin(
                     2 * (self.det_xax_rad + rot)
                 ) * (
@@ -4574,14 +4544,14 @@ class GWSignal(object):
                 ) * (
                     3.0 - np.cos(2.0 * dec)
                 ) * np.sin(
-                    2.0 * (ra - phir - 2.0 * np.pi * t)
+                    2.0 * (ra - phir - TWOPI * t)
                 ) * (
                     4.0 * np.pi * loc_thder
                 )
                 a2 = 0.25 * np.cos(2 * (self.det_xax_rad + rot)) * np.sin(
                     self.det_lat_rad
                 ) * (-2.0 * np.sin(2.0 * dec)) * np.sin(
-                    2.0 * (ra - phir - 2.0 * np.pi * t)
+                    2.0 * (ra - phir - TWOPI * t)
                 ) - 0.25 * np.cos(
                     2 * (self.det_xax_rad + rot)
                 ) * np.sin(
@@ -4589,14 +4559,14 @@ class GWSignal(object):
                 ) * (
                     3.0 - np.cos(2.0 * dec)
                 ) * np.cos(
-                    2.0 * (ra - phir - 2.0 * np.pi * t)
+                    2.0 * (ra - phir - TWOPI * t)
                 ) * (
                     4.0 * np.pi * loc_thder
                 )
                 a3 = -0.25 * np.sin(2 * (self.det_xax_rad + rot)) * np.sin(
                     2.0 * self.det_lat_rad
                 ) * 2.0 * np.cos(2.0 * dec) * np.cos(
-                    ra - phir - 2.0 * np.pi * t
+                    ra - phir - TWOPI * t
                 ) + 0.25 * np.sin(
                     2 * (self.det_xax_rad + rot)
                 ) * np.sin(
@@ -4604,14 +4574,14 @@ class GWSignal(object):
                 ) * np.sin(
                     2.0 * dec
                 ) * np.sin(
-                    ra - phir - 2.0 * np.pi * t
+                    ra - phir - TWOPI * t
                 ) * (
-                    2.0 * np.pi * loc_thder
+                    TWOPI * loc_thder
                 )
                 a4 = -0.5 * np.cos(2 * (self.det_xax_rad + rot)) * np.cos(
                     self.det_lat_rad
                 ) * 2.0 * np.cos(2.0 * dec) * np.sin(
-                    ra - phir - 2.0 * np.pi * t
+                    ra - phir - TWOPI * t
                 ) - 0.5 * np.cos(
                     2 * (self.det_xax_rad + rot)
                 ) * np.cos(
@@ -4619,9 +4589,9 @@ class GWSignal(object):
                 ) * np.sin(
                     2.0 * dec
                 ) * np.cos(
-                    ra - phir - 2.0 * np.pi * t
+                    ra - phir - TWOPI * t
                 ) * (
-                    2.0 * np.pi * loc_thder
+                    TWOPI * loc_thder
                 )
                 a5 = (
                     2.0
@@ -4638,57 +4608,55 @@ class GWSignal(object):
                 phir = self.det_long_rad
                 b1 = -np.cos(2 * (self.det_xax_rad + rot)) * np.sin(
                     self.det_lat_rad
-                ) * np.cos(dec) * np.cos(2.0 * (ra - phir - 2.0 * np.pi * t)) + np.cos(
+                ) * np.cos(dec) * np.cos(2.0 * (ra - phir - TWOPI * t)) + np.cos(
                     2 * (self.det_xax_rad + rot)
                 ) * np.sin(
                     self.det_lat_rad
                 ) * np.sin(
                     dec
                 ) * np.sin(
-                    2.0 * (ra - phir - 2.0 * np.pi * t)
+                    2.0 * (ra - phir - TWOPI * t)
                 ) * (
                     4.0 * np.pi * loc_thder
                 )
                 b2 = -0.25 * np.sin(2 * (self.det_xax_rad + rot)) * (
                     3.0 - np.cos(2.0 * self.det_lat_rad)
-                ) * np.cos(dec) * np.sin(
-                    2.0 * (ra - phir - 2.0 * np.pi * t)
-                ) - 0.25 * np.sin(
+                ) * np.cos(dec) * np.sin(2.0 * (ra - phir - TWOPI * t)) - 0.25 * np.sin(
                     2 * (self.det_xax_rad + rot)
                 ) * (
                     3.0 - np.cos(2.0 * self.det_lat_rad)
                 ) * np.sin(
                     dec
                 ) * np.cos(
-                    2.0 * (ra - phir - 2.0 * np.pi * t)
+                    2.0 * (ra - phir - TWOPI * t)
                 ) * (
                     4.0 * np.pi * loc_thder
                 )
                 b3 = np.cos(2 * (self.det_xax_rad + rot)) * np.cos(
                     self.det_lat_rad
-                ) * np.sin(dec) * np.cos(ra - phir - 2.0 * np.pi * t) + np.cos(
+                ) * np.sin(dec) * np.cos(ra - phir - TWOPI * t) + np.cos(
                     2 * (self.det_xax_rad + rot)
                 ) * np.cos(
                     self.det_lat_rad
                 ) * np.cos(
                     dec
                 ) * np.sin(
-                    ra - phir - 2.0 * np.pi * t
+                    ra - phir - TWOPI * t
                 ) * (
-                    2.0 * np.pi * loc_thder
+                    TWOPI * loc_thder
                 )
                 b4 = 0.5 * np.sin(2 * (self.det_xax_rad + rot)) * np.sin(
                     2.0 * self.det_lat_rad
-                ) * np.sin(dec) * np.sin(ra - phir - 2.0 * np.pi * t) - 0.5 * np.sin(
+                ) * np.sin(dec) * np.sin(ra - phir - TWOPI * t) - 0.5 * np.sin(
                     2 * (self.det_xax_rad + rot)
                 ) * np.sin(
                     2.0 * self.det_lat_rad
                 ) * np.cos(
                     dec
                 ) * np.cos(
-                    ra - phir - 2.0 * np.pi * t
+                    ra - phir - TWOPI * t
                 ) * (
-                    2.0 * np.pi * loc_thder
+                    TWOPI * loc_thder
                 )
 
                 return b1 + b2 + b3 + b4
@@ -4708,30 +4676,18 @@ class GWSignal(object):
                 wfhp
                 * Fp_thder
                 * np.exp(
-                    1j
-                    * (
-                        2.0 * np.pi * f * (tcoal * 3600.0 * 24.0)
-                        - Phicoal
-                        + phiD
-                        + phiL
-                    )
+                    1j * (TWOPI * f * (tcoal * DAY_TO_SEC) - Phicoal + phiD + phiL)
                 )
             )
             ampC_thder = (
                 wfhc
                 * Fc_thder
                 * np.exp(
-                    1j
-                    * (
-                        2.0 * np.pi * f * (tcoal * 3600.0 * 24.0)
-                        - Phicoal
-                        + phiD
-                        + phiL
-                    )
+                    1j * (TWOPI * f * (tcoal * DAY_TO_SEC) - Phicoal + phiD + phiL)
                 )
             )
             phiD_thderiv = 0.0
-            phiL_thderiv = 2.0 * np.pi * f * locDt_thder * (3600.0 * 24.0)
+            phiL_thderiv = TWOPI * f * locDt_thder * DAY_TO_SEC
 
             return (
                 ampP_thder
@@ -4748,18 +4704,18 @@ class GWSignal(object):
                     -np.cos(decs)
                     * np.cos(ras)
                     * np.cos(self.det_lat_rad)
-                    * np.sin(self.det_long_rad + 2.0 * np.pi * t)
+                    * np.sin(self.det_long_rad + TWOPI * t)
                 )
                 comp2 = (
                     np.cos(decs)
                     * np.sin(ras)
                     * np.cos(self.det_lat_rad)
-                    * np.cos(self.det_long_rad + 2.0 * np.pi * t)
+                    * np.cos(self.det_long_rad + TWOPI * t)
                 )
 
-                Delt_tcder = -2.0 * np.pi * glob.REarth * (comp1 + comp2) / glob.clight
+                Delt_tcder = -TWOPI * glob.REarth * (comp1 + comp2) / glob.clight
 
-                return Delt_tcder / (3600.0 * 24.0)  # in days
+                return Delt_tcder / DAY_TO_SEC  # in days
 
             def afun_tcder(ra, dec, t, rot):
                 phir = self.det_long_rad
@@ -4769,7 +4725,7 @@ class GWSignal(object):
                     * (3.0 - np.cos(2.0 * self.det_lat_rad))
                     * (3.0 - np.cos(2.0 * dec))
                     * (-2.0)
-                    * np.sin(2.0 * (ra - phir - 2.0 * np.pi * t))
+                    * np.sin(2.0 * (ra - phir - TWOPI * t))
                 )
                 a2 = (
                     0.25
@@ -4777,21 +4733,21 @@ class GWSignal(object):
                     * np.sin(self.det_lat_rad)
                     * (3.0 - np.cos(2.0 * dec))
                     * 2.0
-                    * np.cos(2.0 * (ra - phir - 2.0 * np.pi * t))
+                    * np.cos(2.0 * (ra - phir - TWOPI * t))
                 )
                 a3 = (
                     -0.25
                     * np.sin(2 * (self.det_xax_rad + rot))
                     * np.sin(2.0 * self.det_lat_rad)
                     * np.sin(2.0 * dec)
-                    * np.sin(ra - phir - 2.0 * np.pi * t)
+                    * np.sin(ra - phir - TWOPI * t)
                 )
                 a4 = (
                     0.5
                     * np.cos(2 * (self.det_xax_rad + rot))
                     * np.cos(self.det_lat_rad)
                     * np.sin(2.0 * dec)
-                    * np.cos(ra - phir - 2.0 * np.pi * t)
+                    * np.cos(ra - phir - TWOPI * t)
                 )
 
                 return a1 - a2 + a3 - a4
@@ -4803,7 +4759,7 @@ class GWSignal(object):
                     * np.sin(self.det_lat_rad)
                     * np.sin(dec)
                     * (-2.0)
-                    * np.sin(2.0 * (ra - phir - 2.0 * np.pi * t))
+                    * np.sin(2.0 * (ra - phir - TWOPI * t))
                 )
                 b2 = (
                     0.25
@@ -4811,30 +4767,30 @@ class GWSignal(object):
                     * (3.0 - np.cos(2.0 * self.det_lat_rad))
                     * np.sin(dec)
                     * 2.0
-                    * np.cos(2.0 * (ra - phir - 2.0 * np.pi * t))
+                    * np.cos(2.0 * (ra - phir - TWOPI * t))
                 )
                 b3 = (
                     -np.cos(2 * (self.det_xax_rad + rot))
                     * np.cos(self.det_lat_rad)
                     * np.cos(dec)
-                    * np.sin(ra - phir - 2.0 * np.pi * t)
+                    * np.sin(ra - phir - TWOPI * t)
                 )
                 b4 = (
                     0.5
                     * np.sin(2 * (self.det_xax_rad + rot))
                     * np.sin(2.0 * self.det_lat_rad)
                     * np.cos(dec)
-                    * np.cos(ra - phir - 2.0 * np.pi * t)
+                    * np.cos(ra - phir - TWOPI * t)
                 )
 
                 return b1 + b2 + b3 + b4
 
             locDt_tcder = Delt_loc_tcder(ras, decs, tnoloc)
             afac_tcder = (
-                -2.0 * np.pi * afun_tcder(ras, decs, t, rot_rad) * (1.0 + locDt_tcder)
+                -TWOPI * afun_tcder(ras, decs, t, rot_rad) * (1.0 + locDt_tcder)
             )
             bfac_tcder = (
-                -2.0 * np.pi * bfun_tcder(ras, decs, t, rot_rad) * (1.0 + locDt_tcder)
+                -TWOPI * bfun_tcder(ras, decs, t, rot_rad) * (1.0 + locDt_tcder)
             )
 
             Fp_tcder = np.sin(self.angbtwArms) * (
@@ -4848,40 +4804,24 @@ class GWSignal(object):
                 wfhp
                 * Fp_tcder
                 * np.exp(
-                    1j
-                    * (
-                        2.0 * np.pi * f * (tcoal * 3600.0 * 24.0)
-                        - Phicoal
-                        + phiD
-                        + phiL
-                    )
+                    1j * (TWOPI * f * (tcoal * DAY_TO_SEC) - Phicoal + phiD + phiL)
                 )
             )
             ampC_tcder = (
                 wfhc
                 * Fc_tcder
                 * np.exp(
-                    1j
-                    * (
-                        2.0 * np.pi * f * (tcoal * 3600.0 * 24.0)
-                        - Phicoal
-                        + phiD
-                        + phiL
-                    )
+                    1j * (TWOPI * f * (tcoal * DAY_TO_SEC) - Phicoal + phiD + phiL)
                 )
             )
             phiD_tcderiv = 0.0
-            phiL_tcderiv = 2.0 * np.pi * f * locDt_tcder * (3600.0 * 24.0)
+            phiL_tcderiv = TWOPI * f * locDt_tcder * DAY_TO_SEC
 
             return (
                 ampP_tcder
-                + 1j
-                * (phiD_tcderiv + phiL_tcderiv + 2.0 * np.pi * f * 3600.0 * 24.0)
-                * hp
+                + 1j * (phiD_tcderiv + phiL_tcderiv + TWOPI * f * DAY_TO_SEC) * hp
                 + ampC_tcder
-                + 1j
-                * (phiD_tcderiv + phiL_tcderiv + 2.0 * np.pi * f * 3600.0 * 24.0)
-                * hc
+                + 1j * (phiD_tcderiv + phiL_tcderiv + TWOPI * f * DAY_TO_SEC) * hc
             )
 
         def iota_par_deriv():
@@ -4891,21 +4831,9 @@ class GWSignal(object):
                     np.cos(iota) * np.sin(iota)
                 ), -1j * wfAmpl * np.exp(-1j * wfPhiGw) * np.sin(iota)
                 return wfhp_iotader * Fp * np.exp(
-                    1j
-                    * (
-                        2.0 * np.pi * f * (tcoal * 3600.0 * 24.0)
-                        - Phicoal
-                        + phiD
-                        + phiL
-                    )
+                    1j * (TWOPI * f * (tcoal * DAY_TO_SEC) - Phicoal + phiD + phiL)
                 ) + wfhc_iotader * Fc * np.exp(
-                    1j
-                    * (
-                        2.0 * np.pi * f * (tcoal * 3600.0 * 24.0)
-                        - Phicoal
-                        + phiD
-                        + phiL
-                    )
+                    1j * (TWOPI * f * (tcoal * DAY_TO_SEC) - Phicoal + phiD + phiL)
                 )
             else:
                 # This derivative is computed numerically if the waveform contains higher modes
@@ -5005,7 +4933,7 @@ class GWSignal(object):
         mask = self.strainFreq >= self.fmin
 
         def CoeffsRot(ra, dec, psi, rot=0.0):
-            rot = rot * np.pi / 180.0
+            rot = rot * DEG_TO_RAD
             rasDet = ra - self.det_long_rad
             # Referring to overleaf, I now call VC2 the last vector appearing in the C2 expression, VS2 the one in the S2 expression and so on
             # e1 is the first element and e2 the second
@@ -5095,7 +5023,7 @@ class GWSignal(object):
 
             _C0 = 0.75 * sin_2xax * ((np.cos(dec) * cos_lat) ** 2) * sin_angbtwArms
             C0p = _C0 * np.cos(2.0 * psi)
-            C0c = - _C0 * np.sin(2.0 * psi)
+            C0c = -_C0 * np.sin(2.0 * psi)
 
             return (
                 np.array([C2p, C2c]),
@@ -5106,6 +5034,7 @@ class GWSignal(object):
             )
 
         def FpFcsqInt(C2s, S2s, C1s, S1s, C0s, Igs, iota):
+            # Is he out of his mind??
             Fp4 = 0.5 * (C2s[0] ** 2 - S2s[0] ** 2) * Igs[3] + C2s[0] * S2s[0] * Igs[7]
 
             Fp3 = (C2s[0] * C1s[0] - S2s[0] * S1s[0]) * Igs[2] + (
@@ -5154,7 +5083,7 @@ class GWSignal(object):
             )
 
         if not self.useEarthMotion:
-            t = tcoal - self.wf_model.tau_star(self.fmin, **evParams) / (3600.0 * 24)
+            t = tcoal - self.wf_model.tau_star(self.fmin, **evParams) / DAY_TO_SEC
             if self.detector_shape == "L":
                 Fp, Fc = self._PatternFunction(theta, phi, t, psi, rot=0.0)
                 Qsq = (Fp * 0.5 * (1.0 + (np.cos(iota)) ** 2)) ** 2 + (
@@ -5198,16 +5127,24 @@ class GWSignal(object):
             else:
 
                 def IntegrandC(f, Mc, tcoal, n):
-                    t = tcoal - 2.18567 * ((1.21 / Mc) ** (5.0 / 3.0)) * (
-                        (100 / f) ** (8.0 / 3.0)
-                    ) / (3600.0 * 24)
-                    return (f ** (-7.0 / 3.0)) * np.cos(n * 2.0 * np.pi * t)
+                    t = (
+                        tcoal
+                        - 2.18567
+                        * ((1.21 / Mc) ** (5.0 / 3.0))
+                        * ((100 / f) ** (8.0 / 3.0))
+                        / DAY_TO_SEC
+                    )
+                    return (f ** (-7.0 / 3.0)) * np.cos(n * TWOPI * t)
 
                 def IntegrandS(f, Mc, tcoal, n):
-                    t = tcoal - 2.18567 * ((1.21 / Mc) ** (5.0 / 3.0)) * (
-                        (100 / f) ** (8.0 / 3.0)
-                    ) / (3600.0 * 24)
-                    return (f ** (-7.0 / 3.0)) * np.sin(n * 2.0 * np.pi * t)
+                    t = (
+                        tcoal
+                        - 2.18567
+                        * ((1.21 / Mc) ** (5.0 / 3.0))
+                        * ((100 / f) ** (8.0 / 3.0))
+                        / DAY_TO_SEC
+                    )
+                    return (f ** (-7.0 / 3.0)) * np.sin(n * TWOPI * t)
 
                 fminarr = np.full(fcut.shape, self.fmin)
                 fgrids = np.geomspace(fminarr, fcut, num=int(5000))
