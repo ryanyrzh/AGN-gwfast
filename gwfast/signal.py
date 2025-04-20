@@ -4275,22 +4275,39 @@ class GWSignal(object):
 
         rot_rad = rot * DEG_TO_RAD
 
-        def afun(ra, dec, t, rot):
+        def compute_ab_factors(ra, dec, t, rot):
             phir = self.det_long_rad
-            a1 = (
-                0.0625
-                * np.sin(2 * (self.det_xax_rad + rot))
-                * (3.0 - np.cos(2.0 * self.det_lat_rad))
-                * (3.0 - np.cos(2.0 * dec))
-                * np.cos(2.0 * (ra - phir - TWOPI * t))
-            )
-            a2 = (
+            sin_lat = np.sin(self.det_lat_rad)
+            cos_lat = np.cos(self.det_lat_rad)
+            sin_2lat = np.sin(2.0 * self.det_lat_rad)
+            m3_cos_2lat = 3 - np.cos(2.0 * self.det_lat_rad)
+            sin_2xax = np.sin(2.0 * (self.det_xax_rad + rot))
+            cos_2xax = np.cos(2.0 * (self.det_xax_rad + rot))
+            cos_2ra = np.cos(2.0 * rasDet)
+            sin_2ra = np.sin(2.0 * rasDet)
+            m3_cos_2dec = 3 - np.cos(2.0 * dec)
+            sin_2dec = np.sin(2.0 * dec)
+
+            ang = ra - phir - TWOPI * t
+            cos_2ang = np.cos(2.0 * ang)
+            sin_2ang = np.sin(2.0 * ang)
+            cos_ang = np.cos(ang)
+            sin_ang = np.sin(ang)
+
+            a1 = 0.0625 * sin_2xax * m3_cos_2lat * m3_cos_2dec * cos_2ang
+            a2 = 0.25 * cos_2xax * sin_lat * m3_cos_2dec * sin_2ang
+            a3 = (
                 0.25
-                * np.cos(2 * (self.det_xax_rad + rot))
-                * np.sin(self.det_lat_rad)
-                * (3.0 - np.cos(2.0 * dec))
-                * np.sin(2.0 * (ra - phir - TWOPI * t))
+                * sin_2xax
+                * sin_2lat
+                * sin_2dec
+                * np.cos(ra - phir - TWOPI * t)
             )
+
+
+
+        def afun(ra, dec, t, rot):
+            
             a3 = (
                 0.25
                 * np.sin(2 * (self.det_xax_rad + rot))
