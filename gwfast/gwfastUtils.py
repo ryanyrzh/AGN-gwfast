@@ -14,6 +14,7 @@ import json
 import h5py
 
 from gwfast import gwfastGlobals as glob
+from gwfast.gwfastGlobals import TWOPI, DAY_TO_SEC
 
 
 ##############################################################################

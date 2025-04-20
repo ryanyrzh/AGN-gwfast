@@ -26,10 +26,7 @@ from numdifftools.step_generators import MaxStepGenerator
 
 from gwfast import gwfastUtils as utils
 from gwfast import gwfastGlobals as glob
-
-TWOPI = 2.0 * np.pi
-DAY_TO_SEC = 3600.0 * 24.0
-DEG_TO_RAD = np.pi / 180
+from gwfast.gwfastGlobals import TWOPI, DAY_TO_SEC, DEG_TO_RAD
 
 
 class GWSignal(object):
