@@ -732,6 +732,94 @@ def TransformPrecessing_comp2angles(iota, S1x, S1y, S1z, S2x, S2y, S2z, Mc, eta,
     return thetaJN, phiJL, theta1, theta2, phi12, chi1, chi2
 
 ##############################################################################
+# Antenna Pattern
+##############################################################################
+
+def compute_ab_factors(ra, dec, t, rot,
+                       long_rad, lat_rad, xax_rad,
+                       dphi=False, dtheta=False, dtime=False):
+    """
+    See P. Jaranowski, A. Krolak, B. F. Schutz, PRD 58, 063001, eq. (10)--(13)
+    """
+    sin_lat = jnp.sin(lat_rad)
+    cos_lat = jnp.cos(lat_rad)
+    sin_2lat = jnp.sin(2.0 * lat_rad)
+    m3_cos_2lat = 3 - jnp.cos(2.0 * lat_rad)
+    sin_2xax = jnp.sin(2.0 * (xax_rad + rot))
+    cos_2xax = jnp.cos(2.0 * (xax_rad + rot))
+    m3_cos_2dec = 3 - jnp.cos(2.0 * dec)
+    sin_2dec = jnp.sin(2.0 * dec)
+
+    ang = ra - long_rad - TWOPI * t
+    cos_2ang = jnp.cos(2.0 * ang)
+    sin_2ang = jnp.sin(2.0 * ang)
+    cos_ang = jnp.cos(ang)
+    sin_ang = jnp.sin(ang)
+
+    if dphi or dtime:
+        cos_2ang = -2 * jnp.sin(2.0 * ang)
+        sin_2ang = +2 * jnp.cos(2.0 * ang)
+        cos_ang = -1 * jnp.sin(ang)
+        sin_ang = +1 * jnp.cos(ang)
+
+    a1 = 0.0625 * sin_2xax * m3_cos_2lat * m3_cos_2dec * cos_2ang
+    a2 = 0.25 * cos_2xax * sin_lat * m3_cos_2dec * sin_2ang
+    a3 = 0.25 * sin_2xax * sin_2lat * sin_2dec * cos_ang
+    a4 = 0.5 * cos_2xax * cos_lat * sin_2dec * sin_ang
+    a5 = 3.0 * 0.25 * sin_2xax * (cos_lat * jnp.cos(dec)) ** 2.0
+    a_factor = a1 - a2 + a3 - a4 + a5
+
+    b1 = cos_2xax * sin_lat * jnp.sin(dec) * cos_2ang
+    b2 = 0.25 * sin_2xax * m3_cos_2lat * jnp.sin(dec) * sin_2ang
+    b3 = cos_2xax * cos_lat * jnp.cos(dec) * cos_ang
+    b4 = 0.5 * sin_2xax * sin_2lat * jnp.cos(dec) * sin_ang
+    b_factor = b1 + b2 + b3 + b4
+
+    return a_factor, b_factor
+
+def deltat_loc_derivatives(ra, dec, time, lat_rad, long_rad, 
+                           dphi=False, dtheta=False, dtime=False):
+    """
+    Compute the derivatives of the time delay.
+    Simplified from 
+    * `Delt_loc_phider`
+    * `Delt_loc_thder`
+    * `Delt_loc_tcder`
+    """
+    cos_lat = jnp.cos(lat_rad)
+    sin_lat = jnp.sin(lat_rad)
+    sin_ra = jnp.sin(ra)
+    cos_ra = jnp.cos(ra)
+    sin_dec = jnp.sin(dec)
+    cos_dec = jnp.cos(dec)
+
+    deltat = long_rad + TWOPI * time
+    cos_deltat = jnp.cos(deltat)
+    sin_deltat = jnp.sin(deltat)
+
+    _comp1 = cos_ra * cos_lat
+    _comp2 = sin_ra * cos_lat
+
+    deriv_case = 1 * dphi + 2 * dtheta + 4 * dtime
+    comp1, comp2, comp3 = {
+        1: (- cos_dec * sin_deltat,
+            + cos_dec * cos_deltat,
+            0.0),
+        2: (sin_dec * cos_deltat,
+            sin_dec * sin_deltat,
+            -cos_dec * sin_lat),
+        4: (-cos_dec * sin_deltat * TWOPI,
+            +cos_dec * cos_deltat * TWOPI,
+            0.0)
+    }[deriv_case]
+
+    sum_comp = comp1 * _comp1 + comp2 * _comp2 + comp3
+    earth_traverse_time = - glob.REarth / glob.clight / DAY_TO_SEC
+
+    return sum_comp * earth_traverse_time
+
+
+##############################################################################
 # TIMES
 ##############################################################################
 
