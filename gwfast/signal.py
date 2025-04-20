@@ -460,23 +460,11 @@ class GWSignal(object):
         # Time needed to go from Earth center to detector location
         ras, decs = self._ra_dec_from_th_phi(theta, phi)
 
-        comp1 = (
-            np.cos(decs)
-            * np.cos(ras)
-            * np.cos(self.det_lat_rad)
-            * np.cos(self.det_long_rad + TWOPI * t)
-        )
-        comp2 = (
-            np.cos(decs)
-            * np.sin(ras)
-            * np.cos(self.det_lat_rad)
-            * np.sin(self.det_long_rad + TWOPI * t)
-        )
-        comp3 = np.sin(decs) * np.sin(self.det_lat_rad)
-        # The minus sign arises from the definition of the unit vector pointing to the source
-        Delt = -glob.REarth * (comp1 + comp2 + comp3) / glob.clight
+        delta_t = geocentric_deltat(
+            ras, decs, t, self.det_lat_rad, self.det_long_rad
+        )  # days
 
-        return Delt  # in seconds
+        return delta_t * DAY_TO_SEC  # in seconds
 
     def GWAmplitudes(self, evParams, f, rot=0.0):
         """

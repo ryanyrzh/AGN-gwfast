@@ -777,14 +777,25 @@ def compute_ab_factors(ra, dec, t, rot,
 
     return a_factor, b_factor
 
-def deltat_loc_derivatives(ra, dec, time, lat_rad, long_rad, 
-                           dphi=False, dtheta=False, dtime=False):
+
+def geocentric_deltat(
+    ra, dec, time, lat_rad, long_rad, dphi=False, dtheta=False, dtime=False
+):
     """
-    Compute the derivatives of the time delay.
-    Simplified from 
+    Compute the time needed to go from Earth center to detector location
+    for a set of sky coordinates and time(s). The result is given in days.
+
+    Also the derivatives, simplified from:
     * `Delt_loc_phider`
     * `Delt_loc_thder`
     * `Delt_loc_tcder`
+
+    :param array or float ra: The :math:`\\theta` sky position angle(s), in :math:`\\rm rad`.
+    :param array or float dec: The :math:`\phi` sky position angle(s), in :math:`\\rm rad`.
+    :param array or float time: The time(s) given as GMST.
+
+    :return: Time shift (days) to go from Earth center to detector location.
+    :rtype: array or float
     """
     cos_lat = jnp.cos(lat_rad)
     sin_lat = jnp.sin(lat_rad)
@@ -800,21 +811,18 @@ def deltat_loc_derivatives(ra, dec, time, lat_rad, long_rad,
     _comp1 = cos_ra * cos_lat
     _comp2 = sin_ra * cos_lat
 
+    # This is to maintain the functino being jit-able.
     deriv_case = 1 * dphi + 2 * dtheta + 4 * dtime
     comp1, comp2, comp3 = {
-        1: (- cos_dec * sin_deltat,
-            + cos_dec * cos_deltat,
-            0.0),
-        2: (sin_dec * cos_deltat,
-            sin_dec * sin_deltat,
-            -cos_dec * sin_lat),
-        4: (-cos_dec * sin_deltat * TWOPI,
-            +cos_dec * cos_deltat * TWOPI,
-            0.0)
+        0: (cos_dec * cos_deltat, cos_dec * sin_deltat, sin_dec * sin_lat),
+        1: (-cos_dec * sin_deltat, +cos_dec * cos_deltat, 0.0),
+        2: (sin_dec * cos_deltat, sin_dec * sin_deltat, -cos_dec * sin_lat),
+        4: (-cos_dec * sin_deltat * TWOPI, +cos_dec * cos_deltat * TWOPI, 0.0),
     }[deriv_case]
 
     sum_comp = comp1 * _comp1 + comp2 * _comp2 + comp3
-    earth_traverse_time = - glob.REarth / glob.clight / DAY_TO_SEC
+    # The minus sign arises from the definition of the unit vector pointing to the source
+    earth_traverse_time = -glob.REarth / glob.clight / DAY_TO_SEC
 
     return sum_comp * earth_traverse_time
 
