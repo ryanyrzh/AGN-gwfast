@@ -4802,13 +4802,6 @@ class GWSignal(object):
             m3_cos_2dec = 3 - np.cos(2.0 * dec)
             sin_2dec = np.sin(2.0 * dec)
 
-            psi_rotation = np.array(
-                [
-                    [np.cos(2 * psi), np.sin(2 * psi)],
-                    [-np.sin(2 * psi), np.cos(2 * psi)],
-                ]
-            )
-
             # TODO: Why 0.0675?
             VC2e1 = (
                 0.0675 * cos_2ra * sin_2xax * m3_cos_2dec * m3_cos_2lat
@@ -4818,13 +4811,7 @@ class GWSignal(object):
                 0.25 * sin_2ra * sin_2xax * np.sin(dec) * m3_cos_2lat
                 + cos_2ra * cos_2xax * np.sin(dec) * sin_lat
             )
-
-            VC2 = np.array([VC2e1, VC2e2])
-            # This einsum is designed for cases when the shape of
-            # VC2 is (2, N) (or more).
-            C2 = np.einsum("ij...,j...->i...", psi_rotation, VC2)
-            C2p = C2[0] * sin_angbtwArms
-            C2c = C2[1] * sin_angbtwArms
+            C2p, C2c = sin_angbtwArms * apply_psi_rotation(psi, VC2e1, VC2e2)
 
             VS2e1 = (
                 0.0675 * sin_2ra * sin_2xax * m3_cos_2dec * m3_cos_2lat
@@ -4834,13 +4821,7 @@ class GWSignal(object):
                 -0.25 * cos_2ra * sin_2xax * np.sin(dec) * m3_cos_2lat
                 + sin_2ra * cos_2xax * np.sin(dec) * sin_lat
             )
-
-            VS2 = np.array([VS2e1, VS2e2])
-            # This einsum is designed for cases when the shape of
-            # VC2 is (2, N) (or more).
-            S2 = np.einsum("ij...,j...->i...", psi_rotation, VS2)
-            S2p = S2[0] * sin_angbtwArms
-            S2c = S2[1] * sin_angbtwArms
+            S2p, S2c = sin_angbtwArms * apply_psi_rotation(psi, VS2e1, VS2e2)
 
             VC1e1 = 0.25 * (
                 np.cos(rasDet) * sin_2xax * sin_2dec * sin_2lat
@@ -4850,27 +4831,17 @@ class GWSignal(object):
                 np.cos(rasDet) * cos_2xax * np.cos(dec) * cos_lat
                 + 0.5 * np.sin(rasDet) * sin_2xax * np.cos(dec) * sin_2lat
             )
-            VC1 = np.array([VC1e1, VC1e2])
-            # This einsum is designed for cases when the shape of
-            # VC2 is (2, N) (or more).
-            C1 = np.einsum("ij...,j...->i...", psi_rotation, VC1)
-            C1p = C1[0] * sin_angbtwArms
-            C1c = C1[1] * sin_angbtwArms
+            C1p, C1c = sin_angbtwArms * apply_psi_rotation(psi, VC1e1, VC1e2)
 
             VS1e1 = 0.25 * (
-                np.sin(rasDet) * sin_2xax * np.sin(2 * dec) * sin_2lat
-                + 2 * np.cos(rasDet) * cos_2xax * np.sin(2 * dec) * cos_lat
+                np.sin(rasDet) * sin_2xax * sin_2dec * sin_2lat
+                + 2 * np.cos(rasDet) * cos_2xax * sin_2dec * cos_lat
             )
             VS1e2 = (
                 np.sin(rasDet) * cos_2xax * np.cos(dec) * cos_lat
                 - 0.5 * np.cos(rasDet) * sin_2xax * np.cos(dec) * sin_2lat
             )
-            VS1 = np.array([VS1e1, VS1e2])
-            # This einsum is designed for cases when the shape of
-            # VC2 is (2, N) (or more).
-            S1 = np.einsum("ij...,j...->i...", psi_rotation, VS1)
-            S1p = S1[0] * sin_angbtwArms
-            S1c = S1[1] * sin_angbtwArms
+            S1p, S1c = sin_angbtwArms * apply_psi_rotation(psi, VS1e1, VS1e2)
 
             _C0 = 0.75 * sin_2xax * ((np.cos(dec) * cos_lat) ** 2) * sin_angbtwArms
             C0p = _C0 * np.cos(2.0 * psi)
