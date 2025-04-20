@@ -422,81 +422,11 @@ class GWSignal(object):
 
         """
 
-        # See P. Jaranowski, A. Krolak, B. F. Schutz, PRD 58, 063001, eq. (10)--(13)
-        def afun(ra, dec, t, rot):
-            phir = self.det_long_rad
-            a1 = (
-                0.0625
-                * np.sin(2 * (self.det_xax_rad + rot))
-                * (3.0 - np.cos(2.0 * self.det_lat_rad))
-                * (3.0 - np.cos(2.0 * dec))
-                * np.cos(2.0 * (ra - phir - TWOPI * t))
-            )
-            a2 = (
-                0.25
-                * np.cos(2 * (self.det_xax_rad + rot))
-                * np.sin(self.det_lat_rad)
-                * (3.0 - np.cos(2.0 * dec))
-                * np.sin(2.0 * (ra - phir - TWOPI * t))
-            )
-            a3 = (
-                0.25
-                * np.sin(2 * (self.det_xax_rad + rot))
-                * np.sin(2.0 * self.det_lat_rad)
-                * np.sin(2.0 * dec)
-                * np.cos(ra - phir - TWOPI * t)
-            )
-            a4 = (
-                0.5
-                * np.cos(2 * (self.det_xax_rad + rot))
-                * np.cos(self.det_lat_rad)
-                * np.sin(2.0 * dec)
-                * np.sin(ra - phir - TWOPI * t)
-            )
-            a5 = (
-                3.0
-                * 0.25
-                * np.sin(2 * (self.det_xax_rad + rot))
-                * (np.cos(self.det_lat_rad) * np.cos(dec)) ** 2.0
-            )
-            return a1 - a2 + a3 - a4 + a5
-
-        def bfun(ra, dec, t, rot):
-            phir = self.det_long_rad
-            b1 = (
-                np.cos(2 * (self.det_xax_rad + rot))
-                * np.sin(self.det_lat_rad)
-                * np.sin(dec)
-                * np.cos(2.0 * (ra - phir - TWOPI * t))
-            )
-            b2 = (
-                0.25
-                * np.sin(2 * (self.det_xax_rad + rot))
-                * (3.0 - np.cos(2.0 * self.det_lat_rad))
-                * np.sin(dec)
-                * np.sin(2.0 * (ra - phir - TWOPI * t))
-            )
-            b3 = (
-                np.cos(2 * (self.det_xax_rad + rot))
-                * np.cos(self.det_lat_rad)
-                * np.cos(dec)
-                * np.cos(ra - phir - TWOPI * t)
-            )
-            b4 = (
-                0.5
-                * np.sin(2 * (self.det_xax_rad + rot))
-                * np.sin(2.0 * self.det_lat_rad)
-                * np.cos(dec)
-                * np.sin(ra - phir - TWOPI * t)
-            )
-
-            return b1 + b2 + b3 + b4
-
         rot_rad = rot * DEG_TO_RAD
 
         ras, decs = self._ra_dec_from_th_phi(theta, phi)
-        afac = afun(ras, decs, t, rot_rad)
-        bfac = bfun(ras, decs, t, rot_rad)
+        afac, bfac = compute_ab_factors(ras, decs, t, rot_rad, 
+                                        self.det_long_rad, self.det_lat_rad, self.det_xax_rad)
 
         Fp = np.sin(self.angbtwArms) * (
             afac * np.cos(2.0 * psi) + bfac * np.sin(2 * psi)
