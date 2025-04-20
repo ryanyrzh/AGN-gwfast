@@ -5011,135 +5011,109 @@ class GWSignal(object):
             # Referring to overleaf, I now call VC2 the last vector appearing in the C2 expression, VS2 the one in the S2 expression and so on
             # e1 is the first element and e2 the second
 
-            VC2e1 = 0.0675 * np.cos(2 * rasDet) * np.sin(
-                2 * (self.det_xax_rad + rot)
-            ) * (3.0 - np.cos(2 * dec)) * (
-                3.0 - np.cos(2.0 * self.det_lat_rad)
+            sin_angbtwArms = np.sin(self.angbtwArms)
+
+            sin_lat = np.sin(self.det_lat_rad)
+            cos_lat = np.cos(self.det_lat_rad)
+            sin_2lat = np.sin(2.0 * self.det_lat_rad)
+            cos_2lat = np.cos(2.0 * self.det_lat_rad)
+            sin_2xax = np.sin(2.0 * (self.det_xax_rad + rot))
+            cos_2xax = np.cos(2.0 * (self.det_xax_rad + rot))
+
+            psi_rotation = np.array([
+                [np.cos(2 * psi), np.sin(2 * psi)],
+                [-np.sin(2 * psi), np.cos(2 * psi)]
+            ])
+
+            VC2e1 = 0.0675 * np.cos(2 * rasDet) * sin_2xax * (
+                3.0 - np.cos(2 * dec)) * (
+                3.0 - cos_2lat
             ) - 0.25 * np.sin(
                 2 * rasDet
-            ) * np.cos(
-                2 * (self.det_xax_rad + rot)
-            ) * (
+            ) * cos_2xax * (
                 3.0 - np.cos(2 * dec)
-            ) * np.sin(
-                self.det_lat_rad
-            )
-            VC2e2 = 0.25 * np.sin(2 * rasDet) * np.sin(
-                2 * (self.det_xax_rad + rot)
-            ) * np.sin(dec) * (3.0 - np.cos(2.0 * self.det_lat_rad)) + np.cos(
+            ) * sin_lat
+            VC2e2 = 0.25 * np.sin(2 * rasDet) * sin_2xax * np.sin(dec) * (3.0 - cos_2lat) + np.cos(
                 2 * rasDet
-            ) * np.cos(
-                2 * (self.det_xax_rad + rot)
-            ) * np.sin(
-                dec
-            ) * np.sin(
-                self.det_lat_rad
-            )
-            C2p = (np.cos(2.0 * psi) * VC2e1 + np.sin(2.0 * psi) * VC2e2) * np.sin(
-                self.angbtwArms
-            )
-            C2c = (-np.sin(2.0 * psi) * VC2e1 + np.cos(2.0 * psi) * VC2e2) * np.sin(
-                self.angbtwArms
-            )
+            ) * cos_2xax * np.sin(dec) * sin_lat
 
-            VS2e1 = 0.0675 * np.sin(2 * rasDet) * np.sin(
-                2 * (self.det_xax_rad + rot)
-            ) * (3.0 - np.cos(2 * dec)) * (
-                3.0 - np.cos(2.0 * self.det_lat_rad)
+            VC2 = np.array([VC2e1, VC2e2])
+            # This einsum is designed for cases when the shape of 
+            # VC2 is (2, N) (or more).
+            C2 = np.einsum('ij...,j...->i...', psi_rotation, VC2)
+            C2p = C2[0] * sin_angbtwArms
+            C2c = C2[1] * sin_angbtwArms
+
+            VS2e1 = 0.0675 * np.sin(2 * rasDet) * sin_2xax * (
+                3.0 - np.cos(2 * dec)) * (
+                3.0 - cos_2lat
             ) + 0.25 * np.cos(
                 2 * rasDet
-            ) * np.cos(
-                2 * (self.det_xax_rad + rot)
-            ) * (
+            ) * cos_2xax * (
                 3.0 - np.cos(2 * dec)
-            ) * np.sin(
-                self.det_lat_rad
-            )
-            VS2e2 = -0.25 * np.cos(2 * rasDet) * np.sin(
-                2 * (self.det_xax_rad + rot)
-            ) * np.sin(dec) * (3.0 - np.cos(2.0 * self.det_lat_rad)) + np.sin(
+            ) * sin_lat
+            VS2e2 = -0.25 * np.cos(2 * rasDet) * sin_2xax * np.sin(dec) * (3.0 - cos_2lat) + np.sin(
                 2 * rasDet
-            ) * np.cos(
-                2 * (self.det_xax_rad + rot)
-            ) * np.sin(
-                dec
-            ) * np.sin(
-                self.det_lat_rad
-            )
-            S2p = (np.cos(2.0 * psi) * VS2e1 + np.sin(2 * psi) * VS2e2) * np.sin(
-                self.angbtwArms
-            )
-            S2c = (-np.sin(2 * psi) * VS2e1 + np.cos(2.0 * psi) * VS2e2) * np.sin(
-                self.angbtwArms
-            )
+            ) * cos_2xax * np.sin(dec) * sin_lat
 
-            VC1e1 = 0.25 * np.cos(rasDet) * np.sin(
-                2.0 * (self.det_xax_rad + rot)
-            ) * np.sin(2 * dec) * np.sin(2.0 * self.det_lat_rad) - 0.5 * np.sin(
+            VS2 = np.array([VS2e1, VS2e2])
+            # This einsum is designed for cases when the shape of 
+            # VC2 is (2, N) (or more).
+            S2 = np.einsum('ij...,j...->i...', psi_rotation, VS2)
+            S2p = S2[0] * np.sin(self.angbtwArms)
+            S2c = S2[1] * np.sin(self.angbtwArms)
+
+            VC1e1 = 0.25 * np.cos(rasDet) * sin_2xax * np.sin(2 * dec) * sin_2lat - 0.5 * np.sin(
                 rasDet
-            ) * np.cos(
-                2.0 * (self.det_xax_rad + rot)
-            ) * np.sin(
-                2 * dec
-            ) * np.cos(
-                self.det_lat_rad
-            )
-            VC1e2 = np.cos(rasDet) * np.cos(2 * (self.det_xax_rad + rot)) * np.cos(
+            ) * cos_2xax * np.sin( 2 * dec) * cos_lat
+            VC1e2 = np.cos(rasDet) * cos_2xax * np.cos(
                 dec
-            ) * np.cos(self.det_lat_rad) + 0.5 * np.sin(rasDet) * np.sin(
-                2.0 * (self.det_xax_rad + rot)
-            ) * np.cos(
+            ) * cos_lat + 0.5 * np.sin(rasDet) * sin_2xax * np.cos(
                 dec
-            ) * np.sin(
-                2.0 * self.det_lat_rad
-            )
-            C1p = (np.cos(2.0 * psi) * VC1e1 + np.sin(2 * psi) * VC1e2) * np.sin(
-                self.angbtwArms
-            )
-            C1c = (-np.sin(2 * psi) * VC1e1 + np.cos(2.0 * psi) * VC1e2) * np.sin(
-                self.angbtwArms
-            )
+            ) * sin_2lat
+            VC1 = np.array([VC1e1, VC1e2])
+            # This einsum is designed for cases when the shape of 
+            # VC2 is (2, N) (or more).
+            C1 = np.einsum('ij...,j...->i...', psi_rotation, VC1)
+            C1p = C1[0] * sin_angbtwArms
+            C1c = C1[1] * sin_angbtwArms
 
             VS1e1 = 0.25 * np.sin(rasDet) * np.sin(
                 2.0 * (self.det_xax_rad + rot)
-            ) * np.sin(2 * dec) * np.sin(2.0 * self.det_lat_rad) + 0.5 * np.cos(
+            ) * np.sin(2 * dec) * sin_2lat + 0.5 * np.cos(
                 rasDet
             ) * np.cos(
                 2.0 * (self.det_xax_rad + rot)
             ) * np.sin(
                 2 * dec
-            ) * np.cos(
-                self.det_lat_rad
-            )
+            ) * cos_lat
             VS1e2 = np.sin(rasDet) * np.cos(2 * (self.det_xax_rad + rot)) * np.cos(
                 dec
-            ) * np.cos(self.det_lat_rad) - 0.5 * np.cos(rasDet) * np.sin(
+            ) * cos_lat - 0.5 * np.cos(rasDet) * np.sin(
                 2.0 * (self.det_xax_rad + rot)
             ) * np.cos(
                 dec
-            ) * np.sin(
-                2.0 * self.det_lat_rad
-            )
-            S1p = (np.cos(2.0 * psi) * VS1e1 + np.sin(2 * psi) * VS1e2) * np.sin(
-                self.angbtwArms
-            )
-            S1c = (-np.sin(2 * psi) * VS1e1 + np.cos(2.0 * psi) * VS1e2) * np.sin(
-                self.angbtwArms
-            )
+            ) * sin_2lat
+            VS1 = np.array([VS1e1, VS1e2])
+            # This einsum is designed for cases when the shape of 
+            # VC2 is (2, N) (or more).
+            S1 = np.einsum('ij...,j...->i...', psi_rotation, VS1)
+            S1p = S1[0] * sin_angbtwArms
+            S1c = S1[1] * sin_angbtwArms
 
             C0p = (
                 0.75
                 * np.cos(2.0 * psi)
                 * np.sin(2.0 * (self.det_xax_rad + rot))
-                * ((np.cos(dec) * np.cos(self.det_lat_rad)) ** 2)
-                * np.sin(self.angbtwArms)
+                * ((np.cos(dec) * cos_lat) ** 2)
+                * sin_angbtwArms
             )
             C0c = (
                 -0.75
                 * np.sin(2.0 * psi)
                 * np.sin(2.0 * (self.det_xax_rad + rot))
-                * ((np.cos(dec) * np.cos(self.det_lat_rad)) ** 2)
-                * np.sin(self.angbtwArms)
+                * ((np.cos(dec) * cos_lat) ** 2)
+                * sin_angbtwArms
             )
 
             return (
