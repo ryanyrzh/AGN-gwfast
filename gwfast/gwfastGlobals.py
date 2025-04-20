@@ -110,6 +110,12 @@ Coefficient for the limit of the quasi-Keplerian approximation, in :math:`\\rm H
 
 :type: float
 """
+
+# Mathematical Constants
+TWOPI = 2.0 * np.pi
+DAY_TO_SEC = 3600.0 * 24.
+DEG_TO_RAD = np.pi / 180
+
 ##############################################################################
 # POSITIONS OF DETECTORS
 # See https://iopscience.iop.org/article/10.3847/1538-4357/ac4164
