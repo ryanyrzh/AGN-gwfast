@@ -7,8 +7,7 @@
 import os
 
 # Enable 64bit on JAX, fundamental
-from jax import config, vmap, jacrev, jit, \
-    device_count, local_device_count
+from jax import config, vmap, jacrev, jit, device_count, local_device_count
 import jax.numpy as np
 
 config.update("jax_enable_x64", True)
@@ -1419,7 +1418,7 @@ class GWSignal(object):
         computeAnalyticalDeriv=False,
         return_all=False,
         use_lensing=False,
-        **kwargs
+        **kwargs,
     ):
         """
         Compute the *Fisher information matrix*, FIM, as a function of the parameters of the event(s).
@@ -1702,7 +1701,7 @@ class GWSignal(object):
                 computeAnalyticalDeriv=computeAnalyticalDeriv,
                 computeDerivFinDiff=computeDerivFinDiff,
                 use_lensing=use_lensing,
-                **kwargs
+                **kwargs,
             )
             # Change the units of the tcoal derivative from days to seconds (this improves conditioning)
             FisherDerivs = onp.array(FisherDerivs)
@@ -1766,7 +1765,7 @@ class GWSignal(object):
                         computeAnalyticalDeriv=computeAnalyticalDeriv,
                         computeDerivFinDiff=computeDerivFinDiff,
                         use_lensing=use_lensing,
-                        **kwargs
+                        **kwargs,
                     )
                     # Change the units of the tcoal derivative from days to seconds (this improves conditioning)
                     FisherDerivs = onp.array(FisherDerivs)
@@ -1834,7 +1833,7 @@ class GWSignal(object):
                     computeAnalyticalDeriv=computeAnalyticalDeriv,
                     computeDerivFinDiff=computeDerivFinDiff,
                     use_lensing=use_lensing,
-                    **kwargs
+                    **kwargs,
                 )
                 # Change the units of the tcoal derivative from days to seconds (this improves conditioning)
                 FisherDerivs1 = onp.array(FisherDerivs1)
@@ -1899,7 +1898,7 @@ class GWSignal(object):
                     computeAnalyticalDeriv=computeAnalyticalDeriv,
                     computeDerivFinDiff=computeDerivFinDiff,
                     use_lensing=use_lensing,
-                    **kwargs
+                    **kwargs,
                 )
                 FisherDerivs2 = onp.array(FisherDerivs2)
                 FisherDerivs2[tcelem, :, :] /= 3600.0 * 24.0
@@ -2003,7 +2002,7 @@ class GWSignal(object):
         stepNDT=MaxStepGenerator(base_step=1e-5),
         methodNDT="central",
         use_lensing=False,
-        **kwargs
+        **kwargs,
     ):
         """
         Compute the derivatives of the GW strain with respect to the parameters of the event(s) at given frequencies (in :math:`\\rm Hz`).
@@ -5016,105 +5015,87 @@ class GWSignal(object):
             sin_lat = np.sin(self.det_lat_rad)
             cos_lat = np.cos(self.det_lat_rad)
             sin_2lat = np.sin(2.0 * self.det_lat_rad)
-            cos_2lat = np.cos(2.0 * self.det_lat_rad)
+            m3_cos_2lat = 3 - np.cos(2.0 * self.det_lat_rad)
             sin_2xax = np.sin(2.0 * (self.det_xax_rad + rot))
             cos_2xax = np.cos(2.0 * (self.det_xax_rad + rot))
+            cos_2ra = np.cos(2.0 * rasDet)
+            sin_2ra = np.sin(2.0 * rasDet)
+            m3_cos_2dec = 3 - np.cos(2.0 * dec)
+            sin_2dec = np.sin(2.0 * dec)
 
-            psi_rotation = np.array([
-                [np.cos(2 * psi), np.sin(2 * psi)],
-                [-np.sin(2 * psi), np.cos(2 * psi)]
-            ])
+            psi_rotation = np.array(
+                [
+                    [np.cos(2 * psi), np.sin(2 * psi)],
+                    [-np.sin(2 * psi), np.cos(2 * psi)],
+                ]
+            )
 
-            VC2e1 = 0.0675 * np.cos(2 * rasDet) * sin_2xax * (
-                3.0 - np.cos(2 * dec)) * (
-                3.0 - cos_2lat
-            ) - 0.25 * np.sin(
-                2 * rasDet
-            ) * cos_2xax * (
-                3.0 - np.cos(2 * dec)
-            ) * sin_lat
-            VC2e2 = 0.25 * np.sin(2 * rasDet) * sin_2xax * np.sin(dec) * (3.0 - cos_2lat) + np.cos(
-                2 * rasDet
-            ) * cos_2xax * np.sin(dec) * sin_lat
+            # TODO: Why 0.0675?
+            VC2e1 = (
+                0.0675 * cos_2ra * sin_2xax * m3_cos_2dec * m3_cos_2lat
+                - 0.25 * sin_2ra * cos_2xax * m3_cos_2dec * sin_lat
+            )
+            VC2e2 = (
+                0.25 * sin_2ra * sin_2xax * np.sin(dec) * m3_cos_2lat
+                + cos_2ra * cos_2xax * np.sin(dec) * sin_lat
+            )
 
             VC2 = np.array([VC2e1, VC2e2])
-            # This einsum is designed for cases when the shape of 
+            # This einsum is designed for cases when the shape of
             # VC2 is (2, N) (or more).
-            C2 = np.einsum('ij...,j...->i...', psi_rotation, VC2)
+            C2 = np.einsum("ij...,j...->i...", psi_rotation, VC2)
             C2p = C2[0] * sin_angbtwArms
             C2c = C2[1] * sin_angbtwArms
 
-            VS2e1 = 0.0675 * np.sin(2 * rasDet) * sin_2xax * (
-                3.0 - np.cos(2 * dec)) * (
-                3.0 - cos_2lat
-            ) + 0.25 * np.cos(
-                2 * rasDet
-            ) * cos_2xax * (
-                3.0 - np.cos(2 * dec)
-            ) * sin_lat
-            VS2e2 = -0.25 * np.cos(2 * rasDet) * sin_2xax * np.sin(dec) * (3.0 - cos_2lat) + np.sin(
-                2 * rasDet
-            ) * cos_2xax * np.sin(dec) * sin_lat
+            VS2e1 = (
+                0.0675 * sin_2ra * sin_2xax * m3_cos_2dec * m3_cos_2lat
+                + 0.25 * cos_2ra * cos_2xax * m3_cos_2dec * sin_lat
+            )
+            VS2e2 = (
+                -0.25 * cos_2ra * sin_2xax * np.sin(dec) * m3_cos_2lat
+                + sin_2ra * cos_2xax * np.sin(dec) * sin_lat
+            )
 
             VS2 = np.array([VS2e1, VS2e2])
-            # This einsum is designed for cases when the shape of 
+            # This einsum is designed for cases when the shape of
             # VC2 is (2, N) (or more).
-            S2 = np.einsum('ij...,j...->i...', psi_rotation, VS2)
-            S2p = S2[0] * np.sin(self.angbtwArms)
-            S2c = S2[1] * np.sin(self.angbtwArms)
+            S2 = np.einsum("ij...,j...->i...", psi_rotation, VS2)
+            S2p = S2[0] * sin_angbtwArms
+            S2c = S2[1] * sin_angbtwArms
 
-            VC1e1 = 0.25 * np.cos(rasDet) * sin_2xax * np.sin(2 * dec) * sin_2lat - 0.5 * np.sin(
-                rasDet
-            ) * cos_2xax * np.sin( 2 * dec) * cos_lat
-            VC1e2 = np.cos(rasDet) * cos_2xax * np.cos(
-                dec
-            ) * cos_lat + 0.5 * np.sin(rasDet) * sin_2xax * np.cos(
-                dec
-            ) * sin_2lat
+            VC1e1 = 0.25 * (
+                np.cos(rasDet) * sin_2xax * sin_2dec * sin_2lat
+                - 2 * np.sin(rasDet) * cos_2xax * sin_2dec * cos_lat
+            )
+            VC1e2 = (
+                np.cos(rasDet) * cos_2xax * np.cos(dec) * cos_lat
+                + 0.5 * np.sin(rasDet) * sin_2xax * np.cos(dec) * sin_2lat
+            )
             VC1 = np.array([VC1e1, VC1e2])
-            # This einsum is designed for cases when the shape of 
+            # This einsum is designed for cases when the shape of
             # VC2 is (2, N) (or more).
-            C1 = np.einsum('ij...,j...->i...', psi_rotation, VC1)
+            C1 = np.einsum("ij...,j...->i...", psi_rotation, VC1)
             C1p = C1[0] * sin_angbtwArms
             C1c = C1[1] * sin_angbtwArms
 
-            VS1e1 = 0.25 * np.sin(rasDet) * np.sin(
-                2.0 * (self.det_xax_rad + rot)
-            ) * np.sin(2 * dec) * sin_2lat + 0.5 * np.cos(
-                rasDet
-            ) * np.cos(
-                2.0 * (self.det_xax_rad + rot)
-            ) * np.sin(
-                2 * dec
-            ) * cos_lat
-            VS1e2 = np.sin(rasDet) * np.cos(2 * (self.det_xax_rad + rot)) * np.cos(
-                dec
-            ) * cos_lat - 0.5 * np.cos(rasDet) * np.sin(
-                2.0 * (self.det_xax_rad + rot)
-            ) * np.cos(
-                dec
-            ) * sin_2lat
+            VS1e1 = 0.25 * (
+                np.sin(rasDet) * sin_2xax * np.sin(2 * dec) * sin_2lat
+                + 2 * np.cos(rasDet) * cos_2xax * np.sin(2 * dec) * cos_lat
+            )
+            VS1e2 = (
+                np.sin(rasDet) * cos_2xax * np.cos(dec) * cos_lat
+                - 0.5 * np.cos(rasDet) * sin_2xax * np.cos(dec) * sin_2lat
+            )
             VS1 = np.array([VS1e1, VS1e2])
-            # This einsum is designed for cases when the shape of 
+            # This einsum is designed for cases when the shape of
             # VC2 is (2, N) (or more).
-            S1 = np.einsum('ij...,j...->i...', psi_rotation, VS1)
+            S1 = np.einsum("ij...,j...->i...", psi_rotation, VS1)
             S1p = S1[0] * sin_angbtwArms
             S1c = S1[1] * sin_angbtwArms
 
-            C0p = (
-                0.75
-                * np.cos(2.0 * psi)
-                * np.sin(2.0 * (self.det_xax_rad + rot))
-                * ((np.cos(dec) * cos_lat) ** 2)
-                * sin_angbtwArms
-            )
-            C0c = (
-                -0.75
-                * np.sin(2.0 * psi)
-                * np.sin(2.0 * (self.det_xax_rad + rot))
-                * ((np.cos(dec) * cos_lat) ** 2)
-                * sin_angbtwArms
-            )
+            _C0 = 0.75 * sin_2xax * ((np.cos(dec) * cos_lat) ** 2) * sin_angbtwArms
+            C0p = _C0 * np.cos(2.0 * psi)
+            C0c = - _C0 * np.sin(2.0 * psi)
 
             return (
                 np.array([C2p, C2c]),
