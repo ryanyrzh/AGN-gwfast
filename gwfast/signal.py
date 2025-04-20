@@ -460,11 +460,11 @@ class GWSignal(object):
         # Time needed to go from Earth center to detector location
         ras, decs = self._ra_dec_from_th_phi(theta, phi)
 
-        delta_t = geocentric_deltat(
+        # Note the change on 2025/04/21, 
+        # Output from second to days, as all subsequent usages are in seconds.
+        return geocentric_deltat(
             ras, decs, t, self.det_lat_rad, self.det_long_rad
-        )  # days
-
-        return delta_t * DAY_TO_SEC  # in seconds
+        )
 
     def GWAmplitudes(self, evParams, f, rot=0.0):
         """
@@ -493,14 +493,14 @@ class GWSignal(object):
 
         if self.noMotion:
             t = 0.0
-            t = t + self._DeltLoc(theta, phi, t) / DAY_TO_SEC
+            t = t + self._DeltLoc(theta, phi, t)
         else:
             if self.useEarthMotion:
                 t = tcoal - self.wf_model.tau_star(f, **evParams) / DAY_TO_SEC
-                t = t + self._DeltLoc(theta, phi, t) / DAY_TO_SEC
+                t = t + self._DeltLoc(theta, phi, t)
             else:
                 t = tcoal  # - self.wf_model.tau_star(self.fmin, **evParams)/(3600.*24)
-                t = t + self._DeltLoc(theta, phi, t) / DAY_TO_SEC
+                t = t + self._DeltLoc(theta, phi, t)
         # wfAmpl = self.wf_model.Ampl(f, **evParams)
         Fp, Fc = self._PatternFunction(theta, phi, t, psi, rot=rot)
 
@@ -685,26 +685,26 @@ class GWSignal(object):
         if self.useEarthMotion:
             if not use_lensing:
                 t = tcoal - self.wf_model.tau_star(f, **evParams) / DAY_TO_SEC
-                tmpDeltLoc = self._DeltLoc(theta, phi, t)  # in seconds
-                t = t + tmpDeltLoc / DAY_TO_SEC
+                tmpDeltLoc = self._DeltLoc(theta, phi, t)  # in days
+                t = t + tmpDeltLoc
                 # phiP is necessary if we write the signal as A*exp(i Psi) with A = sqrt(Ap^2 + Ac^2), uncomment if needed
                 # phiP = self._phiPhase(theta, phi, t, iota, psi)
             else:
                 t1 = tcoal - self.wf_model.tau_star(f, **evParams1) / DAY_TO_SEC
-                tmpDeltLoc1 = self._DeltLoc(theta, phi, t1)  # in seconds
-                t1 += tmpDeltLoc1 / DAY_TO_SEC
+                tmpDeltLoc1 = self._DeltLoc(theta, phi, t1)  # in days
+                t1 += tmpDeltLoc1
 
                 t2 = tcoal - self.wf_model.tau_star(f, **evParams2) / DAY_TO_SEC
-                tmpDeltLoc2 = self._DeltLoc(theta, phi, t2)  # in seconds
-                t2 += tmpDeltLoc2 / DAY_TO_SEC
+                tmpDeltLoc2 = self._DeltLoc(theta, phi, t2)  # in days
+                t2 += tmpDeltLoc2
         else:
             # phiP = Mc*0.
             if self.noMotion:
                 t = 0.0
             else:
                 t = tcoal
-            tmpDeltLoc = self._DeltLoc(theta, phi, t)  # in seconds
-            t += tmpDeltLoc / DAY_TO_SEC
+            tmpDeltLoc = self._DeltLoc(theta, phi, t)  # in days
+            t += tmpDeltLoc
 
             if use_lensing:
                 # Without Earth motion, both images takes the same value.
@@ -712,10 +712,10 @@ class GWSignal(object):
                 tmpDeltLoc1, tmpDeltLoc2 = tmpDeltLoc, tmpDeltLoc
 
         if not use_lensing:
-            phiL = (TWOPI * f) * tmpDeltLoc
+            phiL = (TWOPI * f) * tmpDeltLoc * DAY_TO_SEC
         else:
-            phiL1 = (TWOPI * f) * tmpDeltLoc1
-            phiL2 = (TWOPI * f) * tmpDeltLoc2
+            phiL1 = (TWOPI * f) * tmpDeltLoc1 * DAY_TO_SEC
+            phiL2 = (TWOPI * f) * tmpDeltLoc2 * DAY_TO_SEC
 
         # Moving on to combining the strain with the antenna patterns
         need_HM = (self.wf_model.is_HigherModes) or (self.wf_model.is_Precessing)
