@@ -4276,8 +4276,7 @@ class GWSignal(object):
         rot_rad = rot * DEG_TO_RAD
         sin_angbtwArms = np.sin(self.angbtwArms)
 
-        def compute_ab_factors(ra, dec, t, rot, 
-                               dphi=False, dtheta=False, dtime=False):
+        def compute_ab_factors(ra, dec, t, rot, dphi=False, dtheta=False, dtime=False):
             phir = self.det_long_rad
             sin_lat = np.sin(self.det_lat_rad)
             cos_lat = np.cos(self.det_lat_rad)
@@ -4304,22 +4303,22 @@ class GWSignal(object):
             a2 = 0.25 * cos_2xax * sin_lat * m3_cos_2dec * sin_2ang
             a3 = 0.25 * sin_2xax * sin_2lat * sin_2dec * cos_ang
             a4 = 0.5 * cos_2xax * cos_lat * sin_2dec * sin_ang
-            a5 = 3.0 * 0.25 * sin_2xax * (cos_lat * np.cos(dec))** 2.0
+            a5 = 3.0 * 0.25 * sin_2xax * (cos_lat * np.cos(dec)) ** 2.0
             a_factor = a1 - a2 + a3 - a4 + a5
 
             b1 = cos_2xax * sin_lat * np.sin(dec) * cos_2ang
             b2 = 0.25 * sin_2xax * m3_cos_2lat * np.sin(dec) * sin_2ang
             b3 = cos_2xax * cos_lat * np.cos(dec) * cos_ang
             b4 = 0.5 * sin_2xax * sin_2lat * np.cos(dec) * sin_ang
-            b_factor =  b1 + b2 + b3 + b4
+            b_factor = b1 + b2 + b3 + b4
 
             return a_factor, b_factor
 
         ras, decs = self._ra_dec_from_th_phi(theta, phi)
         ab_factors = np.array(compute_ab_factors(ras, decs, t, rot_rad))
 
-        cos_2psi = np.cos(2*psi)
-        sin_2psi = np.sin(2*psi)
+        cos_2psi = np.cos(2 * psi)
+        sin_2psi = np.sin(2 * psi)
         psi_rotation = np.array([[cos_2psi, sin_2psi], [-sin_2psi, cos_2psi]])
         dpsi_rotation = -2 * np.array([[sin_2psi, -cos_2psi], [cos_2psi, sin_2psi]])
         Fpc = np.einsum("ij...,j...->i...", psi_rotation, ab_factors) * sin_angbtwArms
@@ -4331,7 +4330,10 @@ class GWSignal(object):
         hp, hc = Fpc[0] * _hp, Fpc[1] * _hc
 
         def psi_par_deriv():
-            Fpc_dpsi = np.einsum("ij...,j...->i...", dpsi_rotation, ab_factors) * sin_angbtwArms
+            Fpc_dpsi = (
+                np.einsum("ij...,j...->i...", dpsi_rotation, ab_factors)
+                * sin_angbtwArms
+            )
             return Fpc_dpsi[0] * _hp, Fpc_dpsi[1] * _hc
 
         def phi_par_deriv():
