@@ -28,7 +28,7 @@ from gwfast import gwfastUtils as utils
 from gwfast import gwfastGlobals as glob
 from gwfast.gwfastGlobals import TWOPI, DAY_TO_SEC, DEG_TO_RAD
 from gwfast.gwfastUtils import compute_ab_factors, geocentric_deltat, \
-    apply_psi_rotation, CosineIntegrand, SineIntegrand
+    apply_psi_rotation, CosineIntegrand, SineIntegrand, noise_weighted_inner_product, optimal_snr
 
 
 class GWSignal(object):
@@ -5200,201 +5200,116 @@ def WFOverlap(
 
     fgrids = np.geomspace(fminarr, fcutUse, num=int(res))
     # Out of the provided PSD range, we use a constant value of 1, which results in completely negligible conntributions
-    strainGrids = np.interp(
+    psd_strain_grids = np.interp(
         fgrids, self.strainFreq, self.noiseCurve, left=1.0, right=1.0
     )
 
     # This is a horrible way of changing the waveform, but the fastest to implement
     WFor = copy.deepcopy(self.wf_model)
 
+    strains = []
+    SNRhs = []
     if self.detector_shape == "L":
-        self.wf_model = WF1
-        h1 = self.GWstrain(
-            fgrids,
-            evParams1["Mc"],
-            evParams1["eta"],
-            evParams1["dL"],
-            evParams1["theta"],
-            evParams1["phi"],
-            evParams1["iota"],
-            evParams1["psi"],
-            evParams1["tcoal"],
-            evParams1["Phicoal"],
-            evParams1["chi1z"],
-            evParams1["chi2z"],
-            evParams1["chi1x"],
-            evParams1["chi2x"],
-            evParams1["chi1y"],
-            evParams1["chi2y"],
-            evParams1["LambdaTilde"],
-            evParams1["deltaLambda"],
-            evParams1["ecc"],
-            is_chi1chi2=True,
-        )
-        h1sq = np.conjugate(h1) * h1
-        SNRh1 = np.sqrt(4.0 * np.trapezoid(h1sq.real / strainGrids, fgrids, axis=0))
-        self.wf_model = WF2
-        h2 = self.GWstrain(
-            fgrids,
-            evParams2["Mc"],
-            evParams2["eta"],
-            evParams2["dL"],
-            evParams2["theta"],
-            evParams2["phi"],
-            evParams2["iota"],
-            evParams2["psi"],
-            evParams2["tcoal"],
-            evParams2["Phicoal"],
-            evParams2["chi1z"],
-            evParams2["chi2z"],
-            evParams2["chi1x"],
-            evParams2["chi2x"],
-            evParams2["chi1y"],
-            evParams2["chi2y"],
-            evParams2["LambdaTilde"],
-            evParams2["deltaLambda"],
-            evParams2["ecc"],
-            is_chi1chi2=True,
-        )
-        h2sq = np.conjugate(h2) * h2
-        SNRh2 = np.sqrt(4.0 * np.trapezoid(h2sq.real / strainGrids, fgrids, axis=0))
+        for model, params in zip((WF1, WF2), (evParams1, evParams2)):
+            self.wf_model = model
+            strain = self.GWstrain(
+                fgrids,
+                params["Mc"],
+                params["eta"],
+                params["dL"],
+                params["theta"],
+                params["phi"],
+                params["iota"],
+                params["psi"],
+                params["tcoal"],
+                params["Phicoal"],
+                params["chi1z"],
+                params["chi2z"],
+                params["chi1x"],
+                params["chi2x"],
+                params["chi1y"],
+                params["chi2y"],
+                params["LambdaTilde"],
+                params["deltaLambda"],
+                params["ecc"],
+                is_chi1chi2=True,
+            )
 
-        overlap_h1h2 = h1 * np.conjugate(h2)
-        overlap_int = 4.0 * np.trapezoid(
-            overlap_h1h2.real / strainGrids, fgrids, axis=0
-        )
+            strains.append(strain)
+            SNRhs.append(optimal_snr(fgrids, strain, psd_strain_grids))
+
+        overlap_int = noise_weighted_inner_product(
+            fgrids, *strains, psd_strain_grids)
 
     elif self.detector_shape == "T":
-        self.wf_model = WF1
-        h1_1 = self.GWstrain(
-            fgrids,
-            evParams1["Mc"],
-            evParams1["eta"],
-            evParams1["dL"],
-            evParams1["theta"],
-            evParams1["phi"],
-            evParams1["iota"],
-            evParams1["psi"],
-            evParams1["tcoal"],
-            evParams1["Phicoal"],
-            evParams1["chi1z"],
-            evParams1["chi2z"],
-            evParams1["chi1x"],
-            evParams1["chi2x"],
-            evParams1["chi1y"],
-            evParams1["chi2y"],
-            evParams1["LambdaTilde"],
-            evParams1["deltaLambda"],
-            evParams1["ecc"],
-            is_chi1chi2=True,
-            rot=0.0,
-        )
-        h1_1sq = np.conjugate(h1_1) * h1_1
-        SNRh1_1sq = 4.0 * np.trapezoid(h1_1sq.real / strainGrids, fgrids, axis=0)
-        h1_2 = self.GWstrain(
-            fgrids,
-            evParams1["Mc"],
-            evParams1["eta"],
-            evParams1["dL"],
-            evParams1["theta"],
-            evParams1["phi"],
-            evParams1["iota"],
-            evParams1["psi"],
-            evParams1["tcoal"],
-            evParams1["Phicoal"],
-            evParams1["chi1z"],
-            evParams1["chi2z"],
-            evParams1["chi1x"],
-            evParams1["chi2x"],
-            evParams1["chi1y"],
-            evParams1["chi2y"],
-            evParams1["LambdaTilde"],
-            evParams1["deltaLambda"],
-            evParams1["ecc"],
-            is_chi1chi2=True,
-            rot=60.0,
-        )
-        h1_2sq = np.conjugate(h1_2) * h1_2
-        SNRh1_2sq = 4.0 * np.trapezoid(h1_2sq.real / strainGrids, fgrids, axis=0)
-        h1_3 = -(h1_1 + h1_2)
-        h1_3sq = np.conjugate(h1_3) * h1_3
-        SNRh1_3sq = 4.0 * np.trapezoid(h1_3sq.real / strainGrids, fgrids, axis=0)
-        SNRh1 = np.sqrt(SNRh1_1sq + SNRh1_2sq + SNRh1_3sq)
+        for model, params in zip((WF1, WF2), (evParams1, evParams2)):
+            self.wf_model = model
+            h_1 = self.GWstrain(
+                fgrids,
+                params["Mc"],
+                params["eta"],
+                params["dL"],
+                params["theta"],
+                params["phi"],
+                params["iota"],
+                params["psi"],
+                params["tcoal"],
+                params["Phicoal"],
+                params["chi1z"],
+                params["chi2z"],
+                params["chi1x"],
+                params["chi2x"],
+                params["chi1y"],
+                params["chi2y"],
+                params["LambdaTilde"],
+                params["deltaLambda"],
+                params["ecc"],
+                is_chi1chi2=True,
+                rot=0.0,
+            )
+            h_2 = self.GWstrain(
+                fgrids,
+                params["Mc"],
+                params["eta"],
+                params["dL"],
+                params["theta"],
+                params["phi"],
+                params["iota"],
+                params["psi"],
+                params["tcoal"],
+                params["Phicoal"],
+                params["chi1z"],
+                params["chi2z"],
+                params["chi1x"],
+                params["chi2x"],
+                params["chi1y"],
+                params["chi2y"],
+                params["LambdaTilde"],
+                params["deltaLambda"],
+                params["ecc"],
+                is_chi1chi2=True,
+                rot=60.0,
+            )
+            h_3 = -(h_1 + h_2)
 
-        self.wf_model = WF2
-        h2_1 = self.GWstrain(
-            fgrids,
-            evParams2["Mc"],
-            evParams2["eta"],
-            evParams2["dL"],
-            evParams2["theta"],
-            evParams2["phi"],
-            evParams2["iota"],
-            evParams2["psi"],
-            evParams2["tcoal"],
-            evParams2["Phicoal"],
-            evParams2["chi1z"],
-            evParams2["chi2z"],
-            evParams2["chi1x"],
-            evParams2["chi2x"],
-            evParams2["chi1y"],
-            evParams2["chi2y"],
-            evParams2["LambdaTilde"],
-            evParams2["deltaLambda"],
-            evParams2["ecc"],
-            is_chi1chi2=True,
-            rot=0.0,
-        )
-        h2_1sq = np.conjugate(h2_1) * h2_1
-        SNRh2_1sq = 4.0 * np.trapezoid(h2_1sq.real / strainGrids, fgrids, axis=0)
-        h2_2 = self.GWstrain(
-            fgrids,
-            evParams2["Mc"],
-            evParams2["eta"],
-            evParams2["dL"],
-            evParams2["theta"],
-            evParams2["phi"],
-            evParams2["iota"],
-            evParams2["psi"],
-            evParams2["tcoal"],
-            evParams2["Phicoal"],
-            evParams2["chi1z"],
-            evParams2["chi2z"],
-            evParams2["chi1x"],
-            evParams2["chi2x"],
-            evParams2["chi1y"],
-            evParams2["chi2y"],
-            evParams2["LambdaTilde"],
-            evParams2["deltaLambda"],
-            evParams2["ecc"],
-            is_chi1chi2=True,
-            rot=60.0,
-        )
-        h2_2sq = np.conjugate(h2_2) * h2_2
-        SNRh2_2sq = 4.0 * np.trapezoid(h2_2sq.real / strainGrids, fgrids, axis=0)
-        h2_3 = -(h2_1 + h2_2)
-        h2_3sq = np.conjugate(h2_3) * h2_3
-        SNRh2_3sq = 4.0 * np.trapezoid(h2_3sq.real / strainGrids, fgrids, axis=0)
-        SNRh2 = np.sqrt(SNRh2_1sq + SNRh2_2sq + SNRh2_3sq)
+            strains.append((h_1, h_2, h_3))
 
-        overlap_h1h2_1 = h1_1 * np.conjugate(h2_1)
-        overlap_int_1 = 4.0 * np.trapezoid(
-            overlap_h1h2_1.real / strainGrids, fgrids, axis=0
-        )
-        overlap_h1h2_2 = h1_2 * np.conjugate(h2_2)
-        overlap_int_2 = 4.0 * np.trapezoid(
-            overlap_h1h2_2.real / strainGrids, fgrids, axis=0
-        )
-        overlap_h1h2_3 = h1_3 * np.conjugate(h2_3)
-        overlap_int_3 = 4.0 * np.trapezoid(
-            overlap_h1h2_3.real / strainGrids, fgrids, axis=0
-        )
+            SNRh_1_sq = optimal_snr(fgrids, h_1, psd_strain_grids) ** 2
+            SNRh_2_sq = optimal_snr(fgrids, h_2, psd_strain_grids) ** 2
+            SNRh_3_sq = optimal_snr(fgrids, h_3, psd_strain_grids) ** 2
+            SNRhs.append(np.sqrt(SNRh_1_sq + SNRh_2_sq + SNRh_3_sq))
+
+        overlap_int = 0.0
+        for h1_i, h2_i in zip(strains[0], strains[1]):
+            overlap_int += noise_weighted_inner_product(
+                fgrids, h1_i, h2_i, psd_strain_grids
+            )
 
         overlap_int = overlap_int_1 + overlap_int_2 + overlap_int_3
     # Restore the waveform
     self.wf_model = WFor
 
     if return_separate:
-        return overlap_int, SNRh1, SNRh2
+        return overlap_int, *SNRhs
     else:
-        return overlap_int / (SNRh1 * SNRh2)
+        return overlap_int / (SNRhs[0] * SNRhs[1])

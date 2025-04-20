@@ -844,12 +844,15 @@ def apply_psi_rotation(psi, vector_x, vector_y):
     """
     rotation_matrix = psi_rotation_matrix(psi)
     vector = jnp.array([vector_x, vector_y])
-    return np.einsum("ij...,j...->i...", rotation_matrix, vector)
+    return jnp.einsum("ij...,j...->i...", rotation_matrix, vector)
 
 
-def waveform_overlap(h1, h2, ):
-    pass
+def noise_weighted_inner_product(frequencies, h1, h2, psd, axis=0):
+    integrand = jnp.conjugate(h1) * h2 / psd
+    return 4.0 * jnp.trapezoid(integrand.real, frequencies, axis=axis)
 
+def optimal_snr(frequencies, h1, psd, axis=0):
+    return noise_weighted_inner_product(frequencies, h1, h1, psd, axis=axis) ** 0.5
 
 def inspiral_integrands(freq, Mc, t_coal):
     time = (t_coal
