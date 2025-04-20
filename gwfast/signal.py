@@ -4274,8 +4274,10 @@ class GWSignal(object):
         phiL = (TWOPI * f) * tmpDeltLoc
 
         rot_rad = rot * DEG_TO_RAD
+        sin_angbtwArms = np.sin(self.angbtwArms)
 
-        def compute_ab_factors(ra, dec, t, rot):
+        def compute_ab_factors(ra, dec, t, rot, 
+                               dphi=False, dtheta=False, dtime=False):
             phir = self.det_long_rad
             sin_lat = np.sin(self.det_lat_rad)
             cos_lat = np.cos(self.det_lat_rad)
@@ -4283,8 +4285,6 @@ class GWSignal(object):
             m3_cos_2lat = 3 - np.cos(2.0 * self.det_lat_rad)
             sin_2xax = np.sin(2.0 * (self.det_xax_rad + rot))
             cos_2xax = np.cos(2.0 * (self.det_xax_rad + rot))
-            cos_2ra = np.cos(2.0 * rasDet)
-            sin_2ra = np.sin(2.0 * rasDet)
             m3_cos_2dec = 3 - np.cos(2.0 * dec)
             sin_2dec = np.sin(2.0 * dec)
 
@@ -4294,109 +4294,45 @@ class GWSignal(object):
             cos_ang = np.cos(ang)
             sin_ang = np.sin(ang)
 
+            if dphi or dtime:
+                cos_2ang = -2 * np.sin(2.0 * ang)
+                sin_2ang = +2 * np.cos(2.0 * ang)
+                cos_ang = -1 * np.sin(ang)
+                sin_ang = +1 * np.cos(ang)
+
             a1 = 0.0625 * sin_2xax * m3_cos_2lat * m3_cos_2dec * cos_2ang
             a2 = 0.25 * cos_2xax * sin_lat * m3_cos_2dec * sin_2ang
-            a3 = (
-                0.25
-                * sin_2xax
-                * sin_2lat
-                * sin_2dec
-                * np.cos(ra - phir - TWOPI * t)
-            )
+            a3 = 0.25 * sin_2xax * sin_2lat * sin_2dec * cos_ang
+            a4 = 0.5 * cos_2xax * cos_lat * sin_2dec * sin_ang
+            a5 = 3.0 * 0.25 * sin_2xax * (cos_lat * np.cos(dec))** 2.0
+            a_factor = a1 - a2 + a3 - a4 + a5
 
+            b1 = cos_2xax * sin_lat * np.sin(dec) * cos_2ang
+            b2 = 0.25 * sin_2xax * m3_cos_2lat * np.sin(dec) * sin_2ang
+            b3 = cos_2xax * cos_lat * np.cos(dec) * cos_ang
+            b4 = 0.5 * sin_2xax * sin_2lat * np.cos(dec) * sin_ang
+            b_factor =  b1 + b2 + b3 + b4
 
-
-        def afun(ra, dec, t, rot):
-            
-            a3 = (
-                0.25
-                * np.sin(2 * (self.det_xax_rad + rot))
-                * np.sin(2.0 * self.det_lat_rad)
-                * np.sin(2.0 * dec)
-                * np.cos(ra - phir - TWOPI * t)
-            )
-            a4 = (
-                0.5
-                * np.cos(2 * (self.det_xax_rad + rot))
-                * np.cos(self.det_lat_rad)
-                * np.sin(2.0 * dec)
-                * np.sin(ra - phir - TWOPI * t)
-            )
-            a5 = (
-                3.0
-                * 0.25
-                * np.sin(2 * (self.det_xax_rad + rot))
-                * (np.cos(self.det_lat_rad) * np.cos(dec)) ** 2.0
-            )
-            return a1 - a2 + a3 - a4 + a5
-
-        def bfun(ra, dec, t, rot):
-            phir = self.det_long_rad
-            b1 = (
-                np.cos(2 * (self.det_xax_rad + rot))
-                * np.sin(self.det_lat_rad)
-                * np.sin(dec)
-                * np.cos(2.0 * (ra - phir - TWOPI * t))
-            )
-            b2 = (
-                0.25
-                * np.sin(2 * (self.det_xax_rad + rot))
-                * (3.0 - np.cos(2.0 * self.det_lat_rad))
-                * np.sin(dec)
-                * np.sin(2.0 * (ra - phir - TWOPI * t))
-            )
-            b3 = (
-                np.cos(2 * (self.det_xax_rad + rot))
-                * np.cos(self.det_lat_rad)
-                * np.cos(dec)
-                * np.cos(ra - phir - TWOPI * t)
-            )
-            b4 = (
-                0.5
-                * np.sin(2 * (self.det_xax_rad + rot))
-                * np.sin(2.0 * self.det_lat_rad)
-                * np.cos(dec)
-                * np.sin(ra - phir - TWOPI * t)
-            )
-
-            return b1 + b2 + b3 + b4
+            return a_factor, b_factor
 
         ras, decs = self._ra_dec_from_th_phi(theta, phi)
+        ab_factors = np.array(compute_ab_factors(ras, decs, t, rot_rad))
 
-        afac = afun(ras, decs, t, rot_rad)
-        bfac = bfun(ras, decs, t, rot_rad)
+        cos_2psi = np.cos(2*psi)
+        sin_2psi = np.sin(2*psi)
+        psi_rotation = np.array([[cos_2psi, sin_2psi], [-sin_2psi, cos_2psi]])
+        dpsi_rotation = -2 * np.array([[sin_2psi, -cos_2psi], [cos_2psi, sin_2psi]])
+        Fpc = np.einsum("ij...,j...->i...", psi_rotation, ab_factors) * sin_angbtwArms
 
-        Fp = np.sin(self.angbtwArms) * (
-            afac * np.cos(2.0 * psi) + bfac * np.sin(2 * psi)
-        )
-        Fc = np.sin(self.angbtwArms) * (
-            bfac * np.cos(2.0 * psi) - afac * np.sin(2 * psi)
-        )
+        phase = 1j * (TWOPI * f * (tcoal * DAY_TO_SEC) - Phicoal + phiD + phiL)
+        _hp = wfhp * np.exp(phase)
+        _hc = wfhc * np.exp(phase)
 
-        hp, hc = wfhp * Fp * np.exp(
-            1j * (TWOPI * f * (tcoal * DAY_TO_SEC) - Phicoal + phiD + phiL)
-        ), wfhc * Fc * np.exp(
-            1j * (TWOPI * f * (tcoal * DAY_TO_SEC) - Phicoal + phiD + phiL)
-        )
+        hp, hc = Fpc[0] * _hp, Fpc[1] * _hc
 
         def psi_par_deriv():
-
-            Fp_psider = (
-                2
-                * np.sin(self.angbtwArms)
-                * (-afac * np.sin(2.0 * psi) + bfac * np.cos(2 * psi))
-            )
-            Fc_psider = (
-                2
-                * np.sin(self.angbtwArms)
-                * (-bfac * np.sin(2.0 * psi) - afac * np.cos(2 * psi))
-            )
-
-            return wfhp * Fp_psider * np.exp(
-                1j * (TWOPI * f * (tcoal * DAY_TO_SEC) - Phicoal + phiD + phiL)
-            ) + wfhc * Fc_psider * np.exp(
-                1j * (TWOPI * f * (tcoal * DAY_TO_SEC) - Phicoal + phiD + phiL)
-            )
+            Fpc_dpsi = np.einsum("ij...,j...->i...", dpsi_rotation, ab_factors) * sin_angbtwArms
+            return Fpc_dpsi[0] * _hp, Fpc_dpsi[1] * _hc
 
         def phi_par_deriv():
 
