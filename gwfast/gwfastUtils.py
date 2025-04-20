@@ -889,7 +889,7 @@ def geocentric_deltat(
     _comp1 = cos_ra * cos_lat
     _comp2 = sin_ra * cos_lat
 
-    # This is to maintain the functino being jit-able.
+    # This is to maintain the function being jit-able.
     deriv_case = 1 * dphi + 2 * dtheta + 4 * dtime
     comp1, comp2, comp3 = {
         0: (cos_dec * cos_deltat, cos_dec * sin_deltat, sin_dec * sin_lat),
@@ -929,25 +929,31 @@ def noise_weighted_inner_product(frequencies, h1, h2, psd, axis=0):
     integrand = jnp.conjugate(h1) * h2 / psd
     return 4.0 * jnp.trapezoid(integrand.real, frequencies, axis=axis)
 
+
 def optimal_snr(frequencies, h1, psd, axis=0):
     return noise_weighted_inner_product(frequencies, h1, h1, psd, axis=axis) ** 0.5
 
+
 def inspiral_integrands(freq, Mc, t_coal):
-    time = (t_coal
-                - 2.18567
-                * ((1.21 / Mc) ** (5.0 / 3.0))
-                * ((100 / freq) ** (8.0 / 3.0))
-                / DAY_TO_SEC
-            )
+    time = (
+        t_coal
+        - 2.18567
+        * ((1.21 / Mc) ** (5.0 / 3.0))
+        * ((100 / freq) ** (8.0 / 3.0))
+        / DAY_TO_SEC
+    )
     return (freq ** (-7.0 / 3.0)), time
+
 
 def CosineIntegrand(freq, Mc, t_coal, n):
     freq, time = inspiral_integrands(freq=freq, Mc=Mc, t_coal=t_coal)
     return freq * np.cos(n * TWOPI * time)
 
+
 def SineIntegrand(freq, Mc, t_coal, n):
     freq, time = inspiral_integrands(freq=freq, Mc=Mc, t_coal=t_coal)
     return freq * np.sin(n * TWOPI * time)
+
 
 ##############################################################################
 # TIMES
