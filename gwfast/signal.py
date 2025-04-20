@@ -29,6 +29,7 @@ from gwfast import gwfastGlobals as glob
 from gwfast.gwfastGlobals import TWOPI, DAY_TO_SEC, DEG_TO_RAD
 from gwfast.gwfastUtils import compute_ab_factors, geocentric_deltat, \
     apply_psi_rotation, CosineIntegrand, SineIntegrand, noise_weighted_inner_product, optimal_snr
+from gwfast.lensing_utils import get_lensed_parameter_sets, get_lensing_time_delay, get_mag_factors
 
 
 class GWSignal(object):
@@ -725,11 +726,11 @@ class GWSignal(object):
                 hp2, hc2 = Ap2 * np.exp(Psi2 * 1j), 1j * Ac2 * np.exp(Psi2 * 1j)
 
                 # Time delay and magnification
-                time_delay = utils.get_lensing_time_delay(
+                time_delay = get_lensing_time_delay(
                     evParams1, M_lz=M_lz, src_pos=src_pos
                 )
                 time_delay_phase_shift = np.exp(2j * np.pi * f * time_delay)
-                mag_1, mag_2 = utils.get_mag_factors(evParams1, src_pos=src_pos)
+                mag_1, mag_2 = get_mag_factors(evParams1, src_pos=src_pos)
 
                 hp = (
                     np.sqrt(np.abs(mag_1)) * hp1
@@ -771,8 +772,8 @@ class GWSignal(object):
             Fp, Fc = self._PatternFunction(theta, phi, t, psi, rot=rot)
             hp, hc = self.wf_model.hphc(f, **evParams)
 
-            hp = hp * Fp * phase_shift_factor * np.exp(1j * (phiL - Phicoal))
-            hc = hc * Fc * phase_shift_factor * np.exp(1j * (phiL - Phicoal))
+            hp *= Fp * phase_shift_factor * np.exp(1j * (phiL - Phicoal))
+            hc *= Fc * phase_shift_factor * np.exp(1j * (phiL - Phicoal))
 
             if is_lal:
                 hp *= 0.5 * (1.0 + np.cos(iota) ** 2)
@@ -804,9 +805,9 @@ class GWSignal(object):
                 hc2 *= np.cos(iota2)
 
             # Time delay and magnification
-            time_delay = utils.get_lensing_time_delay(evParams, M_lz, src_pos)
+            time_delay = get_lensing_time_delay(evParams, M_lz, src_pos)
             time_delay_phase_shift = np.exp(2j * np.pi * f * time_delay)
-            mag_1, mag_2 = utils.get_mag_factors(evParams, src_pos)
+            mag_1, mag_2 = get_mag_factors(evParams, src_pos)
 
             hp = (
                 np.sqrt(np.abs(mag_1)) * hp1
@@ -956,7 +957,7 @@ class GWSignal(object):
                 )
 
         if use_lensing:
-            evParams1, evParams2 = utils.get_lensed_parameter_sets(evParams)
+            evParams1, evParams2 = get_lensed_parameter_sets(evParams)
 
         fcut = self.wf_model.fcut(**evParams)
 
