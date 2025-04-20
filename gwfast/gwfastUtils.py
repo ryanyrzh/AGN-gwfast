@@ -847,6 +847,27 @@ def apply_psi_rotation(psi, vector_x, vector_y):
     return np.einsum("ij...,j...->i...", rotation_matrix, vector)
 
 
+def waveform_overlap(h1, h2, ):
+    pass
+
+
+def inspiral_integrands(freq, Mc, t_coal):
+    time = (t_coal
+                - 2.18567
+                * ((1.21 / Mc) ** (5.0 / 3.0))
+                * ((100 / freq) ** (8.0 / 3.0))
+                / DAY_TO_SEC
+            )
+    return (freq ** (-7.0 / 3.0)), time
+
+def CosineIntegrand(freq, Mc, t_coal, n):
+    freq, time = inspiral_integrands(freq=freq, Mc=Mc, t_coal=t_coal)
+    return freq * np.cos(n * TWOPI * time)
+
+def SineIntegrand(freq, Mc, t_coal, n):
+    freq, time = inspiral_integrands(freq=freq, Mc=Mc, t_coal=t_coal)
+    return freq * np.sin(n * TWOPI * time)
+
 ##############################################################################
 # TIMES
 ##############################################################################

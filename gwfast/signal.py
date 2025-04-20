@@ -27,6 +27,8 @@ from numdifftools.step_generators import MaxStepGenerator
 from gwfast import gwfastUtils as utils
 from gwfast import gwfastGlobals as glob
 from gwfast.gwfastGlobals import TWOPI, DAY_TO_SEC, DEG_TO_RAD
+from gwfast.gwfastUtils import compute_ab_factors, geocentric_deltat, \
+    apply_psi_rotation, CosineIntegrand, SineIntegrand
 
 
 class GWSignal(object):
@@ -262,25 +264,6 @@ class GWSignal(object):
         .. deprecated:: 1.0.0
 
         """
-
-        def _integrand(f, Mc, tcoal):
-            time = (
-                tcoal
-                - 2.18567
-                * ((1.21 / Mc) ** (5.0 / 3.0))
-                * ((100 / f[:, onp.newaxis]) ** (8.0 / 3.0))
-                / DAY_TO_SEC
-            )
-            return (f[:, onp.newaxis] ** (-7.0 / 3.0)), time
-
-        def CosineIntegrand(f, Mc, tcoal, n):
-            freq, time = _integrand(f=f, Mc=Mc, tcoal=tcoal)
-            return freq * np.cos(n * TWOPI * time)
-
-        def SineIntegrand(f, Mc, tcoal, n):
-            freq, time = _integrand(f=f, Mc=Mc, tcoal=tcoal)
-            return freq * np.sine(n * TWOPI * time)
-
         Mcgrid = onp.linspace(Mcmin, Mcmax, res)
         etagrid = onp.linspace(etamin, 0.25, res)
         tcgrid = onp.linspace(0.0, TWOPI, res)
@@ -308,12 +291,13 @@ class GWSignal(object):
                 noisegrids = (
                     np.ones((res, len(self.noiseCurve[mask]))) * self.noiseCurve[mask]
                 )
+                masked_freqs = self.strainFreq[mask][:, onp.newaxis]
                 for m in range(4):
                     tmpIntegrandC = CosineIntegrand(
-                        self.strainFreq[mask], Mc, tcgrid, m + 1.0
+                        masked_freqs, Mc, tcgrid, m + 1.0
                     )
                     tmpIntegrandS = SineIntegrand(
-                        self.strainFreq[mask], Mc, tcgrid, m + 1.0
+                        masked_freqs, Mc, tcgrid, m + 1.0
                     )
                     Igrid[i, j, :, m] = onp.trapz(
                         tmpIntegrandC / noisegrids.T, fgrids.T, axis=0
@@ -322,7 +306,7 @@ class GWSignal(object):
                         tmpIntegrandS / noisegrids.T, fgrids.T, axis=0
                     )
 
-                tmpIntegrand = CosineIntegrand(self.strainFreq[mask], Mc, tcgrid, 0.0)
+                tmpIntegrand = CosineIntegrand(masked_freqs, Mc, tcgrid, 0.0)
                 Igrid[i, j, :, 8] = onp.trapz(
                     tmpIntegrand / noisegrids.T, fgrids.T, axis=0
                 )
@@ -4992,27 +4976,6 @@ class GWSignal(object):
                 for i in range(9):
                     Igs[i, :] = self.IntegInterpArr[i](onp.array([Mc, eta, tcoal]).T)
             else:
-
-                def IntegrandC(f, Mc, tcoal, n):
-                    t = (
-                        tcoal
-                        - 2.18567
-                        * ((1.21 / Mc) ** (5.0 / 3.0))
-                        * ((100 / f) ** (8.0 / 3.0))
-                        / DAY_TO_SEC
-                    )
-                    return (f ** (-7.0 / 3.0)) * np.cos(n * TWOPI * t)
-
-                def IntegrandS(f, Mc, tcoal, n):
-                    t = (
-                        tcoal
-                        - 2.18567
-                        * ((1.21 / Mc) ** (5.0 / 3.0))
-                        * ((100 / f) ** (8.0 / 3.0))
-                        / DAY_TO_SEC
-                    )
-                    return (f ** (-7.0 / 3.0)) * np.sin(n * TWOPI * t)
-
                 fminarr = np.full(fcut.shape, self.fmin)
                 fgrids = np.geomspace(fminarr, fcut, num=int(5000))
                 strainGrids = np.interp(
@@ -5020,13 +4983,13 @@ class GWSignal(object):
                 )
 
                 for m in range(4):
-                    tmpIntegrandC = IntegrandC(fgrids, Mc, tcoal, m + 1.0)
-                    tmpIntegrandS = IntegrandS(fgrids, Mc, tcoal, m + 1.0)
+                    tmpIntegrandC = CosineIntegrand(fgrids, Mc, tcoal, m + 1.0)
+                    tmpIntegrandS = SineIntegrand(fgrids, Mc, tcoal, m + 1.0)
                     Igs[m, :] = onp.trapz(tmpIntegrandC / strainGrids, fgrids, axis=0)
                     Igs[m + 4, :] = onp.trapz(
                         tmpIntegrandS / strainGrids, fgrids, axis=0
                     )
-                tmpIntegrand = IntegrandC(fgrids, Mc, tcoal, 0.0)
+                tmpIntegrand = CosineIntegrand(fgrids, Mc, tcoal, 0.0)
                 Igs[8, :] = onp.trapz(tmpIntegrand / strainGrids, fgrids, axis=0)
 
             if self.detector_shape == "L":
