@@ -425,15 +425,12 @@ class GWSignal(object):
         rot_rad = rot * DEG_TO_RAD
 
         ras, decs = self._ra_dec_from_th_phi(theta, phi)
-        afac, bfac = compute_ab_factors(ras, decs, t, rot_rad, 
-                                        self.det_long_rad, self.det_lat_rad, self.det_xax_rad)
+        ab_factors = compute_ab_factors(
+            ras, decs, t, rot_rad, self.det_long_rad, self.det_lat_rad, self.det_xax_rad
+        )
 
-        Fp = np.sin(self.angbtwArms) * (
-            afac * np.cos(2.0 * psi) + bfac * np.sin(2 * psi)
-        )
-        Fc = np.sin(self.angbtwArms) * (
-            bfac * np.cos(2.0 * psi) - afac * np.sin(2 * psi)
-        )
+        sin_angbtwArms = np.sin(self.angbtwArms)
+        Fp, Fc = apply_psi_rotation(psi, *ab_factors) * sin_angbtwArms
 
         return Fp, Fc
 

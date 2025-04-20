@@ -819,6 +819,26 @@ def deltat_loc_derivatives(ra, dec, time, lat_rad, long_rad,
     return sum_comp * earth_traverse_time
 
 
+def psi_rotation_matrix(psi):
+    """
+    Compute the rotation matrix for the angle psi.
+    Return shape: (2, 2, N...)
+    """
+    cos_2psi = jnp.cos(2 * psi)
+    sin_2psi = jnp.sin(2 * psi)
+    return jnp.array([[cos_2psi, sin_2psi], [-sin_2psi, cos_2psi]])
+
+
+def apply_psi_rotation(psi, vector_x, vector_y):
+    """
+    Apply the psi rotation matrix to the vector components (x, y).
+    Return shape: (2, N...)
+    """
+    rotation_matrix = psi_rotation_matrix(psi)
+    vector = jnp.array([vector_x, vector_y])
+    return np.einsum("ij...,j...->i...", rotation_matrix, vector)
+
+
 ##############################################################################
 # TIMES
 ##############################################################################
