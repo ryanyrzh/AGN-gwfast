@@ -5,31 +5,22 @@
 #    license that can be found in the LICENSE file.
 
 from jax import config
+import jax.numpy as jnp
+
 config.update("jax_enable_x64", True)
 
+import os
 import numpy as np
-import jax.numpy as jnp
 import json
 import h5py
 
 from gwfast import gwfastGlobals as glob
+from gwfast.gwfastGlobals import TWOPI, DAY_TO_SEC
 
-from astropy.cosmology import Planck18 as cosmo
-
-zGridGlob = np.logspace(start=-6, stop=5, base=10, num=5000)
-dLGridGlob = cosmo.luminosity_distance(zGridGlob).value / 1000.
-
-# Constants in SI
-G = 6.6743 * 1e-11
-c = 2.979246 * 1e8
-M_sun = 2.9884 * 1e30
-Gpc = 3.0856776 * 1e25
 
 ##############################################################################
 # LOADING AND SAVING CATALOGS
 ##############################################################################
-
-
 def get_event(evs, idx):
     """
     Select events from a catalog by index.
@@ -42,11 +33,27 @@ def get_event(evs, idx):
 
     """
 
-    res = {k: np.squeeze(np.array([evs[k][idx], ] )) for k in evs.keys()}
+    res = {
+        k: np.squeeze(
+            np.array(
+                [
+                    evs[k][idx],
+                ]
+            )
+        )
+        for k in evs.keys()
+    }
     try:
-        len(res['Mc'])
+        len(res["Mc"])
     except:
-        res = {k: np.array( [res[k], ] )  for k in res.keys()}
+        res = {
+            k: np.array(
+                [
+                    res[k],
+                ]
+            )
+            for k in res.keys()
+        }
     return res
 
 
@@ -72,11 +79,11 @@ def save_detectors(fname, detectors):
     :param dict(dict, dict, ...) detectors: The collection of dictionaries conatining the detector characteristics (``lat``, ``long``, ``xax`` and ``psd_path`` if desired), as in :py:data:`gwfast.gwfastGlobals.detectors`.
 
     """
-    with open(fname, 'w') as fp:
+    with open(fname, "w") as fp:
         json.dump(detectors, fp)
 
 
-def save_data(fname, data, ):
+def save_data(fname, data):
     """
     Store a dictionary containing the events parameters in ``h5`` file.
 
@@ -84,19 +91,18 @@ def save_data(fname, data, ):
     :param dict(array, array, ...) data: The dictionary conatining the parameters of the events, as in :py:data:`events`.
 
     """
-    print('Saving to %s '%fname)
-    with h5py.File(fname, 'w') as out:
+    print("Saving to %s " % fname)
+    with h5py.File(fname, "w") as out:
 
         def cd(n, d):
             d = np.array(d)
-            out.create_dataset(n, data=d, compression='gzip', shuffle=True)
+            out.create_dataset(n, data=d, compression="gzip", shuffle=True)
 
         for key in data.keys():
             cd(key, data[key])
 
 
 def load_population(name, nEventsUse=None, calculate_params=[], keys_skip=[]):
-
     """
     Load a dictionary containing the events parameters in h5 file, compute some useful cobinations and perform checks.
 
@@ -111,38 +117,52 @@ def load_population(name, nEventsUse=None, calculate_params=[], keys_skip=[]):
 
     """
 
-    events={}
-    with h5py.File(name, 'r') as f:
+    events = {}
+    with h5py.File(name, "r") as f:
         for key in f.keys():
             if key not in keys_skip:
                 events[key] = np.array(f[key])
             else:
-                print('Skipping %s' %key)
+                print("Skipping %s" % key)
         if nEventsUse is not None:
             for key in f.keys():
-                events[key]=events[key][:nEventsUse]
+                events[key] = events[key][:nEventsUse]
 
     plist = list(events.keys())
-    #print('Keys in load_population: %s' %str(events.keys()))
-    #computed_L = False
-    #computed_L1 = False
-    #for p in calculate_params:
-    if ('LambdaTilde' in calculate_params) or ('deltaLambda' in calculate_params):
-        print('Computing LambdaTilde, deltaLambda from Lambda1, Lambda2...')
-        events['LambdaTilde'], events['deltaLambda'] = Lamt_delLam_from_Lam12(events['Lambda1'], events['Lambda2'], events['eta'])
+    # print('Keys in load_population: %s' %str(events.keys()))
+    # computed_L = False
+    # computed_L1 = False
+    # for p in calculate_params:
+    if ("LambdaTilde" in calculate_params) or ("deltaLambda" in calculate_params):
+        print("Computing LambdaTilde, deltaLambda from Lambda1, Lambda2...")
+        events["LambdaTilde"], events["deltaLambda"] = Lamt_delLam_from_Lam12(
+            events["Lambda1"], events["Lambda2"], events["eta"]
+        )
 
-    if (('Lambda1' in calculate_params) or ('Lambda2' in calculate_params)) and not ('Lambda1' in plist):
-        print('Computing Lambda1, Lambda2 from LambdaTilde, deltaLambda...')
-        events['Lambda1'], events['Lambda2'] = Lam12_from_Lamt_delLam(events['LambdaTilde'], events['deltaLambda'], events['eta'])
-        #computed_L1 = True
-    if (('theta' in calculate_params) or ('phi' in calculate_params)) and not ('theta' in plist):
-        print('Computing theta, phi from ra, dec...')
-        events['theta'], events['phi'] = th_phi_from_ra_dec_rad(events['ra'], events['dec'])
-    if (('ra' in calculate_params) or ('dec' in calculate_params)) and not ('ra' in plist):
-        print('Computing ra, dec from theta, phi...')
-        events['ra'], events['dec'] = ra_dec_from_th_phi_rad(events['theta'], events['phi'])
+    if (("Lambda1" in calculate_params) or ("Lambda2" in calculate_params)) and not (
+        "Lambda1" in plist
+    ):
+        print("Computing Lambda1, Lambda2 from LambdaTilde, deltaLambda...")
+        events["Lambda1"], events["Lambda2"] = Lam12_from_Lamt_delLam(
+            events["LambdaTilde"], events["deltaLambda"], events["eta"]
+        )
+        # computed_L1 = True
+    if (("theta" in calculate_params) or ("phi" in calculate_params)) and not (
+        "theta" in plist
+    ):
+        print("Computing theta, phi from ra, dec...")
+        events["theta"], events["phi"] = th_phi_from_ra_dec_rad(
+            events["ra"], events["dec"]
+        )
+    if (("ra" in calculate_params) or ("dec" in calculate_params)) and not (
+        "ra" in plist
+    ):
+        print("Computing ra, dec from theta, phi...")
+        events["ra"], events["dec"] = ra_dec_from_th_phi_rad(
+            events["theta"], events["phi"]
+        )
 
-        #else:
+        # else:
         #    raise NotImplementedError('Only conversion between Lambda1, Lambda2 and LambdaTilde, deltaLambda supported so far')
 
     events = check_evparams(events)
@@ -156,6 +176,7 @@ def load_population(name, nEventsUse=None, calculate_params=[], keys_skip=[]):
 # See http://spiff.rit.edu/classes/phys440/lectures/coords/coords.html
 # Check: https://www.vercalendario.info/en/how/convert-ra-degrees-hours.html
 
+
 def ra_dec_from_th_phi_rad(theta, phi):
     """
     Compute :math:`\\alpha` and :math:`\delta` in :math:`\\rm rad` from :math:`\\theta` and :math:`\phi` in :math:`\\rm rad`.
@@ -168,7 +189,7 @@ def ra_dec_from_th_phi_rad(theta, phi):
 
     """
     ra = phi  # np.rad2deg(phi)
-    dec = 0.5*np.pi - theta  # np.rad2deg(0.5 * np.pi - theta)
+    dec = 0.5 * np.pi - theta  # np.rad2deg(0.5 * np.pi - theta)
     return ra, dec
 
 
@@ -232,7 +253,7 @@ def deg_min_sec_to_decimal_deg(d, m, s):
     :rtype: array or float
 
     """
-    return d + m/60 + s/3600
+    return d + m / 60 + s / 3600
 
 
 def hr_min_sec_to_decimal_deg(h, m, s):
@@ -249,7 +270,7 @@ def hr_min_sec_to_decimal_deg(h, m, s):
     """
     # decimal degrees=15*h+15*m/60+15*s/3600.
 
-    return 15*(h+m/60+s/3600)
+    return 15 * (h + m / 60 + s / 3600)
 
 
 def deg_min_sec_to_rad(d, m, s):
@@ -264,7 +285,8 @@ def deg_min_sec_to_rad(d, m, s):
     :rtype: array or float
 
     """
-    return deg_min_sec_to_decimal_deg(d, m, s)*np.pi/180
+    return deg_min_sec_to_decimal_deg(d, m, s) * np.pi / 180
+
 
 def hr_min_sec_to_rad(h, m, s):
     """
@@ -278,7 +300,7 @@ def hr_min_sec_to_rad(h, m, s):
     :rtype: array or float
 
     """
-    return hr_min_sec_to_decimal_deg(h, m, s)*np.pi/180
+    return hr_min_sec_to_decimal_deg(h, m, s) * np.pi / 180
 
 
 def rad_to_deg_min_sec(rad):
@@ -297,10 +319,10 @@ def rad_to_deg_min_sec(rad):
 
     d = np.floor(rad).astype(int)
 
-    m_exact = (rad-d)*60
+    m_exact = (rad - d) * 60
     m = np.floor(m_exact).astype(int)
 
-    s = np.round((m_exact - m)*60, 0).astype(int)
+    s = np.round((m_exact - m) * 60, 0).astype(int)
 
     return d, m, s
 
@@ -315,18 +337,18 @@ def rad_to_hr_min_sec(rad):
     :rtype: tuple(array, array, array) or tuple(float, float, float)
 
     """
-    hh = rad/15
+    hh = rad / 15
     h = np.floor(hh).astype(int)
 
-    m_exact = (hh-h)*60
+    m_exact = (hh - h) * 60
     m = np.floor(m_exact).astype(int)
 
-    s = np.round((m_exact - m)*60, 0).astype(int)
+    s = np.round((m_exact - m) * 60, 0).astype(int)
 
     return h, m, s
 
 
-def hr_min_sec_string(h,m,s):
+def hr_min_sec_string(h, m, s):
     """
     Convert one or multiple angles in hours, minutes, seconds to strings.
 
@@ -338,14 +360,18 @@ def hr_min_sec_string(h,m,s):
     :rtype: list(str) or str
 
     """
-    #h,m,s = np.asarray(h), np.asarray(m), np.asarray(s)
-    #s = int(np.round(s,0))
+    # h,m,s = np.asarray(h), np.asarray(m), np.asarray(s)
+    # s = int(np.round(s,0))
     try:
-        return [ str((h[i]))+'h'+str((m[i]))+'m'+str(s[i])+'s' for i in range(len(h))]
+        return [
+            str((h[i])) + "h" + str((m[i])) + "m" + str(s[i]) + "s"
+            for i in range(len(h))
+        ]
     except TypeError:
-        return str((h))+'h'+str((m))+'m'+str(s)+'s'
+        return str((h)) + "h" + str((m)) + "m" + str(s) + "s"
 
-def deg_min_sec_string(d,m,s):
+
+def deg_min_sec_string(d, m, s):
     """
     Convert one or multiple angles in degrees, minutes, seconds to strings.
 
@@ -357,13 +383,16 @@ def deg_min_sec_string(d,m,s):
     :rtype: list(str) or str
 
     """
-    #d,m,s = np.asarray(d), np.asarray(m), np.asarray(s)
-    #s = int(s)
+    # d,m,s = np.asarray(d), np.asarray(m), np.asarray(s)
+    # s = int(s)
 
     try:
-        return [ str((d[i]))+'°'+str((m[i]))+'m'+str(s[i])+'s' for i in range(len(d))]
+        return [
+            str((d[i])) + "°" + str((m[i])) + "m" + str(s[i]) + "s"
+            for i in range(len(d))
+        ]
     except TypeError:
-        return  str((d))+'°'+str((m))+'m'+str(s)+'s'
+        return str((d)) + "°" + str((m)) + "m" + str(s) + "s"
 
 
 def theta_to_dec_degminsec(theta):
@@ -405,11 +434,15 @@ def phi_to_ra_degminsec(phi):
 
     """
     ra = np.rad2deg(phi)
-    return deg_min_sec_string(*rad_to_deg_min_sec(ra)) #hr_min_sec_string(*rad_to_hr_min_sec(ra))
+    return deg_min_sec_string(
+        *rad_to_deg_min_sec(ra)
+    )  # hr_min_sec_string(*rad_to_hr_min_sec(ra))
+
 
 ##############################################################################
 # TIDAL PARAMETERS
 ##############################################################################
+
 
 def Lamt_delLam_from_Lam12(Lambda1, Lambda2, eta):
     """
@@ -422,13 +455,27 @@ def Lamt_delLam_from_Lam12(Lambda1, Lambda2, eta):
     :rtype: tuple(array, array) or tuple(float, float)
 
     """
-    eta2 = eta*eta
+    eta2 = eta * eta
     # This is needed to stabilize JAX derivatives
-    Seta = jnp.sqrt(jnp.where(eta<0.25, 1.0 - 4.0*eta, 0.))
+    Seta = jnp.sqrt(jnp.where(eta < 0.25, 1.0 - 4.0 * eta, 0.0))
 
-    Lamt = (8./13.)*((1. + 7.*eta - 31.*eta2)*(Lambda1 + Lambda2) + Seta*(1. + 9.*eta - 11.*eta2)*(Lambda1 - Lambda2))
+    Lamt = (8.0 / 13.0) * (
+        (1.0 + 7.0 * eta - 31.0 * eta2) * (Lambda1 + Lambda2)
+        + Seta * (1.0 + 9.0 * eta - 11.0 * eta2) * (Lambda1 - Lambda2)
+    )
 
-    delLam = 0.5*(Seta*(1. - 13272./1319.*eta + 8944./1319.*eta2)*(Lambda1 + Lambda2) + (1. - 15910./1319.*eta + 32850./1319.*eta2 + 3380./1319.*eta2*eta)*(Lambda1 - Lambda2))
+    delLam = 0.5 * (
+        Seta
+        * (1.0 - 13272.0 / 1319.0 * eta + 8944.0 / 1319.0 * eta2)
+        * (Lambda1 + Lambda2)
+        + (
+            1.0
+            - 15910.0 / 1319.0 * eta
+            + 32850.0 / 1319.0 * eta2
+            + 3380.0 / 1319.0 * eta2 * eta
+        )
+        * (Lambda1 - Lambda2)
+    )
 
     return Lamt, delLam
 
@@ -445,24 +492,31 @@ def Lam12_from_Lamt_delLam(Lamt, delLam, eta):
 
     """
 
-    eta2 = eta*eta
-    Seta = jnp.sqrt(jnp.where(eta<0.25, 1.0 - 4.0*eta, 0.))
+    eta2 = eta * eta
+    Seta = jnp.sqrt(jnp.where(eta < 0.25, 1.0 - 4.0 * eta, 0.0))
 
-    mLp=(8./13.)*(1.+ 7.*eta-31.*eta2)
-    mLm=(8./13.)*Seta*(1.+ 9.*eta-11.*eta2)
-    mdp=Seta*(1.-(13272./1319.)*eta+(8944./1319.)*eta2)*0.5
-    mdm=(1.-(15910./1319.)*eta+(32850./1319.)*eta2+(3380./1319.)*(eta2*eta))*0.5
+    mLp = (8.0 / 13.0) * (1.0 + 7.0 * eta - 31.0 * eta2)
+    mLm = (8.0 / 13.0) * Seta * (1.0 + 9.0 * eta - 11.0 * eta2)
+    mdp = Seta * (1.0 - (13272.0 / 1319.0) * eta + (8944.0 / 1319.0) * eta2) * 0.5
+    mdm = (
+        1.0
+        - (15910.0 / 1319.0) * eta
+        + (32850.0 / 1319.0) * eta2
+        + (3380.0 / 1319.0) * (eta2 * eta)
+    ) * 0.5
 
-    det=(306656./1319.)*(eta**5)-(5936./1319.)*(eta**4)
+    det = (306656.0 / 1319.0) * (eta**5) - (5936.0 / 1319.0) * (eta**4)
 
-    Lambda1 = ((mdp-mdm)*Lamt+(mLm-mLp)*delLam)/det
-    Lambda2 = ((-mdm-mdp)*Lamt+(mLm+mLp)*delLam)/det
+    Lambda1 = ((mdp - mdm) * Lamt + (mLm - mLp) * delLam) / det
+    Lambda2 = ((-mdm - mdp) * Lamt + (mLm + mLp) * delLam) / det
 
     return Lambda1, Lambda2
+
 
 ##############################################################################
 # MASSES
 ##############################################################################
+
 
 def m1m2_from_Mceta(Mc, eta):
     """
@@ -474,11 +528,12 @@ def m1m2_from_Mceta(Mc, eta):
     :rtype: tuple(array, array) or tuple(float, float)
 
     """
-    Seta = np.sqrt(np.where(eta<0.25, 1.0 - 4.0*eta, 0.))
-    m1 = 0.5*(Mc/(eta**(3./5.)))*(1. + Seta)
-    m2 = 0.5*(Mc/(eta**(3./5.)))*(1. - Seta)
+    Seta = np.sqrt(np.where(eta < 0.25, 1.0 - 4.0 * eta, 0.0))
+    m1 = 0.5 * (Mc / (eta ** (3.0 / 5.0))) * (1.0 + Seta)
+    m2 = 0.5 * (Mc / (eta ** (3.0 / 5.0))) * (1.0 - Seta)
 
     return m1, m2
+
 
 def Mceta_from_m1m2(m1, m2):
     """
@@ -490,14 +545,16 @@ def Mceta_from_m1m2(m1, m2):
     :rtype: tuple(array, array) or tuple(float, float)
 
     """
-    Mc  = ((m1*m2)**(3./5.))/((m1+m2)**(1./5.))
-    eta = (m1*m2)/((m1+m2)*(m1+m2))
+    Mc = ((m1 * m2) ** (3.0 / 5.0)) / ((m1 + m2) ** (1.0 / 5.0))
+    eta = (m1 * m2) / ((m1 + m2) * (m1 + m2))
 
     return Mc, eta
+
 
 ##############################################################################
 # SPINS
 ##############################################################################
+
 
 def zrot(angle, vx, vy, vz):
     """
@@ -513,10 +570,11 @@ def zrot(angle, vx, vy, vz):
 
     """
     # Function to perofrm a rotation of the components of a vector around the z axis by a given angle
-    tmp = vx*np.cos(angle) - vy*np.sin(angle)
-    yy  = vx*np.sin(angle) + vy*np.cos(angle)
-    xx  = tmp
+    tmp = vx * np.cos(angle) - vy * np.sin(angle)
+    yy = vx * np.sin(angle) + vy * np.cos(angle)
+    xx = tmp
     return xx, yy, vz
+
 
 def yrot(angle, vx, vy, vz):
     """
@@ -532,12 +590,15 @@ def yrot(angle, vx, vy, vz):
 
     """
     # Function to perofrm a rotation of the components of a vector around the y axis by a given angle
-    tmp = vx*np.cos(angle) + vz*np.sin(angle)
-    zz  = - vx*np.sin(angle) + vz*np.cos(angle)
-    xx  = tmp
+    tmp = vx * np.cos(angle) + vz * np.sin(angle)
+    zz = -vx * np.sin(angle) + vz * np.cos(angle)
+    xx = tmp
     return xx, vy, zz
 
-def TransformPrecessing_angles2comp(thetaJN, phiJL, theta1, theta2, phi12, chi1, chi2, Mc, eta, fRef, phiRef):
+
+def TransformPrecessing_angles2comp(
+    thetaJN, phiJL, theta1, theta2, phi12, chi1, chi2, Mc, eta, fRef, phiRef
+):
     """
     Compute the components of the spin in cartesian frame given the angular variables.
     Adapted from :py:class:`LALSimInspiral.c`, function :py:class:`XLALSimInspiralTransformPrecessingNewInitialConditions`, line 5885.
@@ -560,23 +621,23 @@ def TransformPrecessing_angles2comp(thetaJN, phiJL, theta1, theta2, phi12, chi1,
 
     """
 
-    LNhx = 0.
-    LNhy = 0.
-    LNhz = 1.
+    LNhx = 0.0
+    LNhy = 0.0
+    LNhz = 1.0
 
     s1hatx = np.sin(theta1) * np.cos(phiRef)
     s1haty = np.sin(theta1) * np.sin(phiRef)
     s1hatz = np.cos(theta1)
-    s2hatx = np.sin(theta2) * np.cos(phi12+phiRef)
-    s2haty = np.sin(theta2) * np.sin(phi12+phiRef)
+    s2hatx = np.sin(theta2) * np.cos(phi12 + phiRef)
+    s2haty = np.sin(theta2) * np.sin(phi12 + phiRef)
     s2hatz = np.cos(theta2)
 
     m1, m2 = m1m2_from_Mceta(Mc, eta)
-    M = m1+m2
-    v0 = (M * glob.GMsun_over_c3 * np.pi * fRef)**(1./3.)
+    M = m1 + m2
+    v0 = (M * glob.GMsun_over_c3 * np.pi * fRef) ** (1.0 / 3.0)
 
     # Define S1, S2, J with proper magnitudes
-    Lmag = (M*M*eta/v0)*(1. + v0*v0*(1.5 + eta/6.))
+    Lmag = (M * M * eta / v0) * (1.0 + v0 * v0 * (1.5 + eta / 6.0))
 
     s1x = m1 * m1 * chi1 * s1hatx
     s1y = m1 * m1 * chi1 * s1haty
@@ -590,7 +651,7 @@ def TransformPrecessing_angles2comp(thetaJN, phiJL, theta1, theta2, phi12, chi1,
 
     # Normalize J to Jhat, find its angles in starting frame
 
-    Jnorm = np.sqrt(Jx*Jx + Jy*Jy + Jz*Jz)
+    Jnorm = np.sqrt(Jx * Jx + Jy * Jy + Jz * Jz)
     Jhatx = Jx / Jnorm
     Jhaty = Jy / Jnorm
     Jhatz = Jz / Jnorm
@@ -602,53 +663,56 @@ def TransformPrecessing_angles2comp(thetaJN, phiJL, theta1, theta2, phi12, chi1,
     s2hatx, s2haty, s2hatz = zrot(-phi0, s2hatx, s2haty, s2hatz)
 
     # Rotation 2: Rotate about new y-axis by -theta0 to put Jhat along z-axis
-    LNhx, LNhy, LNhz       = yrot(-theta0, LNhx, LNhy, LNhz)
+    LNhx, LNhy, LNhz = yrot(-theta0, LNhx, LNhy, LNhz)
     s1hatx, s1haty, s1hatz = yrot(-theta0, s1hatx, s1haty, s1hatz)
     s2hatx, s2haty, s2hatz = yrot(-theta0, s2hatx, s2haty, s2hatz)
 
     # Rotation 3: Rotate about new z-axis by phiJL to put L at desired azimuth about J.
     # Note that is currently in x-z plane towards -x (i.e. azimuth=pi). Hence we rotate about z by phiJL - pi
-    LNhx, LNhy, LNhz       = zrot(phiJL - np.pi, LNhx, LNhy, LNhz)
+    LNhx, LNhy, LNhz = zrot(phiJL - np.pi, LNhx, LNhy, LNhz)
     s1hatx, s1haty, s1hatz = zrot(phiJL - np.pi, s1hatx, s1haty, s1hatz)
     s2hatx, s2haty, s2hatz = zrot(phiJL - np.pi, s2hatx, s2haty, s2hatz)
 
     # The cosine of the angle between L and N is the scalar product of the two vectors, no further rotation needed
 
-    Nx=0.
-    Ny=np.sin(thetaJN)
-    Nz=np.cos(thetaJN)
-    iota=np.arccos(Nx*LNhx+Ny*LNhy+Nz*LNhz)
+    Nx = 0.0
+    Ny = np.sin(thetaJN)
+    Nz = np.cos(thetaJN)
+    iota = np.arccos(Nx * LNhx + Ny * LNhy + Nz * LNhz)
 
     # Rotation 4-5: Now J is along z and N in y-z plane, inclined from J by thetaJN and with >ve component along y.
     # Now we bring L into the z axis to get spin components.
     thetaLJ = np.arccos(LNhz)
-    phiL    = np.arctan2(np.real(LNhy), np.real(LNhx))
+    phiL = np.arctan2(np.real(LNhy), np.real(LNhx))
 
     s1hatx, s1haty, s1hatz = zrot(-phiL, s1hatx, s1haty, s1hatz)
     s2hatx, s2haty, s2hatz = zrot(-phiL, s2hatx, s2haty, s2hatz)
-    Nx, Ny, Nz             = zrot(-phiL, Nx, Ny, Nz)
+    Nx, Ny, Nz = zrot(-phiL, Nx, Ny, Nz)
 
     s1hatx, s1haty, s1hatz = yrot(-thetaLJ, s1hatx, s1haty, s1hatz)
     s2hatx, s2haty, s2hatz = yrot(-thetaLJ, s2hatx, s2haty, s2hatz)
-    Nx, Ny, Nz             = yrot(-thetaLJ, Nx, Ny, Nz)
+    Nx, Ny, Nz = yrot(-thetaLJ, Nx, Ny, Nz)
 
     # Rotation 6: Now L is along z and we have to bring N in the y-z plane with >ve y components.
 
     phiN = np.arctan2(np.real(Ny), np.real(Nx))
 
-    s1hatx, s1haty, s1hatz = zrot(np.pi/2.-phiN-phiRef, s1hatx, s1haty, s1hatz)
-    s2hatx, s2haty, s2hatz = zrot(np.pi/2.-phiN-phiRef, s2hatx, s2haty, s2hatz)
+    s1hatx, s1haty, s1hatz = zrot(np.pi / 2.0 - phiN - phiRef, s1hatx, s1haty, s1hatz)
+    s2hatx, s2haty, s2hatz = zrot(np.pi / 2.0 - phiN - phiRef, s2hatx, s2haty, s2hatz)
 
-    S1x = s1hatx*chi1
-    S1y = s1haty*chi1
-    S1z = s1hatz*chi1
-    S2x = s2hatx*chi2
-    S2y = s2haty*chi2
-    S2z = s2hatz*chi2
+    S1x = s1hatx * chi1
+    S1y = s1haty * chi1
+    S1z = s1hatz * chi1
+    S2x = s2hatx * chi2
+    S2y = s2haty * chi2
+    S2z = s2hatz * chi2
 
     return iota, S1x, S1y, S1z, S2x, S2y, S2z
 
-def TransformPrecessing_comp2angles(iota, S1x, S1y, S1z, S2x, S2y, S2z, Mc, eta, fRef, phiRef):
+
+def TransformPrecessing_comp2angles(
+    iota, S1x, S1y, S1z, S2x, S2y, S2z, Mc, eta, fRef, phiRef
+):
     """
     Compute the angular variables of the spins given the components in cartesian frame
     Adapted from :py:class:`LALSimInspiral.c`, function :py:class:`XLALSimInspiralTransformPrecessingWvf2PE`, line 6105.
@@ -671,32 +735,34 @@ def TransformPrecessing_comp2angles(iota, S1x, S1y, S1z, S2x, S2y, S2z, Mc, eta,
 
     """
 
-    LNhx = 0.
-    LNhy = 0.
-    LNhz = 1.
-    chi1 = np.sqrt(S1x*S1x + S1y*S1y + S1z*S1z)
-    chi2 = np.sqrt(S2x*S2x + S2y*S2y + S2z*S2z)
+    LNhx = 0.0
+    LNhy = 0.0
+    LNhz = 1.0
+    chi1 = np.sqrt(S1x * S1x + S1y * S1y + S1z * S1z)
+    chi2 = np.sqrt(S2x * S2x + S2y * S2y + S2z * S2z)
 
-    s1hatx = np.where(chi1>0., S1x/(chi1), 0.)
-    s1haty = np.where(chi1>0., S1y/(chi1), 0.)
-    s1hatz = np.where(chi1>0., S1z/(chi1), 0.)
-    s2hatx = np.where(chi2>0., S2x/(chi2), 0.)
-    s2haty = np.where(chi2>0., S2y/(chi2), 0.)
-    s2hatz = np.where(chi2>0., S2z/(chi2), 0.)
+    s1hatx = np.where(chi1 > 0.0, S1x / (chi1), 0.0)
+    s1haty = np.where(chi1 > 0.0, S1y / (chi1), 0.0)
+    s1hatz = np.where(chi1 > 0.0, S1z / (chi1), 0.0)
+    s2hatx = np.where(chi2 > 0.0, S2x / (chi2), 0.0)
+    s2haty = np.where(chi2 > 0.0, S2y / (chi2), 0.0)
+    s2hatz = np.where(chi2 > 0.0, S2z / (chi2), 0.0)
 
     phi1 = np.arctan2(np.real(s1haty), np.real(s1hatx))
     phi2 = np.arctan2(np.real(s2haty), np.real(s2hatx))
 
-    phi12 = np.where(phi2 - phi1 < 0., 2.*np.pi + (phi2 - phi1), phi2 - phi1)
+    phi12 = np.where(phi2 - phi1 < 0.0, 2.0 * np.pi + (phi2 - phi1), phi2 - phi1)
 
     theta1 = np.arccos(s1hatz)
     theta2 = np.arccos(s2hatz)
 
     m1, m2 = m1m2_from_Mceta(Mc, eta)
-    M = m1+m2
-    v0 = (M * glob.GMsun_over_c3 * np.pi * fRef)**(1./3.)#np.cbrt(M * glob.GMsun_over_c3 * np.pi * fRef)
+    M = m1 + m2
+    v0 = (M * glob.GMsun_over_c3 * np.pi * fRef) ** (
+        1.0 / 3.0
+    )  # np.cbrt(M * glob.GMsun_over_c3 * np.pi * fRef)
     # Define S1, S2, J with proper magnitudes
-    Lmag = (M*M*eta/v0)*(1. + v0*v0*(1.5 + eta/6.))
+    Lmag = (M * M * eta / v0) * (1.0 + v0 * v0 * (1.5 + eta / 6.0))
 
     s1x = m1 * m1 * S1x
     s1y = m1 * m1 * S1y
@@ -706,23 +772,23 @@ def TransformPrecessing_comp2angles(iota, S1x, S1y, S1z, S2x, S2y, S2z, Mc, eta,
     s2z = m2 * m2 * S2z
     Jx = s1x + s2x
     Jy = s1y + s2y
-    Jz = Lmag*LNhz + s1z + s2z
+    Jz = Lmag * LNhz + s1z + s2z
 
     # Normalize J to Jhat, find its angles in starting frame
 
-    Jnorm = np.sqrt(Jx*Jx + Jy*Jy + Jz*Jz)
+    Jnorm = np.sqrt(Jx * Jx + Jy * Jy + Jz * Jz)
     Jhatx = Jx / Jnorm
     Jhaty = Jy / Jnorm
     Jhatz = Jz / Jnorm
     thetaJL = np.arccos(Jhatz)
-    phiJ    = np.arctan2(np.real(Jhaty), np.real(Jhatx))
+    phiJ = np.arctan2(np.real(Jhaty), np.real(Jhatx))
 
-    phiO = np.pi/2. - phiRef
-    Nx = np.sin(iota)*np.cos(phiO);
-    Ny = np.sin(iota)*np.sin(phiO);
+    phiO = np.pi / 2.0 - phiRef
+    Nx = np.sin(iota) * np.cos(phiO)
+    Ny = np.sin(iota) * np.sin(phiO)
     Nz = np.cos(iota)
 
-    thetaJN = np.arccos(Jhatx*Nx + Jhaty*Ny + Jhatz*Nz)
+    thetaJN = np.arccos(Jhatx * Nx + Jhaty * Ny + Jhatz * Nz)
 
     # The easiest way to define the phiJL is to rotate to the frame where J is along z and N is in the y-z plane
     Nx, Ny, Nz = zrot(-phiJ, Nx, Ny, Nz)
@@ -734,17 +800,211 @@ def TransformPrecessing_comp2angles(iota, S1x, S1y, S1z, S2x, S2y, S2z, Mc, eta,
     phiN = np.arctan2(np.real(Ny), np.real(Nx))
 
     # After rotation defined below N should be in y-z plane inclined by thetaJN to J=z
-    LNhx, LNhy, LNhz = zrot(np.pi/2. - phiN, LNhx, LNhy, LNhz)
+    LNhx, LNhy, LNhz = zrot(np.pi / 2.0 - phiN, LNhx, LNhy, LNhz)
 
     phiJL = np.arctan2(np.real(LNhy), np.real(LNhx))
-    phiJL = np.where(phiJL<0., phiJL+2.*np.pi, phiJL)
+    phiJL = np.where(phiJL < 0.0, phiJL + 2.0 * np.pi, phiJL)
 
     return thetaJN, phiJL, theta1, theta2, phi12, chi1, chi2
+
+
+##############################################################################
+# Antenna Pattern
+##############################################################################
+def compute_ab_factors(
+    ra,
+    dec,
+    time,
+    rot,
+    long_rad,
+    lat_rad,
+    xax_rad,
+    dphi=False,
+    dtheta=False,
+    dtime=False,
+):
+    """
+    See P. Jaranowski, A. Krolak, B. F. Schutz, PRD 58, 063001, eq. (10)--(13)
+    """
+    sin_lat = jnp.sin(lat_rad)
+    cos_lat = jnp.cos(lat_rad)
+    sin_2lat = jnp.sin(2.0 * lat_rad)
+    m3_cos_2lat = 3 - jnp.cos(2.0 * lat_rad)
+    sin_2xax = jnp.sin(2.0 * (xax_rad + rot))
+    cos_2xax = jnp.cos(2.0 * (xax_rad + rot))
+    m3_cos_2dec = 3 - jnp.cos(2.0 * dec)
+    cos_2dec = jnp.cos(2.0 * dec)
+    sin_2dec = jnp.sin(2.0 * dec)
+
+    ang = ra - long_rad - TWOPI * time
+    cos_2ang = jnp.cos(2.0 * ang)
+    sin_2ang = jnp.sin(2.0 * ang)
+    cos_ang = jnp.cos(ang)
+    sin_ang = jnp.sin(ang)
+
+    deltat_deriv = 0.0
+
+    a1 = 0.0625 * sin_2xax * m3_cos_2lat
+    a2 = 0.25 * cos_2xax * sin_lat
+    a3 = 0.25 * sin_2xax * sin_2lat
+    a4 = 0.5 * cos_2xax * cos_lat
+    a5 = 3.0 * 0.25 * sin_2xax * cos_lat**2
+
+    b1 = cos_2xax * sin_lat
+    b2 = 0.25 * sin_2xax * m3_cos_2lat
+    b3 = cos_2xax * cos_lat
+    b4 = 0.5 * sin_2xax * sin_2lat
+
+    if dphi or dtime:
+        cos_2ang = -2 * jnp.sin(2.0 * ang)
+        sin_2ang = +2 * jnp.cos(2.0 * ang)
+        cos_ang = -1 * jnp.sin(ang)
+        sin_ang = +1 * jnp.cos(ang)
+
+    if dtheta:
+        deltat_deriv = geocentric_deltat(ra, dec, time, lat_rad, long_rad, dtheta=True)
+        pi2_deltat = TWOPI * deltat_deriv
+        a1 *= -2.0 * sin_2dec * cos_2ang + m3_cos_2dec * sin_2ang * (2.0 * pi2_deltat)
+        a2 *= -2.0 * sin_2dec * sin_2ang - m3_cos_2dec * cos_2ang * (2.0 * pi2_deltat)
+        a3 *= -2.0 * cos_2dec * cos_ang + sin_2dec * sin_ang * pi2_deltat
+        a4 *= -1 * (2.0 * cos_2dec * sin_ang + sin_2dec * cos_ang * pi2_deltat)
+        a5 *= sin_2dec
+
+        b1 *= -jnp.cos(dec) * cos_2ang + jnp.sin(dec) * sin_2ang * (2.0 * pi2_deltat)
+        b2 *= -jnp.cos(dec) * sin_2ang - jnp.sin(dec) * cos_2ang * (2.0 * pi2_deltat)
+        b3 *= jnp.sin(dec) * cos_ang + jnp.cos(dec) * sin_ang * pi2_deltat
+        b4 *= jnp.sin(dec) * sin_ang - jnp.cos(dec) * cos_ang * pi2_deltat
+
+    else:
+        a1 *= m3_cos_2dec * cos_2ang
+        a2 *= m3_cos_2dec * sin_2ang
+        a3 *= sin_2dec * cos_ang
+        a4 *= sin_2dec * sin_ang
+        a5 *= jnp.cos(dec) ** 2.0
+        b1 *= jnp.sin(dec) * cos_2ang
+        b2 *= jnp.sin(dec) * sin_2ang
+        b3 *= jnp.cos(dec) * cos_ang
+        b4 *= jnp.cos(dec) * sin_ang
+
+    a_factor = a1 - a2 + a3 - a4 + a5
+    b_factor = b1 + b2 + b3 + b4
+
+    if dphi:
+        a_factor = a1 - a2 + a3 - a4
+        deltat_deriv = geocentric_deltat(ra, dec, time, lat_rad, long_rad, dphi=True)
+        a_factor *= 1.0 - TWOPI * deltat_deriv
+        b_factor *= 1.0 - TWOPI * deltat_deriv
+    elif dtime:
+        a_factor = a1 - a2 + a3 - a4
+        deltat_deriv = geocentric_deltat(ra, dec, time, lat_rad, long_rad, dtime=True)
+        a_factor *= -TWOPI * (1.0 + deltat_deriv)
+        b_factor *= -TWOPI * (1.0 + deltat_deriv)
+
+    return a_factor, b_factor, deltat_deriv
+
+
+def geocentric_deltat(
+    ra, dec, time, lat_rad, long_rad, dphi=False, dtheta=False, dtime=False
+):
+    """
+    Compute the time needed to go from Earth center to detector location
+    for a set of sky coordinates and time(s). The result is given in days.
+
+    Also the derivatives, simplified from:
+    * `Delt_loc_phider`
+    * `Delt_loc_thder`
+    * `Delt_loc_tcder`
+
+    :param array or float ra: The :math:`\\theta` sky position angle(s), in :math:`\\rm rad`.
+    :param array or float dec: The :math:`\phi` sky position angle(s), in :math:`\\rm rad`.
+    :param array or float time: The time(s) given as GMST.
+
+    :return: Time shift (days) to go from Earth center to detector location.
+    :rtype: array or float
+    """
+    cos_lat = jnp.cos(lat_rad)
+    sin_lat = jnp.sin(lat_rad)
+    sin_ra = jnp.sin(ra)
+    cos_ra = jnp.cos(ra)
+    sin_dec = jnp.sin(dec)
+    cos_dec = jnp.cos(dec)
+
+    deltat = long_rad + TWOPI * time
+    cos_deltat = jnp.cos(deltat)
+    sin_deltat = jnp.sin(deltat)
+
+    _comp1 = cos_ra * cos_lat
+    _comp2 = sin_ra * cos_lat
+
+    # This is to maintain the function being jit-able.
+    deriv_case = 1 * dphi + 2 * dtheta + 4 * dtime
+    comp1, comp2, comp3 = {
+        0: (cos_dec * cos_deltat, cos_dec * sin_deltat, sin_dec * sin_lat),
+        1: (-cos_dec * sin_deltat, +cos_dec * cos_deltat, 0.0),
+        2: (sin_dec * cos_deltat, sin_dec * sin_deltat, -cos_dec * sin_lat),
+        4: (-cos_dec * sin_deltat * TWOPI, +cos_dec * cos_deltat * TWOPI, 0.0),
+    }[deriv_case]
+
+    sum_comp = comp1 * _comp1 + comp2 * _comp2 + comp3
+    # The minus sign arises from the definition of the unit vector pointing to the source
+    earth_traverse_time = -glob.REarth / glob.clight / DAY_TO_SEC
+
+    return sum_comp * earth_traverse_time
+
+
+def psi_rotation_matrix(psi):
+    """
+    Compute the rotation matrix for the angle psi.
+    Return shape: (2, 2, N...)
+    """
+    cos_2psi = jnp.cos(2 * psi)
+    sin_2psi = jnp.sin(2 * psi)
+    return jnp.array([[cos_2psi, sin_2psi], [-sin_2psi, cos_2psi]])
+
+
+def apply_psi_rotation(psi, vector_x, vector_y):
+    """
+    Apply the psi rotation matrix to the vector components (x, y).
+    Return shape: (2, N...)
+    """
+    rotation_matrix = psi_rotation_matrix(psi)
+    vector = jnp.array([vector_x, vector_y])
+    return jnp.einsum("ij...,j...->i...", rotation_matrix, vector)
+
+
+def noise_weighted_inner_product(frequencies, h1, h2, psd, axis=0):
+    integrand = jnp.conjugate(h1) * h2 / psd
+    return 4.0 * jnp.trapezoid(integrand.real, frequencies, axis=axis)
+
+
+def optimal_snr(frequencies, h1, psd, axis=0):
+    return noise_weighted_inner_product(frequencies, h1, h1, psd, axis=axis) ** 0.5
+
+
+def inspiral_integrands(freq, Mc, t_coal):
+    time = (
+        t_coal
+        - 2.18567
+        * ((1.21 / Mc) ** (5.0 / 3.0))
+        * ((100 / freq) ** (8.0 / 3.0))
+        / DAY_TO_SEC
+    )
+    return (freq ** (-7.0 / 3.0)), time
+
+
+def CosineIntegrand(freq, Mc, t_coal, n):
+    freq, time = inspiral_integrands(freq=freq, Mc=Mc, t_coal=t_coal)
+    return freq * np.cos(n * TWOPI * time)
+
+
+def SineIntegrand(freq, Mc, t_coal, n):
+    freq, time = inspiral_integrands(freq=freq, Mc=Mc, t_coal=t_coal)
+    return freq * np.sin(n * TWOPI * time)
+
 
 ##############################################################################
 # TIMES
 ##############################################################################
-
 def GPSt_to_J200t(t_GPS):
     # According to https://www.andrews.edu/~tzs/timeconv/timedisplay.php the GPS time of J2000 is 630763148 s
     return t_GPS - 630763148.0
@@ -765,20 +1025,21 @@ def GPSt_to_LMST(t_GPS, lat, long):
     from astropy.coordinates import EarthLocation
     import astropy.time as aspyt
     import astropy.units as u
-    # Uncomment the next two lines in case of troubles with IERS
-    #import astropy
-    #astropy.utils.iers.conf.iers_degraded_accuracy='ignore'
 
-    loc = EarthLocation(lat=lat*u.deg, lon=long*u.deg)
-    t = aspyt.Time(t_GPS, format='gps', location=(loc))
-    LMST = t.sidereal_time('mean').value
-    return jnp.array(LMST/24.)
+    # Uncomment the next two lines in case of troubles with IERS
+    # import astropy
+    # astropy.utils.iers.conf.iers_degraded_accuracy='ignore'
+
+    loc = EarthLocation(lat=lat * u.deg, lon=long * u.deg)
+    t = aspyt.Time(t_GPS, format="gps", location=(loc))
+    LMST = t.sidereal_time("mean").value
+    return jnp.array(LMST / 24.0)
+
 
 ##############################################################################
 # SPHERICAL HARMONICS
 ##############################################################################
-
-def Add_Higher_Modes(Ampl, Phi, iota, phi=0.):
+def Add_Higher_Modes(Ampl, Phi, iota, phi=0.0):
     """
     Compute the total signal from a collection of different modes.
 
@@ -798,87 +1059,199 @@ def Add_Higher_Modes(Ampl, Phi, iota, phi=0.):
         # Taken from arXiv:0709.0093v3 eq. (II.7), (II.8) and LALSimulation for the s=-2 case and up to l=4
 
         if s != -2:
-            raise ValueError('The only spin-weight implemented for the moment is s = -2.')
+            raise ValueError(
+                "The only spin-weight implemented for the moment is s = -2."
+            )
 
-        if (2 == l):
-            if (-2 == m):
-                res = jnp.sqrt( 5.0 / ( 64.0 * jnp.pi ) ) * ( 1.0 - jnp.cos( theta ))*( 1.0 - jnp.cos( theta ))
-            elif (-1 == m):
-                res = jnp.sqrt( 5.0 / ( 16.0 * jnp.pi ) ) * jnp.sin( theta )*( 1.0 - jnp.cos( theta ))
-            elif (0 == m):
-                res = jnp.sqrt( 15.0 / ( 32.0 * jnp.pi ) ) * jnp.sin( theta )*jnp.sin( theta )
-            elif (1 == m):
-                res = jnp.sqrt( 5.0 / ( 16.0 * jnp.pi ) ) * jnp.sin( theta )*( 1.0 + jnp.cos( theta ))
-            elif (2 == m):
-                res = jnp.sqrt( 5.0 / ( 64.0 * jnp.pi ) ) * ( 1.0 + jnp.cos( theta ))*( 1.0 + jnp.cos( theta ))
+        if 2 == l:
+            if -2 == m:
+                res = (
+                    jnp.sqrt(5.0 / (64.0 * jnp.pi))
+                    * (1.0 - jnp.cos(theta))
+                    * (1.0 - jnp.cos(theta))
+                )
+            elif -1 == m:
+                res = (
+                    jnp.sqrt(5.0 / (16.0 * jnp.pi))
+                    * jnp.sin(theta)
+                    * (1.0 - jnp.cos(theta))
+                )
+            elif 0 == m:
+                res = jnp.sqrt(15.0 / (32.0 * jnp.pi)) * jnp.sin(theta) * jnp.sin(theta)
+            elif 1 == m:
+                res = (
+                    jnp.sqrt(5.0 / (16.0 * jnp.pi))
+                    * jnp.sin(theta)
+                    * (1.0 + jnp.cos(theta))
+                )
+            elif 2 == m:
+                res = (
+                    jnp.sqrt(5.0 / (64.0 * jnp.pi))
+                    * (1.0 + jnp.cos(theta))
+                    * (1.0 + jnp.cos(theta))
+                )
             else:
-                raise ValueError('Invalid m for l = 2.')
+                raise ValueError("Invalid m for l = 2.")
 
-        elif (3 == l):
-            if (-3 == m):
-                res = jnp.sqrt(21.0/(2.0*jnp.pi))*jnp.cos(theta*0.5)*((jnp.sin(theta*0.5))**(5.))
-            elif (-2 == m):
-                res = jnp.sqrt(7.0/(4.0*jnp.pi))*(2.0 + 3.0*jnp.cos(theta))*((jnp.sin(theta*0.5))**(4.0))
-            elif (-1 == m):
-                res = jnp.sqrt(35.0/(2.0*jnp.pi))*(jnp.sin(theta) + 4.0*jnp.sin(2.0*theta) - 3.0*jnp.sin(3.0*theta))/32.0
-            elif (0 == m):
-                res = (jnp.sqrt(105.0/(2.0*jnp.pi))*jnp.cos(theta)*(jnp.sin(theta)*jnp.sin(theta)))*0.25
-            elif (1 == m):
-                res = -jnp.sqrt(35.0/(2.0*jnp.pi))*(jnp.sin(theta) - 4.0*jnp.sin(2.0*theta) - 3.0*jnp.sin(3.0*theta))/32.0
-            elif (2 == m):
-                res = jnp.sqrt(7.0/jnp.pi)*((jnp.cos(theta*0.5))**(4.0))*(-2.0 + 3.0*jnp.cos(theta))*0.5
-            elif (3 == m):
-                res = -jnp.sqrt(21.0/(2.0*jnp.pi))*((jnp.cos(theta/2.0))**(5.0))*jnp.sin(theta*0.5)
+        elif 3 == l:
+            if -3 == m:
+                res = (
+                    jnp.sqrt(21.0 / (2.0 * jnp.pi))
+                    * jnp.cos(theta * 0.5)
+                    * ((jnp.sin(theta * 0.5)) ** (5.0))
+                )
+            elif -2 == m:
+                res = (
+                    jnp.sqrt(7.0 / (4.0 * jnp.pi))
+                    * (2.0 + 3.0 * jnp.cos(theta))
+                    * ((jnp.sin(theta * 0.5)) ** (4.0))
+                )
+            elif -1 == m:
+                res = (
+                    jnp.sqrt(35.0 / (2.0 * jnp.pi))
+                    * (
+                        jnp.sin(theta)
+                        + 4.0 * jnp.sin(2.0 * theta)
+                        - 3.0 * jnp.sin(3.0 * theta)
+                    )
+                    / 32.0
+                )
+            elif 0 == m:
+                res = (
+                    jnp.sqrt(105.0 / (2.0 * jnp.pi))
+                    * jnp.cos(theta)
+                    * (jnp.sin(theta) * jnp.sin(theta))
+                ) * 0.25
+            elif 1 == m:
+                res = (
+                    -jnp.sqrt(35.0 / (2.0 * jnp.pi))
+                    * (
+                        jnp.sin(theta)
+                        - 4.0 * jnp.sin(2.0 * theta)
+                        - 3.0 * jnp.sin(3.0 * theta)
+                    )
+                    / 32.0
+                )
+            elif 2 == m:
+                res = (
+                    jnp.sqrt(7.0 / jnp.pi)
+                    * ((jnp.cos(theta * 0.5)) ** (4.0))
+                    * (-2.0 + 3.0 * jnp.cos(theta))
+                    * 0.5
+                )
+            elif 3 == m:
+                res = (
+                    -jnp.sqrt(21.0 / (2.0 * jnp.pi))
+                    * ((jnp.cos(theta / 2.0)) ** (5.0))
+                    * jnp.sin(theta * 0.5)
+                )
             else:
-                raise ValueError('Invalid m for l = 3.')
+                raise ValueError("Invalid m for l = 3.")
 
-        elif (4 == l):
-            if (-4 == m):
-                res = 3.0*jnp.sqrt(7.0/jnp.pi)*(jnp.cos(theta*0.5)*jnp.cos(theta*0.5))*((jnp.sin(theta*0.5))**6.0)
-            elif (-3 == m):
-                res = 3.0*jnp.sqrt(7.0/(2.0*jnp.pi))*jnp.cos(theta*0.5)*(1.0 + 2.0*jnp.cos(theta))*((jnp.sin(theta*0.5))**5.0)
-            elif (-2 == m):
-                res = (3.0*(9.0 + 14.0*jnp.cos(theta) + 7.0*jnp.cos(2.0*theta))*((jnp.sin(theta/2.0))**4.0))/(4.0*jnp.sqrt(jnp.pi))
-            elif (-1 == m):
-                res = (3.0*(3.0*jnp.sin(theta) + 2.0*jnp.sin(2.0*theta) + 7.0*jnp.sin(3.0*theta) - 7.0*jnp.sin(4.0*theta)))/(32.0*jnp.sqrt(2.0*jnp.pi))
-            elif (0 == m):
-                res = (3.0*jnp.sqrt(5.0/(2.0*jnp.pi))*(5.0 + 7.0*jnp.cos(2.0*theta))*(jnp.sin(theta)*jnp.sin(theta)))/16.
-            elif (1 == m):
-                res = (3.0*(3.0*jnp.sin(theta) - 2.0*jnp.sin(2.0*theta) + 7.0*jnp.sin(3.0*theta) + 7.0*jnp.sin(4.0*theta)))/(32.0*jnp.sqrt(2.0*jnp.pi))
-            elif (2 == m):
-                res = (3.0*((jnp.cos(theta*0.5))**4.0)*(9.0 - 14.0*jnp.cos(theta) + 7.0*jnp.cos(2.0*theta)))/(4.0*jnp.sqrt(jnp.pi))
-            elif (3 == m):
-                res = -3.0*jnp.sqrt(7.0/(2.0*jnp.pi))*((jnp.cos(theta*0.5))**5.0)*(-1.0 + 2.0*jnp.cos(theta))*jnp.sin(theta*0.5)
-            elif (4 == m):
-                res = 3.0*jnp.sqrt(7.0/jnp.pi)*((jnp.cos(theta*0.5))**6.0)*(jnp.sin(theta*0.5)*jnp.sin(theta*0.5))
+        elif 4 == l:
+            if -4 == m:
+                res = (
+                    3.0
+                    * jnp.sqrt(7.0 / jnp.pi)
+                    * (jnp.cos(theta * 0.5) * jnp.cos(theta * 0.5))
+                    * ((jnp.sin(theta * 0.5)) ** 6.0)
+                )
+            elif -3 == m:
+                res = (
+                    3.0
+                    * jnp.sqrt(7.0 / (2.0 * jnp.pi))
+                    * jnp.cos(theta * 0.5)
+                    * (1.0 + 2.0 * jnp.cos(theta))
+                    * ((jnp.sin(theta * 0.5)) ** 5.0)
+                )
+            elif -2 == m:
+                res = (
+                    3.0
+                    * (9.0 + 14.0 * jnp.cos(theta) + 7.0 * jnp.cos(2.0 * theta))
+                    * ((jnp.sin(theta / 2.0)) ** 4.0)
+                ) / (4.0 * jnp.sqrt(jnp.pi))
+            elif -1 == m:
+                res = (
+                    3.0
+                    * (
+                        3.0 * jnp.sin(theta)
+                        + 2.0 * jnp.sin(2.0 * theta)
+                        + 7.0 * jnp.sin(3.0 * theta)
+                        - 7.0 * jnp.sin(4.0 * theta)
+                    )
+                ) / (32.0 * jnp.sqrt(2.0 * jnp.pi))
+            elif 0 == m:
+                res = (
+                    3.0
+                    * jnp.sqrt(5.0 / (2.0 * jnp.pi))
+                    * (5.0 + 7.0 * jnp.cos(2.0 * theta))
+                    * (jnp.sin(theta) * jnp.sin(theta))
+                ) / 16.0
+            elif 1 == m:
+                res = (
+                    3.0
+                    * (
+                        3.0 * jnp.sin(theta)
+                        - 2.0 * jnp.sin(2.0 * theta)
+                        + 7.0 * jnp.sin(3.0 * theta)
+                        + 7.0 * jnp.sin(4.0 * theta)
+                    )
+                ) / (32.0 * jnp.sqrt(2.0 * jnp.pi))
+            elif 2 == m:
+                res = (
+                    3.0
+                    * ((jnp.cos(theta * 0.5)) ** 4.0)
+                    * (9.0 - 14.0 * jnp.cos(theta) + 7.0 * jnp.cos(2.0 * theta))
+                ) / (4.0 * jnp.sqrt(jnp.pi))
+            elif 3 == m:
+                res = (
+                    -3.0
+                    * jnp.sqrt(7.0 / (2.0 * jnp.pi))
+                    * ((jnp.cos(theta * 0.5)) ** 5.0)
+                    * (-1.0 + 2.0 * jnp.cos(theta))
+                    * jnp.sin(theta * 0.5)
+                )
+            elif 4 == m:
+                res = (
+                    3.0
+                    * jnp.sqrt(7.0 / jnp.pi)
+                    * ((jnp.cos(theta * 0.5)) ** 6.0)
+                    * (jnp.sin(theta * 0.5) * jnp.sin(theta * 0.5))
+                )
             else:
-                raise ValueError('Invalid m for l = 4.')
+                raise ValueError("Invalid m for l = 4.")
 
         else:
-            raise ValueError('Multipoles with l > 4 not implemented yet.')
+            raise ValueError("Multipoles with l > 4 not implemented yet.")
 
-        return res*jnp.exp(1j*m*phi)
+        return res * jnp.exp(1j * m * phi)
 
     hp = jnp.zeros(Ampl[list(Ampl)[0]].shape)
     hc = jnp.zeros(Ampl[list(Ampl)[0]].shape)
 
     for key in Ampl.keys():
         if key in Phi.keys():
-            l, m = int(key[:2//2]), int(key[2//2:])
+            l, m = int(key[: 2 // 2]), int(key[2 // 2 :])
             Y = SpinWeighted_SphericalHarmonic(iota, phi, l, m)
             if m:
                 Ymstar = jnp.conj(SpinWeighted_SphericalHarmonic(iota, phi, l, -m))
             else:
-                Ymstar = 0.
+                Ymstar = 0.0
 
-            hp = hp + Ampl[key]*jnp.exp(-1j*Phi[key])*(0.5*(Y + ((-1)**l)*Ymstar))
-            hc = hc + Ampl[key]*jnp.exp(-1j*Phi[key])*(-1j* 0.5 * (Y - ((-1)**l)* Ymstar))
+            hp = hp + Ampl[key] * jnp.exp(-1j * Phi[key]) * (
+                0.5 * (Y + ((-1) ** l) * Ymstar)
+            )
+            hc = hc + Ampl[key] * jnp.exp(-1j * Phi[key]) * (
+                -1j * 0.5 * (Y - ((-1) ** l) * Ymstar)
+            )
 
     return hp, hc
+
 
 ##############################################################################
 # DETECTOR RELATIVE ORIENTATION AND DISTANCE
 ##############################################################################
+
 
 def ang_btw_dets_GC(det1, det2):
     """
@@ -891,35 +1264,54 @@ def ang_btw_dets_GC(det1, det2):
     :rtype: float
 
     """
-    lat1, lat2   = np.deg2rad(det1['lat']), np.deg2rad(det2['lat'])
-    long1, long2 = np.deg2rad(det1['long']), np.deg2rad(det2['long'])
+    lat1, lat2 = np.deg2rad(det1["lat"]), np.deg2rad(det2["lat"])
+    long1, long2 = np.deg2rad(det1["long"]), np.deg2rad(det2["long"])
 
     def initial_course(lat1, lat2, long1, long2):
         # Compute the course at the initial point given two points
         # See http://www.edwilliams.org/avform147.htm#Crs or https://en.wikipedia.org/wiki/Great-circle_navigation
-        a = np.sin(long2-long1)*np.cos(lat2)
-        b = np.cos(lat1)*np.sin(lat2)-np.sin(lat1)*np.cos(lat2)*np.cos(long2-long1)
+        a = np.sin(long2 - long1) * np.cos(lat2)
+        b = np.cos(lat1) * np.sin(lat2) - np.sin(lat1) * np.cos(lat2) * np.cos(
+            long2 - long1
+        )
 
         # If the initial point is a pole we need a "fix"
-        return np.rad2deg(np.where(np.isclose(np.cos(lat1), 0.), np.where(lat1 > 0., np.pi, 2.*np.pi), np.arctan2(a,b)))
+        return np.rad2deg(
+            np.where(
+                np.isclose(np.cos(lat1), 0.0),
+                np.where(lat1 > 0.0, np.pi, 2.0 * np.pi),
+                np.arctan2(a, b),
+            )
+        )
 
     def final_course(lat1, lat2, long1, long2):
         # Compute the course at the final point given two points
         # See http://www.edwilliams.org/avform147.htm#Crs or https://en.wikipedia.org/wiki/Great-circle_navigation
-        a = np.sin(long2-long1)*np.cos(lat1)
-        b = -np.cos(lat2)*np.sin(lat1)+np.sin(lat2)*np.cos(lat1)*np.cos(long2-long1)
+        a = np.sin(long2 - long1) * np.cos(lat1)
+        b = -np.cos(lat2) * np.sin(lat1) + np.sin(lat2) * np.cos(lat1) * np.cos(
+            long2 - long1
+        )
 
         # If the final point is a pole we need a "fix"
-        return np.rad2deg(np.where(np.isclose(np.cos(lat2), 0.), np.where(lat2 > 0., np.pi, 2.*np.pi), np.arctan2(a,b)))
+        return np.rad2deg(
+            np.where(
+                np.isclose(np.cos(lat2), 0.0),
+                np.where(lat2 > 0.0, np.pi, 2.0 * np.pi),
+                np.arctan2(a, b),
+            )
+        )
 
     # Compute the course at the first detector
     ang1 = initial_course(lat1, lat2, long1, long2)
     # Compute the course at the second detector
     ang2 = final_course(lat1, lat2, long1, long2)
 
-    angdiff = 360.-(ang2-ang1)
+    angdiff = 360.0 - (ang2 - ang1)
 
-    return (det1['xax'] - det2['xax']) + np.where(angdiff<180.,angdiff, angdiff-360.)
+    return (det1["xax"] - det2["xax"]) + np.where(
+        angdiff < 180.0, angdiff, angdiff - 360.0
+    )
+
 
 def dist_btw_dets_GC(det1, det2):
     """
@@ -933,14 +1325,19 @@ def dist_btw_dets_GC(det1, det2):
 
     """
 
-    lat1, lat2   = np.deg2rad(det1['lat']), np.deg2rad(det2['lat'])
-    long1, long2 = np.deg2rad(det1['long']), np.deg2rad(det2['long'])
+    lat1, lat2 = np.deg2rad(det1["lat"]), np.deg2rad(det2["lat"])
+    long1, long2 = np.deg2rad(det1["long"]), np.deg2rad(det2["long"])
     dlong = long2 - long1
 
-    num = np.sqrt((np.cos(lat2)*np.sin(dlong))**2 + (np.cos(lat1)*np.sin(lat2) - np.sin(lat1)*np.cos(lat2)*np.cos(dlong))**2)
-    den = np.sin(lat1)*np.sin(lat2) + np.cos(lat1)*np.cos(lat2)*np.cos(dlong)
+    num = np.sqrt(
+        (np.cos(lat2) * np.sin(dlong)) ** 2
+        + (np.cos(lat1) * np.sin(lat2) - np.sin(lat1) * np.cos(lat2) * np.cos(dlong))
+        ** 2
+    )
+    den = np.sin(lat1) * np.sin(lat2) + np.cos(lat1) * np.cos(lat2) * np.cos(dlong)
 
-    return glob.REarth*np.arctan2(num, den)
+    return glob.REarth * np.arctan2(num, den)
+
 
 def dist_btw_dets_Chord(det1, det2):
     """
@@ -954,18 +1351,20 @@ def dist_btw_dets_Chord(det1, det2):
 
     """
 
-    lat1, lat2   = np.deg2rad(det1['lat']), np.deg2rad(det2['lat'])
-    long1, long2 = np.deg2rad(det1['long']), np.deg2rad(det2['long'])
+    lat1, lat2 = np.deg2rad(det1["lat"]), np.deg2rad(det2["lat"])
+    long1, long2 = np.deg2rad(det1["long"]), np.deg2rad(det2["long"])
 
-    dx = np.cos(lat2)*np.cos(long2) - np.cos(lat1)*np.cos(long1)
-    dy = np.cos(lat2)*np.sin(long2) - np.cos(lat1)*np.sin(long1)
+    dx = np.cos(lat2) * np.cos(long2) - np.cos(lat1) * np.cos(long1)
+    dy = np.cos(lat2) * np.sin(long2) - np.cos(lat1) * np.sin(long1)
     dz = np.sin(lat2) - np.sin(lat1)
 
-    return glob.REarth*np.sqrt(dx*dx + dy*dy + dz*dz)
+    return glob.REarth * np.sqrt(dx * dx + dy * dy + dz * dz)
+
 
 ##############################################################################
 # OTHERS
 ##############################################################################
+
 
 def check_evparams(evParams):
     """
@@ -976,35 +1375,37 @@ def check_evparams(evParams):
     """
     # Function to check the format of the events' parameters and make the needed conversions
     try:
-        _ = evParams['tcoal']
+        _ = evParams["tcoal"]
     except KeyError:
         try:
-            print('Adding tcoal from tGPS')
+            print("Adding tcoal from tGPS")
             # In the code we use Greenwich Mean Sidereal Time (LMST computed at long = 0. deg) as convention, so convert t_GPS
-            evParams['tcoal'] = GPSt_to_LMST(evParams['tGPS'], lat=0., long=0.)
+            evParams["tcoal"] = GPSt_to_LMST(evParams["tGPS"], lat=0.0, long=0.0)
         except KeyError:
-            raise ValueError('One among tGPS and tcoal has to be provided.')
+            raise ValueError("One among tGPS and tcoal has to be provided.")
 
     try:
-        _ = evParams['iota']
+        _ = evParams["iota"]
     except KeyError:
         try:
             # In the precessing spin case, iota is different from thetaJN, and is computed later. This is just a fix.
-            evParams['iota'] = evParams['thetaJN']
+            evParams["iota"] = evParams["thetaJN"]
         except KeyError:
-            raise ValueError('One among iota and thetaJN has to be provided.')
+            raise ValueError("One among iota and thetaJN has to be provided.")
 
     try:
-        _ = evParams['Mc']
+        _ = evParams["Mc"]
     except KeyError:
         try:
-            print('Adding Mc and eta from the individual detector-frame masses')
-            evParams['Mc'], evParams['eta'] = Mceta_from_m1m2(evParams['m1'], evParams['m2'])
+            print("Adding Mc and eta from the individual detector-frame masses")
+            evParams["Mc"], evParams["eta"] = Mceta_from_m1m2(
+                evParams["m1"], evParams["m2"]
+            )
         except KeyError:
-            raise ValueError('Two among (Mc, eta) and (m1, m2) have to be provided.')
-    #try:
+            raise ValueError("Two among (Mc, eta) and (m1, m2) have to be provided.")
+    # try:
     #    _ =evParams['chi1z']
-    #except KeyError:
+    # except KeyError:
     #    try:
     #        print('Adding chi1z, chi2z from chiS, chiA')
     #        evParams['chi1z'] = evParams['chiS'] + evParams['chiA']
@@ -1013,17 +1414,17 @@ def check_evparams(evParams):
     #        raise ValueError('Two among chi1z, chi2z and chiS, chiA have to be provided.')
 
     try:
-        _ = evParams['theta']
+        _ = evParams["theta"]
     except KeyError:
         try:
-            print('Adding (theta, phi) from (ra, dec)')
-            evParams['theta'] = np.pi/2-evParams['dec']
-            evParams['phi']=evParams['ra']
+            print("Adding (theta, phi) from (ra, dec)")
+            evParams["theta"] = np.pi / 2 - evParams["dec"]
+            evParams["phi"] = evParams["ra"]
         except KeyError:
-            raise ValueError('Two among (theta, phi) and (ra, dec) have to be provided.')
+            raise ValueError(
+                "Two among (theta, phi) and (ra, dec) have to be provided."
+            )
     return evParams
-
-
 
 
 class RegularGridInterpolator_JAX:
@@ -1033,6 +1434,7 @@ class RegularGridInterpolator_JAX:
     NOTE: ``bounds_error=True`` still does not work with ``vmap`` and jacrev``.
 
     """
+
     """
     Interpolation on a regular grid in arbitrary dimensions
     The data must be defined on a regular grid; the grid spacing however may be
@@ -1074,44 +1476,53 @@ class RegularGridInterpolator_JAX:
     # and the original SciPy code
     # see https://docs.scipy.org/doc/scipy/reference/generated/scipy.interpolate.RegularGridInterpolator.html
 
-    def __init__(self, points, values, method="linear", bounds_error=False,
-                 fill_value=jnp.nan):
+    def __init__(
+        self, points, values, method="linear", bounds_error=False, fill_value=jnp.nan
+    ):
         if method not in ["linear", "nearest"]:
             raise ValueError("Method '%s' is not defined" % method)
         self.method = method
         self.bounds_error = bounds_error
 
-        if not hasattr(values, 'ndim'):
+        if not hasattr(values, "ndim"):
             # allow reasonable duck-typed values
             values = jnp.asarray(values)
 
         if len(points) > values.ndim:
-            raise ValueError("There are %d point arrays, but values has %d "
-                             "dimensions" % (len(points), values.ndim))
+            raise ValueError(
+                "There are %d point arrays, but values has %d "
+                "dimensions" % (len(points), values.ndim)
+            )
 
-        if hasattr(values, 'dtype') and hasattr(values, 'astype'):
+        if hasattr(values, "dtype") and hasattr(values, "astype"):
             if not jnp.issubdtype(values.dtype, jnp.inexact):
                 values = values.astype(float)
 
         self.fill_value = fill_value
         if fill_value is not None:
             fill_value_dtype = jnp.asarray(fill_value).dtype
-            if (hasattr(values, 'dtype') and not
-                    jnp.can_cast(fill_value_dtype, values.dtype,
-                                casting='same_kind')):
-                raise ValueError("fill_value must be either 'None' or "
-                                 "of a type compatible with values")
+            if hasattr(values, "dtype") and not jnp.can_cast(
+                fill_value_dtype, values.dtype, casting="same_kind"
+            ):
+                raise ValueError(
+                    "fill_value must be either 'None' or "
+                    "of a type compatible with values"
+                )
 
         for i, p in enumerate(points):
-            if not jnp.all(jnp.diff(p) > 0.):
-                raise ValueError("The points in dimension %d must be strictly "
-                                 "ascending" % i)
+            if not jnp.all(jnp.diff(p) > 0.0):
+                raise ValueError(
+                    "The points in dimension %d must be strictly " "ascending" % i
+                )
             if not jnp.asarray(p).ndim == 1:
-                raise ValueError("The points in dimension %d must be "
-                                 "1-dimensional" % i)
+                raise ValueError(
+                    "The points in dimension %d must be " "1-dimensional" % i
+                )
             if not values.shape[i] == len(p):
-                raise ValueError("There are %d points and %d values in "
-                                 "dimension %d" % (len(p), values.shape[i], i))
+                raise ValueError(
+                    "There are %d points and %d values in "
+                    "dimension %d" % (len(p), values.shape[i], i)
+                )
 
         self.grid = tuple([jnp.asarray(p) for p in points])
         self.values = values
@@ -1132,56 +1543,59 @@ class RegularGridInterpolator_JAX:
             raise ValueError("Method '%s' is not defined" % method)
 
         ndim = len(self.grid)
-        #xi = _ndim_coords_from_arrays(xi, ndim=ndim) # Skip this checks and conversions to avoid conflicts
+        # xi = _ndim_coords_from_arrays(xi, ndim=ndim) # Skip this checks and conversions to avoid conflicts
         if xi.shape[-1] != len(self.grid):
-            raise ValueError("The requested sample points xi have dimension "
-                             "%d, but this RegularGridInterpolator has "
-                             "dimension %d" % (xi.shape[1], ndim))
+            raise ValueError(
+                "The requested sample points xi have dimension "
+                "%d, but this RegularGridInterpolator has "
+                "dimension %d" % (xi.shape[1], ndim)
+            )
 
         xi_shape = xi.shape
         xi = xi.reshape(-1, xi_shape[-1])
 
         if self.bounds_error:
             for i, p in enumerate(xi.T):
-                if not jnp.logical_and(jnp.all(self.grid[i][0] <= p),
-                                      jnp.all(p <= self.grid[i][-1])):
-                    raise ValueError("One of the requested xi is out of bounds "
-                                     "in dimension %d" % i)
+                if not jnp.logical_and(
+                    jnp.all(self.grid[i][0] <= p), jnp.all(p <= self.grid[i][-1])
+                ):
+                    raise ValueError(
+                        "One of the requested xi is out of bounds "
+                        "in dimension %d" % i
+                    )
 
         indices, norm_distances, out_of_bounds = self._find_indices(xi.T)
         if method == "linear":
-            result = self._evaluate_linear(indices,
-                                           norm_distances,
-                                           out_of_bounds)
+            result = self._evaluate_linear(indices, norm_distances, out_of_bounds)
         elif method == "nearest":
-            result = self._evaluate_nearest(indices,
-                                            norm_distances,
-                                            out_of_bounds)
+            result = self._evaluate_nearest(indices, norm_distances, out_of_bounds)
         if not self.bounds_error and self.fill_value is not None:
-            result = jnp.where(out_of_bounds>0, self.fill_value, result)
+            result = jnp.where(out_of_bounds > 0, self.fill_value, result)
 
         return result.reshape(xi_shape[:-1] + self.values.shape[ndim:])
 
     def _evaluate_linear(self, indices, norm_distances, out_of_bounds):
         # slice for broadcasting over trailing dimensions in self.values
         from itertools import product
-        vslice = (slice(None),) + (None,)*(self.values.ndim - len(indices))
+
+        vslice = (slice(None),) + (None,) * (self.values.ndim - len(indices))
 
         # find relevant values
         # each i and i+1 represents a edge
         edges = product(*[[i, i + 1] for i in indices])
-        values = 0.
+        values = 0.0
         for edge_indices in edges:
-            weight = 1.
+            weight = 1.0
             for ei, i, yi in zip(edge_indices, indices, norm_distances):
-                weight = weight*jnp.where(ei == i, 1 - yi, yi)
+                weight = weight * jnp.where(ei == i, 1 - yi, yi)
             values = values + jnp.asarray(self.values[edge_indices]) * weight[vslice]
         return values
 
     def _evaluate_nearest(self, indices, norm_distances, out_of_bounds):
-        print('nearest method not checked in this implementation')
-        idx_res = [jnp.where(yi <= .5, i, i + 1)
-                   for i, yi in zip(indices, norm_distances)]
+        print("nearest method not checked in this implementation")
+        idx_res = [
+            jnp.where(yi <= 0.5, i, i + 1) for i, yi in zip(indices, norm_distances)
+        ]
         return self.values[tuple(idx_res)]
 
     def _find_indices(self, xi):
@@ -1197,18 +1611,15 @@ class RegularGridInterpolator_JAX:
             i = jnp.where(i < 0, 0, i)
             i = jnp.where(i > grid.size - 2, grid.size - 2, i)
             indices.append(i)
-            norm_distances.append((x - grid[i]) /
-                                  (grid[i + 1] - grid[i]))
+            norm_distances.append((x - grid[i]) / (grid[i + 1] - grid[i]))
             if not self.bounds_error:
                 out_of_bounds = out_of_bounds + x < grid[0]
                 out_of_bounds = out_of_bounds + x > grid[-1]
         return indices, norm_distances, out_of_bounds
 
-import os
-import sys
 
 class suppress_stdout_stderr(object):
-    '''
+    """
     A context manager for doing a "deep suppression" of stdout and stderr in
     Python, i.e. will suppress all print, even if the print originates in a
     compiled C/Fortran sub-function.
@@ -1218,363 +1629,23 @@ class suppress_stdout_stderr(object):
 
     Full credit goes to https://stackoverflow.com/questions/11130156/suppress-stdout-stderr-print-from-python-functionsorator
 
-    '''
+    """
+
     def __init__(self):
         # Open a pair of null files
-        self.null_fds =  [os.open(os.devnull,os.O_RDWR) for x in range(2)]
+        self.null_fds = [os.open(os.devnull, os.O_RDWR) for x in range(2)]
         # Save the actual stdout (1) and stderr (2) file descriptors.
         self.save_fds = [os.dup(1), os.dup(2)]
 
     def __enter__(self):
         # Assign the null pointers to stdout and stderr.
-        os.dup2(self.null_fds[0],1)
-        os.dup2(self.null_fds[1],2)
+        os.dup2(self.null_fds[0], 1)
+        os.dup2(self.null_fds[1], 2)
 
     def __exit__(self, *_):
         # Re-assign the real stdout/stderr back to (1) and (2)
-        os.dup2(self.save_fds[0],1)
-        os.dup2(self.save_fds[1],2)
+        os.dup2(self.save_fds[0], 1)
+        os.dup2(self.save_fds[1], 2)
         # Close all file descriptors
         for fd in self.null_fds + self.save_fds:
             os.close(fd)
-
-
-##############################################################################
-# LENSING
-##############################################################################
-def theta_in_terms_of_x_0(x_0, D_l):
-    '''
-    x_0: Minimal approach distance [R_Sch]
-    D_l: Lens distance [R_Sch]
-    '''
-    return x_0 / (D_l * jnp.sqrt(1 - 1/x_0))
-
-
-def thin_lens_equation(x_0, beta, D_ls, D_l):
-    '''
-    x_0:    Minimal approach distance [R_Sch]
-    beta:   Angular source position [radian]
-    D_ls:   Lens-source plane distance [R_Sch]
-    D_l:    Lens distance [R_Sch]
-    '''
-    D_s = D_l + D_ls
-    theta = theta_in_terms_of_x_0(x_0, D_l)
-    return beta - theta + D_ls/D_s * alpha(x_0)
-
-
-def alpha(x_0):
-    '''
-    x_0: Minimal approach distance [R_Sch]
-    '''
-    # Alpha approximations
-    x2_coef = (15/16)*jnp.pi - 1
-    x2_coef = 0
-    return 2/x_0 + x2_coef / (x_0**2)
-
-
-# def einstein_radius(D_ls, D_l):
-#     '''
-#     The Einstein radius
-#     D_ls:   Lens-source plane distance [R_Sch]
-#     D_l:    Lens distance [R_Sch]
-#     '''
-#     D_ratio = (1 + D_ls / D_l) * D_l**2
-#     return jnp.sqrt(2 * D_ratio)
-
-def einstein_radius(M_lens, dL, R_orbit):
-    '''
-    Calculate Einstein radius [rad], using the effectve formula given in https://en.wikipedia.org/wiki/Einstein_radius
-    With approximations D_s=D_l, D_ls=R_orbit
-    M_lens: Lens mass [M_sun]
-    dL: Source luminosity distance [Gpc]
-    R_orbit: Orbital radius of BBH around AGN [RSch]
-    '''
-    M_term = M_lens / 10**11.09
-    D_ls_in_Gpc = get_Gpc_from_R_Sch(R_orbit, M_lens) # Lens-source distance approximated as robital radius
-    z = jnp.interp(dL, dLGridGlob, zGridGlob)
-    D_l_in_Gpc = dL / (1 + z) ** 2
-    D_term = D_ls_in_Gpc / D_l_in_Gpc**2 # Approximating D_s=D_s
-    einstein_radius_in_arcsec = jnp.sqrt(M_term * D_term)
-    einstein_radius_in_rad = einstein_radius_in_arcsec * (1/3600) * (jnp.pi/180)
-    return einstein_radius_in_rad
-
-def get_Gpc_from_R_Sch(qty, M):
-    '''
-    Convert from units of Schwarzschild radius to Gpc for a given mass.
-    qty: Distance to be converted [R_Sch]
-    M: Mass corresponding to the Schwarzschild radius [M_sun]
-    '''
-    M_in_kg = M * M_sun
-    one_R_Sch = 2 * G * M_in_kg / c**2 # m
-    qty_in_m = qty * one_R_Sch
-    qty_in_Gpc = qty_in_m / Gpc
-    return qty_in_Gpc
-
-def get_R_Sch_from_Gpc(qty, M):
-    '''
-    Convert from Gpc to units of Schwarzschild radius of a given mass
-    qty: Distance to be converted [Gpc]
-    M: Mass for which to calculate R_Sch [M_sun]
-    '''
-    M_in_kg = M * M_sun
-    R_Sch_in_m = 2 * G * M_in_kg / c**2
-    R_Sch_in_Gpc = R_Sch_in_m / Gpc
-    return qty / R_Sch_in_Gpc
-
-
-def get_im_pos(src_pos):
-    '''
-    Image positions, normalized by Einstein radius.
-    src_pos: Source position [Einstein radius]
-    '''
-    sqrt_term = jnp.sqrt(src_pos**2 / 4 + 1)
-    im_pos_1 = src_pos/2 + sqrt_term
-    im_pos_2 = src_pos/2 - sqrt_term
-    return im_pos_1, im_pos_2
-
-def _get_alpha_hat(R_orbit, approx=1):
-    '''
-    Compute deflection angle from the orbital radius
-    between the BBH and the SMBH.
-
-    This assumes β = 0.
-
-    R_orbit -- Unit: Schwarschild radius
-    '''
-    approx_simp = jnp.sqrt(2 / R_orbit)
-    # what do these cases mean?
-    # should we do this or use the analytic expression without small angle assumptions?
-    match approx:
-        ## Approx 1: The simplest approximation
-        ## assuming α(x) to the first order
-        case 1:
-            return approx_simp
-        ## Approx 2: Fit with log(r) vs log(err)
-        ## still assuming α(x) to the first order
-        case 2:
-            idx = -0.5415779752686682
-            y0  = -0.6327303836364937
-            return (1 + 10**(y0) * R_orbit**(idx)) * approx_simp
-        ## Approx 3: Fit with log(r) vs log(err)
-        ## assuming α(x) to the send order
-        case 3:
-            idx = -0.5042733754506686
-            y0  = -0.2727560615461613
-            return (1 + 10**(y0) * R_orbit**(idx)) * approx_simp
-
-def find_quadratic_roots(a, b, c):
-    delta = jnp.sqrt(b**2 - 4 * a * c)
-    return (- b + delta) / (2 * a), (- b - delta) / (2 * a)
-
-def get_phi_L(iota, R_orbit, src_pos, theta_E, D_l, M_lens):
-    '''
-    Lens position in the source frame (origin is at source), 
-    defined as π minus the angle between lens position and observer position.
-    iota: Inclination angle [rad]
-    R_orbit: Orbital radius of BBH about AGN [R_Sch]
-    src_pos: Dimensionless source position [Einstein radius]
-    theta_E: Einstein radius [rad]
-    D_l: Source distance [Gpc]
-    M_lens: Lens mass [M_sun]
-    '''
-    # Convert source position into units of R_Sch
-    src_pos_in_rad = src_pos * theta_E
-    src_pos_in_Gpc = src_pos_in_rad * D_l
-    src_pos_in_R_Sch = get_R_Sch_from_Gpc(src_pos_in_Gpc, M_lens)
-
-    cos_phi_L = - jnp.sqrt(R_orbit**2 - src_pos_in_R_Sch**2) / (R_orbit * jnp.sin(iota))
-    return jnp.arccos(cos_phi_L)
-
-
-def _sqrt_term(iota, phi_L):
-    angle_sq = jnp.cos(iota) ** 2 + jnp.sin(iota) ** 2 * jnp.sin(phi_L) ** 2
-    return jnp.sqrt(angle_sq)
-
-
-def _get_cos_phi_proj(iota, phi_L):
-    '''
-    Compute projection from orbital plane onto lensing plane
-
-    iota -- Inclination, Unit: radian
-    phi_L -- Azimuthal angle of the lens?, unit: radian
-    '''
-    return jnp.sin(iota) * jnp.sin(phi_L) / _sqrt_term(iota, phi_L)
-
-
-# def get_image_iota(iota, phi_L, alpha_hat, theta_1, theta_2, beta): # angle between total angular momentum and observer position
-#     # the formula used here was derived for inclination angle, not theta_jn! need to fix this!!
-#     common_term = 1 / _sqrt_term(iota, phi_L)
-#     correction = common_term * (jnp.sin(iota) * jnp.cos(iota) * jnp.cos(phi_L))
-#     return jnp.arccos(jnp.cos(iota) - (alpha_hat - theta_1 + beta) * correction), jnp.arccos(jnp.cos(iota) + (alpha_hat - theta_2 - beta) * correction)
-
-
-# def get_image_Phicoal(iota, phi_L, Phicoal, alpha_hat, theta_1, theta_2, beta): # coalescence phase
-#     common_term = 1 / _sqrt_term(iota, phi_L)
-#     correction = common_term * (jnp.sin(Phicoal) * (1 / jnp.sin(iota)) * jnp.sin(phi_L))
-#     return jnp.arccos(jnp.cos(Phicoal) + (alpha_hat - theta_1 + beta) * correction), jnp.arccos(jnp.cos(Phicoal) - (alpha_hat - theta_2 - beta) * correction)
-
-
-# def get_image_psi(iota, phi_L, psi, alpha_hat, theta_1, theta_2, beta): # polarization angle
-#     common_term = 1 / _sqrt_term(iota, phi_L)
-#     correction = common_term * ((1 / jnp.tan(iota)) * jnp.sin(phi_L) * jnp.sin(psi))
-#     return jnp.arccos(jnp.cos(psi) - (alpha_hat - theta_1 + beta) * correction), jnp.arccos(jnp.cos(psi) + (alpha_hat - theta_2 - beta) * correction)
-
-
-def get_lensing_induced_cosine_shifts(iota, phi_L, R_orbit, phi_coal, psi):
-    '''
-    Absolute shift = angular factor * cosine factor.
-    This function calculates cosine factor, which solely depends on which angle we're shifting (iota, Phicoal, or psi),
-    while the angular factor differentiates between the two images.
-    Redshifts induced by environmental effects are also calculated, including orbit-induced redshift and gravitational redshift.
-    '''
-    sqrt_term = _sqrt_term(iota, phi_L)
-    common_term = 1 / _sqrt_term(iota, phi_L)
-
-    delta_cos_iota = common_term * (jnp.sin(iota) * jnp.cos(iota) * jnp.cos(phi_L))
-    delta_cos_phi = common_term * (jnp.sin(phi_coal) * (1 / jnp.sin(iota)) * jnp.sin(phi_L))
-    delta_cos_psi = common_term * ((1 / jnp.tan(iota)) * jnp.sin(phi_L) * jnp.sin(psi))
-
-    cos_phi_proj = jnp.sin(iota) * jnp.sin(phi_L) / sqrt_term
-    z_orbit = 2 * cos_phi_proj / R_orbit
-
-    z_grav = jnp.sqrt(1 - 1 / R_orbit) - 1
-
-    return delta_cos_iota, delta_cos_phi, delta_cos_psi, z_orbit, z_grav
-
-
-def _new_angle_from_lensing_shift(angle, delta_cos, alpha_hat, theta_E, src_pos, im_pos_1, im_pos_2):
-    '''
-    Alpha_hat and theta_E in rad, source and image positions in units of Einstein radius.
-    '''
-    # convert source and image positions into rad
-    src_pos_in_rad = src_pos * theta_E
-    im_pos_1_in_rad = im_pos_1 * theta_E
-    im_pos_2_in_rad = im_pos_2 * theta_E
-
-    # angular factors for the two images
-    gamma_1 = alpha_hat - im_pos_1_in_rad + src_pos_in_rad
-    gamma_2 = alpha_hat - im_pos_2_in_rad - src_pos_in_rad
-
-    return jnp.arccos(jnp.cos(angle) + gamma_1 * delta_cos), jnp.arccos(jnp.cos(angle) - gamma_2 * delta_cos)
-
-
-def get_lensed_parameter_sets(unlensed_bbh_params, R_orbit=None, M_lz=None, src_pos=None):
-    # First make sure we have the needed parameters.
-    # If not given, try look for them in the params dict:
-    if R_orbit is None:
-        R_orbit = unlensed_bbh_params.get('R_orbit', None)
-    if M_lz is None:
-        M_lz = unlensed_bbh_params.get('M_lz', None)
-    if src_pos is None:
-        src_pos = unlensed_bbh_params.get('src_pos', None)
-    if (R_orbit is None) or (M_lz is None) or (src_pos is None):
-        raise IOError('Insufficient lensing parameters (R_orbit, M_lz or src_pos not provided).')
-    
-    # Initialise the output dictionaries
-    image_1_params = unlensed_bbh_params.copy()
-    image_2_params = unlensed_bbh_params.copy()
-
-    # Casting the angles into real
-    iota = unlensed_bbh_params['iota'].real.astype('float64')
-    Phicoal = unlensed_bbh_params['Phicoal'].real.astype('float64')
-    psi = unlensed_bbh_params['psi'].real.astype('float64')
-    dL = unlensed_bbh_params['dL'].real.astype('float64')
-
-    # Compute non-redshifted lens mass
-    z = jnp.interp(dL, dLGridGlob, zGridGlob)
-    M_lens = M_lz / (1 + z)
-
-    # Compute image positions
-    theta_E = einstein_radius(M_lens, dL, R_orbit) # rad, used later to convert dimensionless positions into radians
-    im_pos_1, im_pos_2 = get_im_pos(src_pos) # in units of Einstein radius
-
-    phi_L = get_phi_L(iota, R_orbit, src_pos, theta_E, dL, M_lens)
-
-    # Get the change in parameters
-    delta_cos_iota, delta_cos_phi, delta_cos_psi, z_orbit, z_grav = \
-            get_lensing_induced_cosine_shifts(
-                    iota, phi_L, R_orbit, Phicoal, psi)
-
-    # Environemental effects (orbit-induced redshift and gravitational redshift) can be modeled as changes in effective chirp mass and effective luminosity distance
-    # https://arxiv.org/abs/2310.16025 Eqs. 4&5
-    image_1_params['Mc'] *= (1 + z_orbit) * (1 + z_grav)
-    image_2_params['Mc'] *= (1 - z_orbit) * (1 + z_grav)
-    image_1_params['dL'] *= (1 + z_orbit)**2 * (1 + z_grav)
-    image_2_params['dL'] *= (1 - z_orbit)**2 * (1 + z_grav)
-
-    alpha_hat = _get_alpha_hat(R_orbit) # rad
-
-    image_1_params['iota'], image_2_params['iota'] = _new_angle_from_lensing_shift(iota, -delta_cos_iota, alpha_hat, theta_E, src_pos, im_pos_1, im_pos_2)
-    image_1_params['Phicoal'], image_2_params['Phicoal'] = _new_angle_from_lensing_shift(Phicoal, +delta_cos_phi, alpha_hat, theta_E, src_pos, im_pos_1, im_pos_2)
-    image_1_params['psi'],image_2_params['psi']  = _new_angle_from_lensing_shift(psi, -delta_cos_psi, alpha_hat, theta_E, src_pos, im_pos_1, im_pos_2)
-
-    # what does this do?
-    # if cplx_return:
-    #     image_1_params = {key: value.astype('complex128') for key, value in image_1_params.items()}
-    #     image_2_params = {key: value.astype('complex128') for key, value in image_2_params.items()}
-
-    return image_1_params, image_2_params
-
-
-def get_lensing_time_delay(unlensed_bbh_params, M_lz=None, src_pos=None):
-    '''
-    Time difference between the two images in seconds, using point mass lens model.
-    M_lz: Redshifted lens mass [M_sun]
-    src_pos: Source position [Einstein radius]
-    '''
-    # First make sure we have the needed parameters.
-    # If not given, try look for them in the params dict:
-    if M_lz is None:
-        M_lz = unlensed_bbh_params.get('M_lz', None)
-    if src_pos is None:
-        src_pos = unlensed_bbh_params.get('src_pos', None)
-    if (M_lz is None) or (src_pos is None):
-        print('Insufficient parameters (M_lz or src_pos not given). Time delay cannot be calculated.')
-        return 0
-
-    M_lz_in_kg = M_lz * M_sun
-    M_lz_in_s = M_lz_in_kg * G / c**3
-
-    time_delay = 4 * M_lz_in_s * (src_pos * jnp.sqrt(src_pos**2 + 4) / 2 + jnp.log((jnp.sqrt(src_pos**2 + 4) + src_pos) / (jnp.sqrt(src_pos**2 + 4) - src_pos)))
-    return time_delay
-
-def get_mag_factors(unlensed_bbh_params, src_pos=None):
-    '''
-    Magnification factor for both images, using point mass lens model.
-    src_pos: Source position [Einstein radius]
-    '''
-    if src_pos is None:
-        src_pos = unlensed_bbh_params.get('src_pos', None)
-    if src_pos is None:
-        print('Source position not provided. Magnification factors will not be calculated.')
-        return 1, 1
-
-    common_term = (src_pos**2 + 2) / (2 * src_pos * jnp.sqrt(src_pos**2 + 4))
-    mag_1, mag_2 = 1/2 + common_term, 1/2 - common_term
-
-    return mag_1, mag_2
-
-
-def lens(unlensed_bbh_params):
-    '''
-    Print lensed parameter sets, magnification factors, and time delay.
-    '''
-    image_1_params, image_2_params = get_lensed_parameter_sets(unlensed_bbh_params)
-    mag_1, mag_2 = get_mag_factors(unlensed_bbh_params)
-    time_delay = get_lensing_time_delay(unlensed_bbh_params)
-    print('Image 1 parameters: %s \nImage 2 parameters: %s \nMagnification factors: %s, %s \nTime delay: %s s' % (image_1_params, image_2_params, mag_1, mag_2, time_delay))
-    
-    iota = unlensed_bbh_params['iota']
-    dL = unlensed_bbh_params['dL']
-    R_orbit = unlensed_bbh_params['R_orbit']
-    M_lz = unlensed_bbh_params['R_orbit']
-
-    z = jnp.interp(dL, dLGridGlob, zGridGlob)
-    M_lens = M_lz / (1 + z)
-
-    R_orbit_in_Gpc = get_Gpc_from_R_Sch(R_orbit, M_lens)
-    R_orbit_in_rad = R_orbit_in_Gpc / dL
-    theta_E = einstein_radius(M_lens, dL, R_orbit) # rad
-    min_src_pos = R_orbit_in_rad * jnp.abs(jnp.cos(iota)) / theta_E
-    print('Minimum source position: %s' % (min_src_pos))
-    return
