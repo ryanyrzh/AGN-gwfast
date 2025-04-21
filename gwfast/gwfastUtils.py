@@ -811,10 +811,17 @@ def TransformPrecessing_comp2angles(
 ##############################################################################
 # Antenna Pattern
 ##############################################################################
-
-
 def compute_ab_factors(
-    ra, dec, t, rot, long_rad, lat_rad, xax_rad, dphi=False, dtheta=False, dtime=False
+    ra,
+    dec,
+    time,
+    rot,
+    long_rad,
+    lat_rad,
+    xax_rad,
+    dphi=False,
+    dtheta=False,
+    dtime=False,
 ):
     """
     See P. Jaranowski, A. Krolak, B. F. Schutz, PRD 58, 063001, eq. (10)--(13)
@@ -826,13 +833,27 @@ def compute_ab_factors(
     sin_2xax = jnp.sin(2.0 * (xax_rad + rot))
     cos_2xax = jnp.cos(2.0 * (xax_rad + rot))
     m3_cos_2dec = 3 - jnp.cos(2.0 * dec)
+    cos_2dec = jnp.cos(2.0 * dec)
     sin_2dec = jnp.sin(2.0 * dec)
 
-    ang = ra - long_rad - TWOPI * t
+    ang = ra - long_rad - TWOPI * time
     cos_2ang = jnp.cos(2.0 * ang)
     sin_2ang = jnp.sin(2.0 * ang)
     cos_ang = jnp.cos(ang)
     sin_ang = jnp.sin(ang)
+
+    deltat_deriv = 0.0
+
+    a1 = 0.0625 * sin_2xax * m3_cos_2lat
+    a2 = 0.25 * cos_2xax * sin_lat
+    a3 = 0.25 * sin_2xax * sin_2lat
+    a4 = 0.5 * cos_2xax * cos_lat
+    a5 = 3.0 * 0.25 * sin_2xax * cos_lat**2
+
+    b1 = cos_2xax * sin_lat
+    b2 = 0.25 * sin_2xax * m3_cos_2lat
+    b3 = cos_2xax * cos_lat
+    b4 = 0.5 * sin_2xax * sin_2lat
 
     if dphi or dtime:
         cos_2ang = -2 * jnp.sin(2.0 * ang)
@@ -840,20 +861,46 @@ def compute_ab_factors(
         cos_ang = -1 * jnp.sin(ang)
         sin_ang = +1 * jnp.cos(ang)
 
-    a1 = 0.0625 * sin_2xax * m3_cos_2lat * m3_cos_2dec * cos_2ang
-    a2 = 0.25 * cos_2xax * sin_lat * m3_cos_2dec * sin_2ang
-    a3 = 0.25 * sin_2xax * sin_2lat * sin_2dec * cos_ang
-    a4 = 0.5 * cos_2xax * cos_lat * sin_2dec * sin_ang
-    a5 = 3.0 * 0.25 * sin_2xax * (cos_lat * jnp.cos(dec)) ** 2.0
-    a_factor = a1 - a2 + a3 - a4 + a5
+    if dtheta:
+        deltat_deriv = geocentric_deltat(ra, dec, time, lat_rad, long_rad, dtheta=True)
+        pi2_deltat = TWOPI * deltat_deriv
+        a1 *= -2.0 * sin_2dec * cos_2ang + m3_cos_2dec * sin_2ang * (2.0 * pi2_deltat)
+        a2 *= -2.0 * sin_2dec * sin_2ang - m3_cos_2dec * cos_2ang * (2.0 * pi2_deltat)
+        a3 *= -2.0 * cos_2dec * cos_ang + sin_2dec * sin_ang * pi2_deltat
+        a4 *= -1 * (2.0 * cos_2dec * sin_ang + sin_2dec * cos_ang * pi2_deltat)
+        a5 *= sin_2dec
 
-    b1 = cos_2xax * sin_lat * jnp.sin(dec) * cos_2ang
-    b2 = 0.25 * sin_2xax * m3_cos_2lat * jnp.sin(dec) * sin_2ang
-    b3 = cos_2xax * cos_lat * jnp.cos(dec) * cos_ang
-    b4 = 0.5 * sin_2xax * sin_2lat * jnp.cos(dec) * sin_ang
+        b1 *= -jnp.cos(dec) * cos_2ang + jnp.sin(dec) * sin_2ang * (2.0 * pi2_deltat)
+        b2 *= -jnp.cos(dec) * sin_2ang - jnp.sin(dec) * cos_2ang * (2.0 * pi2_deltat)
+        b3 *= jnp.sin(dec) * cos_ang + jnp.cos(dec) * sin_ang * pi2_deltat
+        b4 *= jnp.sin(dec) * sin_ang - jnp.cos(dec) * cos_ang * pi2_deltat
+
+    else:
+        a1 *= m3_cos_2dec * cos_2ang
+        a2 *= m3_cos_2dec * sin_2ang
+        a3 *= sin_2dec * cos_ang
+        a4 *= sin_2dec * sin_ang
+        a5 *= jnp.cos(dec) ** 2.0
+        b1 *= jnp.sin(dec) * cos_2ang
+        b2 *= jnp.sin(dec) * sin_2ang
+        b3 *= jnp.cos(dec) * cos_ang
+        b4 *= jnp.cos(dec) * sin_ang
+
+    a_factor = a1 - a2 + a3 - a4 + a5
     b_factor = b1 + b2 + b3 + b4
 
-    return a_factor, b_factor
+    if dphi:
+        a_factor = a1 - a2 + a3 - a4
+        deltat_deriv = geocentric_deltat(ra, dec, time, lat_rad, long_rad, dphi=True)
+        a_factor *= 1.0 - TWOPI * deltat_deriv
+        b_factor *= 1.0 - TWOPI * deltat_deriv
+    elif dtime:
+        a_factor = a1 - a2 + a3 - a4
+        deltat_deriv = geocentric_deltat(ra, dec, time, lat_rad, long_rad, dtime=True)
+        a_factor *= -TWOPI * (1.0 + deltat_deriv)
+        b_factor *= -TWOPI * (1.0 + deltat_deriv)
+
+    return a_factor, b_factor, deltat_deriv
 
 
 def geocentric_deltat(
