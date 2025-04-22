@@ -42,12 +42,6 @@ from gwfast.lensing_utils import (
     get_lensed_parameter_sets,
     get_lensing_time_delay,
     get_mag_factors,
-    get_alpha_hat,
-    get_image_iota,
-    get_image_Phicoal,
-    get_image_psi,
-    get_cos_phi_proj,
-    get_delta_z,
 )
 from detector import Detector, FpFcsqInt
 
@@ -94,7 +88,6 @@ class GWSignal(object):
         det_long=9.45,
         det_xax=0.0,
         verbose=True,
-        is_ASD=True,
         useEarthMotion=False,
         noMotion=False,  # use only for checks
         fmin=2.0,
