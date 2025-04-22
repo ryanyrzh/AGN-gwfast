@@ -18,6 +18,7 @@ os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform"
 
 # We use both the original numpy, denoted as onp, and the JAX implementation of numpy, denoted as np
 import numpy as onp
+from scipy.optimize import minimize
 from scipy.integrate import cumulative_trapezoid
 import time
 import h5py
@@ -48,7 +49,7 @@ from gwfast.lensing_utils import (
     get_cos_phi_proj,
     get_delta_z,
 )
-from detector import Detector
+from detector import Detector, FpFcsqInt
 
 
 class GWSignal(object):
@@ -219,17 +220,18 @@ class GWSignal(object):
             "chi2y": np.array([-0.01]),
             "ecc": np.array([0.0]),
         }
-        verboseOr = self.verbose
+        _verbose = self.verbose
         self.verbose = False
-        detector_shapeOr = self.detector_shape
-        self.detector_shape = "L"  # Get a faster Initialization with an L
+        _detector_shape = self.detector.shape
+        self.detector.shape = "L"  # Get a faster Initialization with an L
         _ = self.SNRInteg(inj_params_init, res=10)
         _ = self.FisherMatr(inj_params_init, res=10)
 
         if self.verbose:
             print("Done.")
-        self.verbose = verboseOr
-        self.detector_shape = detector_shapeOr
+        # Restore the original values
+        self.verbose = _verbose
+        self.detector.shape = _detector_shape
 
     def _clear_cache(self):
         if self.jitCompileDerivs:
@@ -529,7 +531,6 @@ class GWSignal(object):
         # Full GW strain expression (complex)
         # Here we have the decompressed parameters and we put them back in a dictionary just to have an easier
         # implementation of the JAX module for derivatives
-
         if is_m1m2:
             # Interpret Mc as m1 and eta as m2
             McUse, etaUse = utils.Mceta_from_m1m2(Mc, eta)
@@ -866,7 +867,7 @@ class GWSignal(object):
             fgrids, self.strainFreq, self.noiseCurve, left=1.0, right=1.0
         )
 
-        if self.detector_shape == "L":
+        if self.detector.shape == "L":
             if not use_lensing:
                 Aps, Acs = self.GWAmplitudes(evParams, fgrids)
                 Atot = Aps * Aps + Acs * Acs
@@ -943,7 +944,7 @@ class GWSignal(object):
                 )
                 SNRsq = SNRsq * excl
             allSNRsq.append(SNRsq)
-        elif self.detector_shape == "T":
+        elif self.detector.shape == "T":
             if not self.compute2arms:
                 for i in range(3):
                     if not use_lensing:
@@ -1163,23 +1164,14 @@ class GWSignal(object):
                 tmpSNRsq2 = np.trapezoid(Atot2 / strainGrids, fgrids, axis=0)
                 tmpSNRsq3 = np.trapezoid(Atot3 / strainGrids, fgrids, axis=0)
                 if self.detector.duty_cycle is not None:
-                    excl = onp.random.choice(
-                        [0, 1],
-                        len(evParams["Mc"]),
-                        p=[1.0 - self.detector.duty_cycle, self.detector.duty_cycle],
-                    )
+                    excl = onp.random.random(len(evParams["Mc"])) \
+                        > self.detector.duty_cycle
                     tmpSNRsq1 = tmpSNRsq1 * excl
-                    excl = onp.random.choice(
-                        [0, 1],
-                        len(evParams["Mc"]),
-                        p=[1.0 - self.detector.duty_cycle, self.detector.duty_cycle],
-                    )
+                    excl = onp.random.random(len(evParams["Mc"])) \
+                        > self.detector.duty_cycle
                     tmpSNRsq2 = tmpSNRsq2 * excl
-                    excl = onp.random.choice(
-                        [0, 1],
-                        len(evParams["Mc"]),
-                        p=[1.0 - self.detector.duty_cycle, self.detector.duty_cycle],
-                    )
+                    excl = onp.random.random(len(evParams["Mc"])) \
+                        > self.detector.duty_cycle
                     tmpSNRsq3 = tmpSNRsq3 * excl
                 allSNRsq.append(tmpSNRsq1)
                 allSNRsq.append(tmpSNRsq2)
@@ -1187,15 +1179,14 @@ class GWSignal(object):
                 # SNR = np.sqrt(tmpSNRsq1 + tmpSNRsq2 + tmpSNRsq3)
         allSNRsq = np.array(allSNRsq)
 
-        if return_all:
-            if self.detector_shape == "T":
-                return 2 * np.sqrt(allSNRsq)
-            else:
-                return np.squeeze(2 * np.sqrt(allSNRsq), axis=0)
-        elif self.detector_shape == "T":
-            return 2 * np.sqrt(allSNRsq.sum(axis=0))
-        else:
-            return np.squeeze(2 * np.sqrt(allSNRsq), axis=0)
+        if self.detector.shape == "T":
+            return (
+                2 * np.sqrt(allSNRsq)
+                if return_all
+                else 2 * np.sqrt(allSNRsq.sum(axis=0))
+            )
+
+        return np.squeeze(2 * np.sqrt(allSNRsq), axis=0)
 
         # The factor of two arises by cutting the integral from 0 to infinity
 
@@ -1280,9 +1271,8 @@ class GWSignal(object):
                     "One pair among (chi1z, chi2z) and (chiS, chiA) have to be provided."
                 )
 
-            chi1z, chi2z = evParams["chi1z"].astype("complex128"), evParams[
-                "chi2z"
-            ].astype("complex128")
+            chi1z = evParams["chi1z"].astype("complex128")
+            chi2z = evParams["chi2z"].astype("complex128")
 
             # Get sym and asym spin components
             if use_chi1chi2:
@@ -1436,7 +1426,7 @@ class GWSignal(object):
 
         allFishers = []
 
-        if self.detector_shape == "L":
+        if self.detector.shape == "L":
             # Compute derivatives
             FisherDerivs = self._SignalDerivatives_use(
                 fgrids,
@@ -1490,11 +1480,7 @@ class GWSignal(object):
 
                     Fisher[beta, alpha, :] = Fisher[alpha, beta, :]
             if self.detector.duty_cycle is not None:
-                excl = onp.random.choice(
-                    [0, 1],
-                    len(evParams["Mc"]),
-                    p=[1.0 - self.detector.duty_cycle, self.detector.duty_cycle],
-                )
+                excl = onp.random.random(len(evParams["Mc"])) > self.detector.duty_cycle
                 Fisher = Fisher * excl
             allFishers.append(Fisher)
         else:
@@ -1558,14 +1544,8 @@ class GWSignal(object):
 
                             tmpFisher[beta, alpha, :] = tmpFisher[alpha, beta, :]
                     if self.detector.duty_cycle is not None:
-                        excl = onp.random.choice(
-                            [0, 1],
-                            len(evParams["Mc"]),
-                            p=[
-                                1.0 - self.detector.duty_cycle,
-                                self.detector.duty_cycle,
-                            ],
-                        )
+                        excl = onp.random.random(len(evParams["Mc"])) \
+                            > self.detector.duty_cycle
                         tmpFisher = tmpFisher * excl
                     allFishers.append(tmpFisher)
                     # Fisher += tmpFisher
@@ -1629,11 +1609,8 @@ class GWSignal(object):
 
                         tmpFisher[beta, alpha, :] = tmpFisher[alpha, beta, :]
                 if self.detector.duty_cycle is not None:
-                    excl = onp.random.choice(
-                        [0, 1],
-                        len(evParams["Mc"]),
-                        p=[1.0 - self.detector.duty_cycle, self.detector.duty_cycle],
-                    )
+                    excl = onp.random.random(len(evParams["Mc"])) \
+                        > self.detector.duty_cycle
                     tmpFisher = tmpFisher * excl
                 # Fisher += tmpFisher
                 allFishers.append(tmpFisher)
@@ -1692,11 +1669,8 @@ class GWSignal(object):
 
                         tmpFisher[beta, alpha, :] = tmpFisher[alpha, beta, :]
                 if self.detector.duty_cycle is not None:
-                    excl = onp.random.choice(
-                        [0, 1],
-                        len(evParams["Mc"]),
-                        p=[1.0 - self.detector.duty_cycle, self.detector.duty_cycle],
-                    )
+                    excl = onp.random.random(len(evParams["Mc"])) \
+                        > self.detector.duty_cycle
                     tmpFisher = tmpFisher * excl
                 # Fisher += tmpFisher
                 allFishers.append(tmpFisher)
@@ -1723,18 +1697,15 @@ class GWSignal(object):
 
                         tmpFisher[beta, alpha, :] = tmpFisher[alpha, beta, :]
                 if self.detector.duty_cycle is not None:
-                    excl = onp.random.choice(
-                        [0, 1],
-                        len(evParams["Mc"]),
-                        p=[1.0 - self.detector.duty_cycle, self.detector.duty_cycle],
-                    )
+                    excl = onp.random.random(len(evParams["Mc"])) \
+                        > self.detector.duty_cycle
                     tmpFisher = tmpFisher * excl
                 # Fisher += tmpFisher
                 allFishers.append(tmpFisher)
 
         if return_all:
             return allFishers
-        elif self.detector_shape == "T":
+        elif self.detector.shape == "T":
             return onp.array(allFishers).sum(axis=0)
         else:
             return allFishers[0]
@@ -3655,6 +3626,7 @@ class GWSignal(object):
         :rtype: tuple(array, array, array, array, array, array, array)
 
         """
+        ZEROS = np.zeros_like(Mc)
         # Module to compute analytically the derivatives w.r.t. dL, theta, phi, psi, tcoal, Phicoal and also iota in absence of HM or precessing spins. Each derivative is inserted into its own function with representative name, for ease of check.
         if use_m1m2:
             # Interpret Mc as m1 and eta as m2
@@ -3671,12 +3643,10 @@ class GWSignal(object):
             else:
                 chi1z = chiS + chiA
                 chi2z = chiS - chiA
-            chi1xUse, chi2xUse, chi1yUse, chi2yUse = (
-                McUse * 0.0,
-                McUse * 0.0,
-                McUse * 0.0,
-                McUse * 0.0,
-            )
+            chi1xUse = ZEROS
+            chi2xUse = ZEROS
+            chi1yUse = ZEROS
+            chi2yUse = ZEROS
         else:
             if not use_prec_ang:
                 chi1z = chiS
@@ -3739,12 +3709,9 @@ class GWSignal(object):
         }
 
         if self.wf_model.is_tidal:
-            Lambda1, Lambda2 = utils.Lam12_from_Lamt_delLam(
+            evParams["Lambda1"], evParams["Lambda2"] = utils.Lam12_from_Lamt_delLam(
                 LambdaTilde, deltaLambda, etaUse
             )
-
-            evParams["Lambda1"] = Lambda1
-            evParams["Lambda2"] = Lambda2
 
         if self.wf_model.is_eccentric:
             evParams["ecc"] = ecc
@@ -3788,13 +3755,11 @@ class GWSignal(object):
             return Fpc_dpsi[0] * _hp, Fpc_dpsi[1] * _hc
 
         def phi_par_deriv():
-
             afac_dphi, bfac_dphi, deltat_dphi = self.detector._compute_ab_factors(
                 ras, decs, t, rot_rad, dphi=True
             )
 
             Fpc = apply_psi_rotation(psi, afac_dphi, bfac_dphi) * sin_angbtwArms
-
             Ap_dphi = Fpc[0] * _hp
             Ac_dphi = Fpc[1] * _hc
 
@@ -3809,13 +3774,11 @@ class GWSignal(object):
             )
 
         def theta_par_deriv():
-
             afac_dtheta, bfac_dtheta, deltat_dtheta = self.detector._compute_ab_factors(
                 ras, decs, t, rot_rad, dtheta=True
             )
 
             Fpc = apply_psi_rotation(psi, afac_dtheta, bfac_dtheta) * sin_angbtwArms
-
             Ap_dtheta = Fpc[0] * _hp
             Ac_dtheta = Fpc[1] * _hc
 
@@ -3830,13 +3793,11 @@ class GWSignal(object):
             )
 
         def tcoal_par_deriv():
-
             afac_dtime, bfac_dtime, deltat_dtime = self.detector._compute_ab_factors(
                 ras, decs, t, rot_rad, dtheta=True
             )
 
             Fpc = apply_psi_rotation(psi, afac_dtime, bfac_dtime) * sin_angbtwArms
-
             Ap_dtime = Fpc[0] * _hp
             Ac_dtime = Fpc[1] * _hc
 
@@ -3886,7 +3847,6 @@ class GWSignal(object):
         # Function to compute the optimal theta and phi for a signal to be seen by the detector at a given GMST. The boolean is_tGPS can be used to specify whether the provided time is a GPS time rather than a GMST, so that it will be converted.
         # For a triangle the best location is the same of an L in the same place, as can be shown by explicit geometrical computation.
         # Even if considering Earth rotation, the highest SNR will still be obtained if the source is in the optimal location close to the merger.
-        from scipy.optimize import minimize
 
         if is_tGPS:
             tc = utils.GPSt_to_LMST(tcoal, lat=0.0, long=0.0)
@@ -3894,8 +3854,7 @@ class GWSignal(object):
             tc = tcoal
 
         def pattern_fixedtpsi(pars, tc=tc):
-            theta, phi = pars
-            Fp, Fc = self._PatternFunction(theta, phi, t=tc, psi=0)
+            Fp, Fc = self.detector.compute_antenna_pattern(*pars, t=tc, psi=0)
             return -np.sqrt(Fp**2 + Fc**2)
 
         # we actually minimize the pattern function times -1, which is the same as maximizing it
@@ -3945,131 +3904,12 @@ class GWSignal(object):
             fcut = np.where(fcut > self.fmax, self.fmax, fcut)
         mask = self.strainFreq >= self.fmin
 
-        def CoeffsRot(ra, dec, psi, rot=0.0):
-            rot = rot * DEG_TO_RAD
-            rasDet = ra - self.det_long_rad
-            # Referring to overleaf, I now call VC2 the last vector appearing in the C2 expression, VS2 the one in the S2 expression and so on
-            # e1 is the first element and e2 the second
-
-            sin_angbtwArms = np.sin(self.angbtwArms)
-
-            sin_lat = np.sin(self.det_lat_rad)
-            cos_lat = np.cos(self.det_lat_rad)
-            sin_2lat = np.sin(2.0 * self.det_lat_rad)
-            m3_cos_2lat = 3 - np.cos(2.0 * self.det_lat_rad)
-            sin_2xax = np.sin(2.0 * (self.det_xax_rad + rot))
-            cos_2xax = np.cos(2.0 * (self.det_xax_rad + rot))
-            cos_2ra = np.cos(2.0 * rasDet)
-            sin_2ra = np.sin(2.0 * rasDet)
-            m3_cos_2dec = 3 - np.cos(2.0 * dec)
-            sin_2dec = np.sin(2.0 * dec)
-
-            # TODO: Why 0.0675?
-            VC2e1 = (
-                0.0675 * cos_2ra * sin_2xax * m3_cos_2dec * m3_cos_2lat
-                - 0.25 * sin_2ra * cos_2xax * m3_cos_2dec * sin_lat
-            )
-            VC2e2 = (
-                0.25 * sin_2ra * sin_2xax * np.sin(dec) * m3_cos_2lat
-                + cos_2ra * cos_2xax * np.sin(dec) * sin_lat
-            )
-            C2p, C2c = sin_angbtwArms * apply_psi_rotation(psi, VC2e1, VC2e2)
-
-            VS2e1 = (
-                0.0675 * sin_2ra * sin_2xax * m3_cos_2dec * m3_cos_2lat
-                + 0.25 * cos_2ra * cos_2xax * m3_cos_2dec * sin_lat
-            )
-            VS2e2 = (
-                -0.25 * cos_2ra * sin_2xax * np.sin(dec) * m3_cos_2lat
-                + sin_2ra * cos_2xax * np.sin(dec) * sin_lat
-            )
-            S2p, S2c = sin_angbtwArms * apply_psi_rotation(psi, VS2e1, VS2e2)
-
-            VC1e1 = 0.25 * (
-                np.cos(rasDet) * sin_2xax * sin_2dec * sin_2lat
-                - 2 * np.sin(rasDet) * cos_2xax * sin_2dec * cos_lat
-            )
-            VC1e2 = (
-                np.cos(rasDet) * cos_2xax * np.cos(dec) * cos_lat
-                + 0.5 * np.sin(rasDet) * sin_2xax * np.cos(dec) * sin_2lat
-            )
-            C1p, C1c = sin_angbtwArms * apply_psi_rotation(psi, VC1e1, VC1e2)
-
-            VS1e1 = 0.25 * (
-                np.sin(rasDet) * sin_2xax * sin_2dec * sin_2lat
-                + 2 * np.cos(rasDet) * cos_2xax * sin_2dec * cos_lat
-            )
-            VS1e2 = (
-                np.sin(rasDet) * cos_2xax * np.cos(dec) * cos_lat
-                - 0.5 * np.cos(rasDet) * sin_2xax * np.cos(dec) * sin_2lat
-            )
-            S1p, S1c = sin_angbtwArms * apply_psi_rotation(psi, VS1e1, VS1e2)
-
-            _C0 = 0.75 * sin_2xax * ((np.cos(dec) * cos_lat) ** 2) * sin_angbtwArms
-            C0p = _C0 * np.cos(2.0 * psi)
-            C0c = -_C0 * np.sin(2.0 * psi)
-
-            return (
-                np.array([C2p, C2c]),
-                np.array([S2p, S2c]),
-                np.array([C1p, C1c]),
-                np.array([S1p, S1c]),
-                np.array([C0p, C0c]),
-            )
-
-        def FpFcsqInt(C2s, S2s, C1s, S1s, C0s, Igs, iota):
-            # Is he out of his mind??
-            Fp4 = 0.5 * (C2s[0] ** 2 - S2s[0] ** 2) * Igs[3] + C2s[0] * S2s[0] * Igs[7]
-
-            Fp3 = (C2s[0] * C1s[0] - S2s[0] * S1s[0]) * Igs[2] + (
-                C2s[0] * S1s[0] + S2s[0] * C1s[0]
-            ) * Igs[6]
-
-            Fp2 = (0.5 * (C1s[0] ** 2 - S1s[0] ** 2) + 2.0 * C2s[0] * C0s[0]) * Igs[
-                1
-            ] + (2.0 * C0s[0] * S2s[0] + C1s[0] * S1s[0]) * Igs[5]
-
-            Fp1 = (2.0 * C0s[0] * C1s[0] + C1s[0] * C2s[0] + S2s[0] * S1s[0]) * Igs[
-                0
-            ] + (2.0 * C0s[0] * S1s[0] + C1s[0] * S2s[0] - S1s[0] * C2s[0]) * Igs[4]
-
-            Fp0 = (
-                C0s[0] ** 2
-                + 0.5 * (C1s[0] ** 2 + C2s[0] ** 2 + S1s[0] ** 2 + S2s[0] ** 2)
-            ) * Igs[8]
-
-            FpsqInt = Fp4 + Fp3 + Fp2 + Fp1 + Fp0
-
-            Fc4 = 0.5 * (C2s[1] ** 2 - S2s[1] ** 2) * Igs[3] + C2s[1] * S2s[1] * Igs[7]
-
-            Fc3 = (C2s[1] * C1s[1] - S2s[1] * S1s[1]) * Igs[2] + (
-                C2s[1] * S1s[1] + S2s[1] * C1s[1]
-            ) * Igs[6]
-
-            Fc2 = (0.5 * (C1s[1] ** 2 - S1s[1] ** 2) + 2.0 * C2s[1] * C0s[1]) * Igs[
-                1
-            ] + (2.0 * C0s[1] * S2s[1] + C1s[1] * S1s[1]) * Igs[5]
-
-            Fc1 = (2.0 * C0s[1] * C1s[1] + C1s[1] * C2s[1] + S2s[1] * S1s[1]) * Igs[
-                0
-            ] + (2.0 * C0s[1] * S1s[1] + C1s[1] * S2s[1] - S1s[1] * C2s[1]) * Igs[4]
-
-            Fc0 = (
-                C0s[1] ** 2
-                + 0.5 * (C1s[1] ** 2 + C2s[1] ** 2 + S1s[1] ** 2 + S2s[1] ** 2)
-            ) * Igs[8]
-
-            FcsqInt = Fc4 + Fc3 + Fc2 + Fc1 + Fc0
-
-            return (
-                FpsqInt * (0.5 * (1.0 + (np.cos(iota)) ** 2)) ** 2,
-                FcsqInt * (np.cos(iota)) ** 2,
-            )
-
         if not self.useEarthMotion:
             t = tcoal - self.wf_model.tau_star(self.fmin, **evParams) / DAY_TO_SEC
-            if self.detector_shape == "L":
-                Fp, Fc = self._PatternFunction(theta, phi, t, psi, rot=0.0)
+            if self.detector.shape == "L":
+                Fp, Fc = self.detector.compute_antenna_pattern(
+                    theta, phi, t, psi, rot=0.0
+                )
                 Qsq = (Fp * 0.5 * (1.0 + (np.cos(iota)) ** 2)) ** 2 + (
                     Fc * np.cos(iota)
                 ) ** 2
@@ -4083,10 +3923,12 @@ class GWSignal(object):
                         right=1.0,
                     )
                 )
-            elif self.detector_shape == "T":
+            elif self.detector.shape == "T":
                 for i in range(3):
-                    Fp, Fc = self._PatternFunction(theta, phi, t, psi, rot=60.0 * i)
-                    Qsq = (Fp * 0.5 * (1.0 + (np.cos(iota)) ** 2)) ** 2 + (
+                    Fp, Fc = self.detector.compute_antenna_pattern(
+                        theta, phi, t, psi, rot=60.0 * i
+                    )
+                    Qsq = (Fp * 0.5 * (1.0 + np.cos(iota) ** 2)) ** 2 + (
                         Fc * np.cos(iota)
                     ) ** 2
                     tmpSNR = fac * np.sqrt(
@@ -4101,46 +3943,45 @@ class GWSignal(object):
                     )
                     SNR = SNR + tmpSNR * tmpSNR
                 SNR = np.sqrt(SNR)
+            return SNR
+
+        if self.IntegInterpArr is None:
+            self._make_SNRig_interpolator()
+        Igs = onp.zeros((9, len(Mc)))
+        if not checkInterp:
+            for i in range(9):
+                Igs[i, :] = self.IntegInterpArr[i](onp.array([Mc, eta, tcoal]).T)
         else:
-            if self.IntegInterpArr is None:
-                self._make_SNRig_interpolator()
-            Igs = onp.zeros((9, len(Mc)))
-            if not checkInterp:
-                for i in range(9):
-                    Igs[i, :] = self.IntegInterpArr[i](onp.array([Mc, eta, tcoal]).T)
-            else:
-                fminarr = np.full(fcut.shape, self.fmin)
-                fgrids = np.geomspace(fminarr, fcut, num=int(5000))
-                strainGrids = np.interp(
-                    fgrids, self.strainFreq, self.noiseCurve, left=1.0, right=1.0
+            fminarr = np.full(fcut.shape, self.fmin)
+            fgrids = np.geomspace(fminarr, fcut, num=int(5000))
+            strainGrids = np.interp(
+                fgrids, self.strainFreq, self.noiseCurve, left=1.0, right=1.0
+            )
+
+            for m in range(4):
+                tmpIntegrandC = CosineIntegrand(fgrids, Mc, tcoal, m + 1.0)
+                tmpIntegrandS = SineIntegrand(fgrids, Mc, tcoal, m + 1.0)
+                Igs[m, :] = onp.trapz(tmpIntegrandC / strainGrids, fgrids, axis=0)
+                Igs[m + 4, :] = onp.trapz(tmpIntegrandS / strainGrids, fgrids, axis=0)
+            tmpIntegrand = CosineIntegrand(fgrids, Mc, tcoal, 0.0)
+            Igs[8, :] = onp.trapz(tmpIntegrand / strainGrids, fgrids, axis=0)
+
+        if self.detector.shape == "L":
+            C2s, S2s, C1s, S1s, C0s = self.detector.CoeffsRot(ras, decs, psi, rot=0.0)
+            FpsqInt, FcsqInt = FpFcsqInt(C2s, S2s, C1s, S1s, C0s, Igs, iota)
+            QsqInt = FpsqInt + FcsqInt
+            SNR = fac * np.sqrt(QsqInt)
+        elif self.detector.shape == "T":
+            snr_sq = 0.0
+            for i in range(3):
+                C2s, S2s, C1s, S1s, C0s = self.detector.CoeffsRot(
+                    ras, decs, psi, rot=i * 60.0
                 )
-
-                for m in range(4):
-                    tmpIntegrandC = CosineIntegrand(fgrids, Mc, tcoal, m + 1.0)
-                    tmpIntegrandS = SineIntegrand(fgrids, Mc, tcoal, m + 1.0)
-                    Igs[m, :] = onp.trapz(tmpIntegrandC / strainGrids, fgrids, axis=0)
-                    Igs[m + 4, :] = onp.trapz(
-                        tmpIntegrandS / strainGrids, fgrids, axis=0
-                    )
-                tmpIntegrand = CosineIntegrand(fgrids, Mc, tcoal, 0.0)
-                Igs[8, :] = onp.trapz(tmpIntegrand / strainGrids, fgrids, axis=0)
-
-            if self.detector_shape == "L":
-                C2s, S2s, C1s, S1s, C0s = CoeffsRot(ras, decs, psi, rot=0.0)
                 FpsqInt, FcsqInt = FpFcsqInt(C2s, S2s, C1s, S1s, C0s, Igs, iota)
                 QsqInt = FpsqInt + FcsqInt
-                SNR = fac * np.sqrt(QsqInt)
-            elif self.detector_shape == "T":
-                for i in range(3):
-                    C2s, S2s, C1s, S1s, C0s = CoeffsRot(ras, decs, psi, rot=i * 60.0)
-                    FpsqInt, FcsqInt = FpFcsqInt(C2s, S2s, C1s, S1s, C0s, Igs, iota)
-                    QsqInt = FpsqInt + FcsqInt
-                    tmpSNR = fac * np.sqrt(QsqInt)
-                    SNR = SNR + tmpSNR * tmpSNR
-                SNR = np.sqrt(SNR)
-
+                snr_sq += fac * fac * QsqInt
+            SNR = np.sqrt(snr_sq)
         return SNR
-
 
     def WFOverlap(
         self, WF1, WF2, evParams1, evParams2, res=1000, return_separate=False, **kwargs
@@ -4160,17 +4001,18 @@ class GWSignal(object):
         :rtype: 1-D array
 
         """
+        # Checks on imput parameters for waveforms
         utils.check_evparams(evParams1)
         utils.check_evparams(evParams2)
-
-        # Checks on imput parameters for waveform 1
 
         if WF1.is_Precessing:
             try:
                 _ = evParams1["chi1x"]
             except KeyError:
                 try:
-                    print("Adding cartesian components of the spins from angular variables")
+                    print(
+                        "Adding cartesian components of the spins from angular variables"
+                    )
                     (
                         evParams1["iota"],
                         evParams1["chi1x"],
@@ -4249,7 +4091,9 @@ class GWSignal(object):
                 _ = evParams2["chi1x"]
             except KeyError:
                 try:
-                    print("Adding cartesian components of the spins from angular variables")
+                    print(
+                        "Adding cartesian components of the spins from angular variables"
+                    )
                     (
                         evParams2["iota"],
                         evParams2["chi1x"],
@@ -4342,7 +4186,7 @@ class GWSignal(object):
 
         strains = []
         SNRhs = []
-        if self.detector_shape == "L":
+        if self.detector.shape == "L":
             for model, params in zip((WF1, WF2), (evParams1, evParams2)):
                 self.wf_model = model
                 strain = self.GWstrain(
@@ -4371,9 +4215,11 @@ class GWSignal(object):
                 strains.append(strain)
                 SNRhs.append(optimal_snr(fgrids, strain, psd_strain_grids))
 
-            overlap_int = noise_weighted_inner_product(fgrids, *strains, psd_strain_grids)
+            overlap_int = noise_weighted_inner_product(
+                fgrids, *strains, psd_strain_grids
+            )
 
-        elif self.detector_shape == "T":
+        elif self.detector.shape == "T":
             for model, params in zip((WF1, WF2), (evParams1, evParams2)):
                 self.wf_model = model
                 h_1 = self.GWstrain(
