@@ -15,7 +15,17 @@ from gwfast.gwfastUtils import (
 
 
 class Detector(object):
-    def __init__(self, name, lat, lon, xax, shape, duty_cycle=None, noise_curve_path=None, verbose=False):
+    def __init__(
+        self,
+        name,
+        lat,
+        lon,
+        xax,
+        shape,
+        duty_cycle=None,
+        noise_curve_path=None,
+        verbose=False,
+    ):
         self.name = name
         self.verbose = verbose
 
@@ -26,7 +36,7 @@ class Detector(object):
         else:
             raise ValueError("Enter valid detector configuration")
         self.shape = shape
-        # This is the percentage of time each arm of the detector (or the whole detector for an L) 
+        # This is the percentage of time each arm of the detector (or the whole detector for an L)
         # is supposed to be operational, between 0 and 1, default is None, that is always online
         self.duty_cycle = duty_cycle
 
@@ -42,20 +52,21 @@ class Detector(object):
     def load_noise_curve(self, file_path, verbose=False):
         if file_path is None:
             raise ValueError("Enter a valid PSD or ASD path")
-        
+
         _noise_curve_path = Path(file_path)
         self.noise_basedir = _noise_curve_path.parent
         self.noise_filename = _noise_curve_path.name
 
-        self.psd_frequencies, spectral_density = \
-            onp.loadtxt(file_path, usecols=(0, 1), unpack=True)
-        
+        self.psd_frequencies, spectral_density = onp.loadtxt(
+            file_path, usecols=(0, 1), unpack=True
+        )
+
         # Load PSD or ASD based on the amplitudes.
         if min(spectral_density) > 1e-30:
             if verbose:
                 print("Using ASD from file %s " % file_path)
             self.asd_array = spectral_density
-            self.psd_array = spectral_density ** 2
+            self.psd_array = spectral_density**2
         else:
             if verbose:
                 print("Using PSD from file %s " % file_path)
@@ -82,12 +93,10 @@ class Detector(object):
 
         rot_rad = rot * DEG_TO_RAD
         ras, decs = ra_dec_from_th_phi_rad(theta, phi)
-        ab_factors = self.compute_ab_factors(
-            ras, decs, t, rot_rad
-        )
+        ab_factors, _ = self.compute_ab_factors(ras, decs, t, rot_rad)
 
-        sin_angbtwArms = np.sin(self.angbtwArms)
-        Fp, Fc = apply_psi_rotation(psi, *ab_factors) * sin_angbtwArms
+        sin_angbtwarms = np.sin(self.ang_btw_arms)
+        Fp, Fc = apply_psi_rotation(psi, *ab_factors) * sin_angbtwarms
         return Fp, Fc
 
     def compute_geocent_deltat(self, theta, phi, t):
@@ -108,6 +117,78 @@ class Detector(object):
         # Note the change on 2025/04/21,
         # Output from second to days, as all subsequent usages are in seconds.
         return self._geocentric_deltat(ras, decs, t, self.lat_rad, self.long_rad)
+
+    def CoeffsRot(self, ra, dec, psi, rot=0.0):
+        rot = rot * DEG_TO_RAD
+        rasDet = ra - self.long_rad
+        # Referring to overleaf, I now call VC2 the last vector appearing in the C2 expression, VS2 the one in the S2 expression and so on
+        # e1 is the first element and e2 the second
+
+        sin_angbtwarms = np.sin(self.ang_btw_arms)
+
+        sin_lat = np.sin(self.det_lat_rad)
+        cos_lat = np.cos(self.det_lat_rad)
+        sin_2lat = np.sin(2.0 * self.det_lat_rad)
+        m3_cos_2lat = 3 - np.cos(2.0 * self.det_lat_rad)
+        sin_2xax = np.sin(2.0 * (self.det_xax_rad + rot))
+        cos_2xax = np.cos(2.0 * (self.det_xax_rad + rot))
+        cos_2ra = np.cos(2.0 * rasDet)
+        sin_2ra = np.sin(2.0 * rasDet)
+        m3_cos_2dec = 3 - np.cos(2.0 * dec)
+        sin_2dec = np.sin(2.0 * dec)
+
+        # TODO: Why 0.0675?
+        VC2e1 = (
+            0.0675 * cos_2ra * sin_2xax * m3_cos_2dec * m3_cos_2lat
+            - 0.25 * sin_2ra * cos_2xax * m3_cos_2dec * sin_lat
+        )
+        VC2e2 = (
+            0.25 * sin_2ra * sin_2xax * np.sin(dec) * m3_cos_2lat
+            + cos_2ra * cos_2xax * np.sin(dec) * sin_lat
+        )
+        C2p, C2c = sin_angbtwarms * apply_psi_rotation(psi, VC2e1, VC2e2)
+
+        VS2e1 = (
+            0.0675 * sin_2ra * sin_2xax * m3_cos_2dec * m3_cos_2lat
+            + 0.25 * cos_2ra * cos_2xax * m3_cos_2dec * sin_lat
+        )
+        VS2e2 = (
+            -0.25 * cos_2ra * sin_2xax * np.sin(dec) * m3_cos_2lat
+            + sin_2ra * cos_2xax * np.sin(dec) * sin_lat
+        )
+        S2p, S2c = sin_angbtwarms * apply_psi_rotation(psi, VS2e1, VS2e2)
+
+        VC1e1 = 0.25 * (
+            np.cos(rasDet) * sin_2xax * sin_2dec * sin_2lat
+            - 2 * np.sin(rasDet) * cos_2xax * sin_2dec * cos_lat
+        )
+        VC1e2 = (
+            np.cos(rasDet) * cos_2xax * np.cos(dec) * cos_lat
+            + 0.5 * np.sin(rasDet) * sin_2xax * np.cos(dec) * sin_2lat
+        )
+        C1p, C1c = sin_angbtwarms * apply_psi_rotation(psi, VC1e1, VC1e2)
+
+        VS1e1 = 0.25 * (
+            np.sin(rasDet) * sin_2xax * sin_2dec * sin_2lat
+            + 2 * np.cos(rasDet) * cos_2xax * sin_2dec * cos_lat
+        )
+        VS1e2 = (
+            np.sin(rasDet) * cos_2xax * np.cos(dec) * cos_lat
+            - 0.5 * np.cos(rasDet) * sin_2xax * np.cos(dec) * sin_2lat
+        )
+        S1p, S1c = sin_angbtwarms * apply_psi_rotation(psi, VS1e1, VS1e2)
+
+        _C0 = 0.75 * sin_2xax * ((np.cos(dec) * cos_lat) ** 2) * sin_angbtwarms
+        C0p = _C0 * np.cos(2.0 * psi)
+        C0c = -_C0 * np.sin(2.0 * psi)
+
+        return (
+            np.array([C2p, C2c]),
+            np.array([S2p, S2c]),
+            np.array([C1p, C1c]),
+            np.array([S1p, S1c]),
+            np.array([C0p, C0c]),
+        )
 
     ##############################################################################
     # Helper functions for the Antenna Pattern
@@ -163,8 +244,12 @@ class Detector(object):
         if dtheta:
             deltat_deriv = self._geocentric_deltat(ra, dec, time, dtheta=True)
             pi2_deltat = TWOPI * deltat_deriv
-            a1 *= -2.0 * sin_2dec * cos_2ang + m3_cos_2dec * sin_2ang * (2.0 * pi2_deltat)
-            a2 *= -2.0 * sin_2dec * sin_2ang - m3_cos_2dec * cos_2ang * (2.0 * pi2_deltat)
+            a1 *= -2.0 * sin_2dec * cos_2ang + m3_cos_2dec * sin_2ang * (
+                2.0 * pi2_deltat
+            )
+            a2 *= -2.0 * sin_2dec * sin_2ang - m3_cos_2dec * cos_2ang * (
+                2.0 * pi2_deltat
+            )
             a3 *= -2.0 * cos_2dec * cos_ang + sin_2dec * sin_ang * pi2_deltat
             a4 *= -1 * (2.0 * cos_2dec * sin_ang + sin_2dec * cos_ang * pi2_deltat)
             a5 *= sin_2dec
@@ -201,9 +286,7 @@ class Detector(object):
 
         return a_factor, b_factor, deltat_deriv
 
-    def _geocentric_deltat(
-        self, ra, dec, time, dphi=False, dtheta=False, dtime=False
-    ):
+    def _geocentric_deltat(self, ra, dec, time, dphi=False, dtheta=False, dtime=False):
         """
         Compute the time needed to go from Earth center to detector location
         for a set of sky coordinates and time(s). The result is given in days.
@@ -248,3 +331,51 @@ class Detector(object):
         earth_traverse_time = -REarth / clight / DAY_TO_SEC
 
         return sum_comp * earth_traverse_time
+
+
+def FpFcsqInt(C2s, S2s, C1s, S1s, C0s, Igs, iota):
+    # Is he out of his mind??
+    Fp4 = 0.5 * (C2s[0] ** 2 - S2s[0] ** 2) * Igs[3] + C2s[0] * S2s[0] * Igs[7]
+
+    Fp3 = (C2s[0] * C1s[0] - S2s[0] * S1s[0]) * Igs[2] + (
+        C2s[0] * S1s[0] + S2s[0] * C1s[0]
+    ) * Igs[6]
+
+    Fp2 = (0.5 * (C1s[0] ** 2 - S1s[0] ** 2) + 2.0 * C2s[0] * C0s[0]) * Igs[1] + (
+        2.0 * C0s[0] * S2s[0] + C1s[0] * S1s[0]
+    ) * Igs[5]
+
+    Fp1 = (2.0 * C0s[0] * C1s[0] + C1s[0] * C2s[0] + S2s[0] * S1s[0]) * Igs[0] + (
+        2.0 * C0s[0] * S1s[0] + C1s[0] * S2s[0] - S1s[0] * C2s[0]
+    ) * Igs[4]
+
+    Fp0 = (
+        C0s[0] ** 2 + 0.5 * (C1s[0] ** 2 + C2s[0] ** 2 + S1s[0] ** 2 + S2s[0] ** 2)
+    ) * Igs[8]
+
+    FpsqInt = Fp4 + Fp3 + Fp2 + Fp1 + Fp0
+
+    Fc4 = 0.5 * (C2s[1] ** 2 - S2s[1] ** 2) * Igs[3] + C2s[1] * S2s[1] * Igs[7]
+
+    Fc3 = (C2s[1] * C1s[1] - S2s[1] * S1s[1]) * Igs[2] + (
+        C2s[1] * S1s[1] + S2s[1] * C1s[1]
+    ) * Igs[6]
+
+    Fc2 = (0.5 * (C1s[1] ** 2 - S1s[1] ** 2) + 2.0 * C2s[1] * C0s[1]) * Igs[1] + (
+        2.0 * C0s[1] * S2s[1] + C1s[1] * S1s[1]
+    ) * Igs[5]
+
+    Fc1 = (2.0 * C0s[1] * C1s[1] + C1s[1] * C2s[1] + S2s[1] * S1s[1]) * Igs[0] + (
+        2.0 * C0s[1] * S1s[1] + C1s[1] * S2s[1] - S1s[1] * C2s[1]
+    ) * Igs[4]
+
+    Fc0 = (
+        C0s[1] ** 2 + 0.5 * (C1s[1] ** 2 + C2s[1] ** 2 + S1s[1] ** 2 + S2s[1] ** 2)
+    ) * Igs[8]
+
+    FcsqInt = Fc4 + Fc3 + Fc2 + Fc1 + Fc0
+
+    return (
+        FpsqInt * (0.5 * (1.0 + (np.cos(iota)) ** 2)) ** 2,
+        FcsqInt * (np.cos(iota)) ** 2,
+    )
