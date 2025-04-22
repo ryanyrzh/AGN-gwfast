@@ -17,6 +17,9 @@ import h5py
 from gwfast import gwfastGlobals as glob
 from gwfast.gwfastGlobals import TWOPI, DAY_TO_SEC
 
+spin_angle_keys = ("thetaJN", "phiJL", "tilt1", "tilt2", "phi12", "chi1", "chi2")
+spin_comps_keys = ("iota", "chi1x", "chi1y", "chi1z", "chi2x", "chi2y", "chi2z")
+
 
 ##############################################################################
 # LOADING AND SAVING CATALOGS
@@ -173,8 +176,6 @@ def expand_params(parameters):
     all_keys = list(parameters.keys())
     output = parameters.copy()
 
-    spin_angle_keys = ("thetaJN", "phiJL", "theta1", "theta2", "phi12", "chi1", "chi2")
-    spin_comps_keys = ("iota", "chi1x", "chi1y", "chi1z", "chi2x", "chi2y", "chi2z")
 
     if ("m1" not in all_keys) or ("m2" not in all_keys):
         if ("Mc" in all_keys) or ("eta" in all_keys):
@@ -212,8 +213,8 @@ def expand_params(parameters):
         spin_comps = TransformPrecessing_angles2comp(
             parameters["thetaJN"],
             parameters["phiJL"],
-            parameters["theta1"],
-            parameters["theta2"],
+            parameters["tilt1"],
+            parameters["tilt2"],
             parameters["phi12"],
             parameters["chi1"],
             parameters["chi2"],
@@ -682,7 +683,7 @@ def yrot(angle, vx, vy, vz):
 
 
 def TransformPrecessing_angles2comp(
-    thetaJN, phiJL, theta1, theta2, phi12, chi1, chi2, Mc, eta, fRef, phiRef
+    thetaJN, phiJL, tilt1, tilt2, phi12, chi1, chi2, Mc, eta, fRef, phiRef
 ):
     """
     Compute the components of the spin in cartesian frame given the angular variables.
@@ -691,8 +692,8 @@ def TransformPrecessing_angles2comp(
 
     :param array or float thetaJN: Inclination between total angular momentum (:math:`J`) and the direction of propagation, :math:`\\theta_{JN}` (so that :math:`\\theta_{JN} \\to \iota` for :math:`\\chi_1 + \\chi_2 \\to 0`).
     :param array or float phiJL: Azimuthal angle of the Newtonian orbital angular momentum :math:`L_N` on its cone about the total angular momentum :math:`J`, :math:`\phi_{JL}`.
-    :param array or float theta1: Inclination (tilt angle) of object 1 measured from the Newtonian orbital angular momentum (:math:`L_N`), :math:`\\theta_{s,1}`.
-    :param array or float theta2: Inclination (tilt angle) of object 2 measured from the Newtonian orbital angular momentum (:math:`L_N`), :math:`\\theta_{s,2}`.
+    :param array or float tilt1: Inclination (tilt angle) of object 1 measured from the Newtonian orbital angular momentum (:math:`L_N`), :math:`\\theta_{s,1}`.
+    :param array or float tilt2: Inclination (tilt angle) of object 2 measured from the Newtonian orbital angular momentum (:math:`L_N`), :math:`\\theta_{s,2}`.
     :param array or float phi12: Difference in azimuthal angles between the two spins, :math:`\phi_{1,2}`.
     :param array or float chi1: Dimensionless spin magnitude of object 1, :math:`\chi_1`.
     :param array or float chi2: Dimensionless spin magnitude of object 2, :math:`\chi_2`.
@@ -710,12 +711,12 @@ def TransformPrecessing_angles2comp(
     LNhy = 0.0
     LNhz = 1.0
 
-    s1hatx = np.sin(theta1) * np.cos(phiRef)
-    s1haty = np.sin(theta1) * np.sin(phiRef)
-    s1hatz = np.cos(theta1)
-    s2hatx = np.sin(theta2) * np.cos(phi12 + phiRef)
-    s2haty = np.sin(theta2) * np.sin(phi12 + phiRef)
-    s2hatz = np.cos(theta2)
+    s1hatx = np.sin(tilt1) * np.cos(phiRef)
+    s1haty = np.sin(tilt1) * np.sin(phiRef)
+    s1hatz = np.cos(tilt1)
+    s2hatx = np.sin(tilt2) * np.cos(phi12 + phiRef)
+    s2haty = np.sin(tilt2) * np.sin(phi12 + phiRef)
+    s2hatz = np.cos(tilt2)
 
     m1, m2 = m1m2_from_Mceta(Mc, eta)
     M = m1 + m2
@@ -837,8 +838,8 @@ def TransformPrecessing_comp2angles(
 
     phi12 = np.where(phi2 - phi1 < 0.0, 2.0 * np.pi + (phi2 - phi1), phi2 - phi1)
 
-    theta1 = np.arccos(s1hatz)
-    theta2 = np.arccos(s2hatz)
+    tilt1 = np.arccos(s1hatz)
+    tilt2 = np.arccos(s2hatz)
 
     m1, m2 = m1m2_from_Mceta(Mc, eta)
     M = m1 + m2
@@ -889,7 +890,7 @@ def TransformPrecessing_comp2angles(
     phiJL = np.arctan2(np.real(LNhy), np.real(LNhx))
     phiJL = np.where(phiJL < 0.0, phiJL + 2.0 * np.pi, phiJL)
 
-    return thetaJN, phiJL, theta1, theta2, phi12, chi1, chi2
+    return thetaJN, phiJL, tilt1, tilt2, phi12, chi1, chi2
 
 
 def psi_rotation_matrix(psi):

@@ -29,6 +29,8 @@ from gwfast import gwfastUtils as utils
 from gwfast import gwfastGlobals as glob
 from gwfast.gwfastGlobals import TWOPI, DAY_TO_SEC, DEG_TO_RAD
 from gwfast.gwfastUtils import (
+    spin_angle_keys,
+    spin_comps_keys,
     apply_psi_rotation,
     CosineIntegrand,
     SineIntegrand,
@@ -419,12 +421,11 @@ class GWSignal(object):
         # chi1z, chi2z -> dimensionless spin components aligned to orbital angular momentum [-1;1], Lambda1,2 -> tidal parameters of the objects,
         # f is the frequency (Hz)
 
-        theta, phi, iota, psi, tcoal = (
+        theta, phi, iota, psi = (
             evParams["theta"],
             evParams["phi"],
             evParams["iota"],
             evParams["psi"],
-            evParams["tcoal"],
         )
 
         time, _ = self.shifted_time(evParams, f)
@@ -561,8 +562,8 @@ class GWSignal(object):
                     utils.TransformPrecessing_angles2comp(
                         thetaJN=iota,
                         phiJL=chi1y,
-                        theta1=chi1x,
-                        theta2=chi2x,
+                        tilt1=chi1x,
+                        tilt2=chi2x,
                         phi12=chi2y,
                         chi1=chiS,
                         chi2=chiA,
@@ -788,36 +789,9 @@ class GWSignal(object):
 
         if self.wf_model.is_Precessing:
             # Check if cartesian spins are provided
-            if not all(
-                [
-                    (key in all_params_keys)
-                    for key in (
-                        "iota",
-                        "chi1x",
-                        "chi1y",
-                        "chi1z",
-                        "chi2x",
-                        "chi2y",
-                        "chi2z",
-                    )
-                ]
-            ):
+            if not all([(key in all_params_keys) for key in spin_comps_keys]):
                 # Check if spin angles are provided instead
-                if all(
-                    [
-                        (key in all_params_keys)
-                        for key in (
-                            "thetaJN",
-                            "chi1",
-                            "chi2",
-                            "tilt1",
-                            "tilt2",
-                            "phiJL",
-                            "phi12",
-                        )
-                    ]
-                ):
-
+                if all([(key in all_params_keys) for key in spin_angle_keys]):
                     if self.verbose:
                         print(
                             "Adding cartesian components of the spins from angular variables"
@@ -833,8 +807,8 @@ class GWSignal(object):
                     ) = utils.TransformPrecessing_angles2comp(
                         thetaJN=evParams["thetaJN"],
                         phiJL=evParams["phiJL"],
-                        theta1=evParams["tilt1"],
-                        theta2=evParams["tilt2"],
+                        tilt1=evParams["tilt1"],
+                        tilt2=evParams["tilt2"],
                         phi12=evParams["phi12"],
                         chi1=evParams["chi1"],
                         chi2=evParams["chi2"],
@@ -1323,36 +1297,9 @@ class GWSignal(object):
 
         else:
             # Check if cartesian spins are provided
-            if not all(
-                [
-                    (key in all_params_keys)
-                    for key in (
-                        "iota",
-                        "chi1x",
-                        "chi1y",
-                        "chi1z",
-                        "chi2x",
-                        "chi2y",
-                        "chi2z",
-                    )
-                ]
-            ):
-
+            if not all([(key in all_params_keys) for key in spin_comps_keys]):
                 # Check if spin angles are provided instead
-                if all(
-                    [
-                        (key in all_params_keys)
-                        for key in (
-                            "thetaJN",
-                            "chi1",
-                            "chi2",
-                            "tilt1",
-                            "tilt2",
-                            "phiJL",
-                            "phi12",
-                        )
-                    ]
-                ):
+                if all([(key in all_params_keys) for key in spin_angle_keys]):
 
                     if self.verbose:
                         print(
@@ -1369,8 +1316,8 @@ class GWSignal(object):
                     ) = utils.TransformPrecessing_angles2comp(
                         thetaJN=evParams["thetaJN"],
                         phiJL=evParams["phiJL"],
-                        theta1=evParams["tilt1"],
-                        theta2=evParams["tilt2"],
+                        tilt1=evParams["tilt1"],
+                        tilt2=evParams["tilt2"],
                         phi12=evParams["phi12"],
                         chi1=evParams["chi1"],
                         chi2=evParams["chi2"],
@@ -3744,8 +3691,8 @@ class GWSignal(object):
                     utils.TransformPrecessing_angles2comp(
                         thetaJN=iota,
                         phiJL=chi1y,
-                        theta1=chi1x,
-                        theta2=chi2x,
+                        tilt1=chi1x,
+                        tilt2=chi2x,
                         phi12=chi2y,
                         chi1=chiS,
                         chi2=chiA,
@@ -4235,8 +4182,8 @@ class GWSignal(object):
                     ) = utils.TransformPrecessing_angles2comp(
                         thetaJN=evParams1["thetaJN"],
                         phiJL=evParams1["phiJL"],
-                        theta1=evParams1["tilt1"],
-                        theta2=evParams1["tilt2"],
+                        tilt1=evParams1["tilt1"],
+                        tilt2=evParams1["tilt2"],
                         phi12=evParams1["phi12"],
                         chi1=evParams1["chi1"],
                         chi2=evParams1["chi2"],
@@ -4314,8 +4261,8 @@ class GWSignal(object):
                     ) = utils.TransformPrecessing_angles2comp(
                         thetaJN=evParams2["thetaJN"],
                         phiJL=evParams2["phiJL"],
-                        theta1=evParams2["tilt1"],
-                        theta2=evParams2["tilt2"],
+                        tilt1=evParams2["tilt1"],
+                        tilt2=evParams2["tilt2"],
                         phi12=evParams2["phi12"],
                         chi1=evParams2["chi1"],
                         chi2=evParams2["chi2"],
