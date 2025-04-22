@@ -172,14 +172,14 @@ def _sqrt_term(iota, phi_L):
     return jnp.sqrt(angle_sq)
 
 
-def _get_cos_phi_proj(iota, phi_L):
-    '''
-    Compute projection from orbital plane onto lensing plane
+# def _get_cos_phi_proj(iota, phi_L):
+#     '''
+#     Compute projection from orbital plane onto lensing plane
 
-    iota -- Inclination, Unit: radian
-    phi_L -- Azimuthal angle of the lens?, unit: radian
-    '''
-    return jnp.sin(iota) * jnp.sin(phi_L) / _sqrt_term(iota, phi_L)
+#     iota -- Inclination, Unit: radian
+#     phi_L -- Azimuthal angle of the lens?, unit: radian
+#     '''
+#     return jnp.sin(iota) * jnp.sin(phi_L) / _sqrt_term(iota, phi_L)
 
 
 # def get_image_iota(iota, phi_L, alpha_hat, theta_1, theta_2, beta): # angle between total angular momentum and observer position

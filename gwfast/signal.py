@@ -40,12 +40,6 @@ from gwfast.lensing_utils import (
     get_lensed_parameter_sets,
     get_lensing_time_delay,
     get_mag_factors,
-    get_alpha_hat,
-    get_image_iota,
-    get_image_Phicoal,
-    get_image_psi,
-    get_cos_phi_proj,
-    get_delta_z,
 )
 
 
@@ -671,7 +665,7 @@ class GWSignal(object):
 
         # Modifications from lensing goes the end
         if use_lensing:
-            evParams1, evParams2 = utils.get_lensed_parameter_sets(
+            evParams1, evParams2 = get_lensed_parameter_sets(
                 evParams, R_orbit=R_orbit, M_lz=M_lz, src_pos=src_pos
             )
 
@@ -3840,22 +3834,24 @@ class GWSignal(object):
                     )
                 )
 
-        if use_lensing:  # to be modified!!!! what is happening here???
-            alpha_hat = get_alpha_hat(R_orbit)
-            iotaUse = get_image_iota(iota, phi_L, alpha_hat)[0]
-            Phicoal = get_image_Phicoal(iota, phi_L, Phicoal, alpha_hat)[0]
-            psi = get_image_psi(iota, phi_L, psi, alpha_hat)[0]
-            cos_phi_proj = get_cos_phi_proj(iota, phi_L)
+        # if use_lensing:
+        #     # computeAnalyticalDeriv is always left as False by default in lensing tests
+        #     # Lensing modification ignored for now
+        #     alpha_hat = _get_alpha_hat(R_orbit)
+        #     iotaUse = get_image_iota(iota, phi_L, alpha_hat)[0]
+        #     Phicoal = get_image_Phicoal(iota, phi_L, Phicoal, alpha_hat)[0]
+        #     psi = get_image_psi(iota, phi_L, psi, alpha_hat)[0]
+        #     cos_phi_proj = get_cos_phi_proj(iota, phi_L)
 
-            # doppler effect is treated as a change in the effective chirp mass
-            z = np.interp(
-                np.real(dL).astype("float64"), utils.dLGridGlob, utils.zGridGlob
-            )  # z_at_value(Planck18.luminosity_distance, dL * u.Mpc)
-            delta_z = get_delta_z(R_orbit, cos_phi_proj)[0]
-            # need to double check if this formula is correct
-            McUse *= ((1 + z) / (1 + z + delta_z)) ** (8 / 5)
-            # eta will also change!!!
-            iota = iotaUse
+        #     # doppler effect is treated as a change in the effective chirp mass
+        #     z = np.interp(
+        #         np.real(dL).astype("float64"), utils.dLGridGlob, utils.zGridGlob
+        #     )  # z_at_value(Planck18.luminosity_distance, dL * u.Mpc)
+        #     delta_z = get_delta_z(R_orbit, cos_phi_proj)[0]
+        #     # need to double check if this formula is correct
+        #     McUse *= ((1 + z) / (1 + z + delta_z)) ** (8 / 5)
+        #     # eta will also change!!!
+        #     iota = iotaUse
 
         evParams = {
             "Mc": McUse,
