@@ -176,7 +176,6 @@ def expand_params(parameters):
     all_keys = list(parameters.keys())
     output = parameters.copy()
 
-
     if ("m1" not in all_keys) or ("m2" not in all_keys):
         if ("Mc" in all_keys) or ("eta" in all_keys):
             m1, m2 = m1m2_from_Mceta(parameters["Mc"], parameters["eta"])

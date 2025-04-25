@@ -930,8 +930,7 @@ class GWSignal(object):
 
             SNRsq = np.trapezoid(Atot / strainGrids, fgrids, axis=0)
             if self.detector.duty_cycle is not None:
-                excl = onp.random.random(len(evParams["Mc"])) \
-                    > self.detector.duty_cycle
+                excl = onp.random.random(len(evParams["Mc"])) > self.detector.duty_cycle
                 SNRsq = SNRsq * excl
             allSNRsq.append(SNRsq)
         elif self.detector.shape == "T":
@@ -1004,8 +1003,10 @@ class GWSignal(object):
                         Atot = abs(htot1 + htot2) ** 2
                     tmpSNRsq = np.trapezoid(Atot / strainGrids, fgrids, axis=0)
                     if self.detector.duty_cycle is not None:
-                        excl = onp.random.random(len(evParams["Mc"])) \
+                        excl = (
+                            onp.random.random(len(evParams["Mc"]))
                             > self.detector.duty_cycle
+                        )
                         tmpSNRsq = tmpSNRsq * excl
                     allSNRsq.append(tmpSNRsq)
                     # SNR = SNR + tmpSNRsq
@@ -1148,14 +1149,20 @@ class GWSignal(object):
                 tmpSNRsq2 = np.trapezoid(Atot2 / strainGrids, fgrids, axis=0)
                 tmpSNRsq3 = np.trapezoid(Atot3 / strainGrids, fgrids, axis=0)
                 if self.detector.duty_cycle is not None:
-                    excl = onp.random.random(len(evParams["Mc"])) \
+                    excl = (
+                        onp.random.random(len(evParams["Mc"]))
                         > self.detector.duty_cycle
+                    )
                     tmpSNRsq1 = tmpSNRsq1 * excl
-                    excl = onp.random.random(len(evParams["Mc"])) \
+                    excl = (
+                        onp.random.random(len(evParams["Mc"]))
                         > self.detector.duty_cycle
+                    )
                     tmpSNRsq2 = tmpSNRsq2 * excl
-                    excl = onp.random.random(len(evParams["Mc"])) \
+                    excl = (
+                        onp.random.random(len(evParams["Mc"]))
                         > self.detector.duty_cycle
+                    )
                     tmpSNRsq3 = tmpSNRsq3 * excl
                 allSNRsq.append(tmpSNRsq1)
                 allSNRsq.append(tmpSNRsq2)
@@ -1528,8 +1535,10 @@ class GWSignal(object):
 
                             tmpFisher[beta, alpha, :] = tmpFisher[alpha, beta, :]
                     if self.detector.duty_cycle is not None:
-                        excl = onp.random.random(len(evParams["Mc"])) \
+                        excl = (
+                            onp.random.random(len(evParams["Mc"]))
                             > self.detector.duty_cycle
+                        )
                         tmpFisher = tmpFisher * excl
                     allFishers.append(tmpFisher)
                     # Fisher += tmpFisher
@@ -1593,8 +1602,10 @@ class GWSignal(object):
 
                         tmpFisher[beta, alpha, :] = tmpFisher[alpha, beta, :]
                 if self.detector.duty_cycle is not None:
-                    excl = onp.random.random(len(evParams["Mc"])) \
+                    excl = (
+                        onp.random.random(len(evParams["Mc"]))
                         > self.detector.duty_cycle
+                    )
                     tmpFisher = tmpFisher * excl
                 # Fisher += tmpFisher
                 allFishers.append(tmpFisher)
@@ -1653,8 +1664,10 @@ class GWSignal(object):
 
                         tmpFisher[beta, alpha, :] = tmpFisher[alpha, beta, :]
                 if self.detector.duty_cycle is not None:
-                    excl = onp.random.random(len(evParams["Mc"])) \
+                    excl = (
+                        onp.random.random(len(evParams["Mc"]))
                         > self.detector.duty_cycle
+                    )
                     tmpFisher = tmpFisher * excl
                 # Fisher += tmpFisher
                 allFishers.append(tmpFisher)
@@ -1681,8 +1694,10 @@ class GWSignal(object):
 
                         tmpFisher[beta, alpha, :] = tmpFisher[alpha, beta, :]
                 if self.detector.duty_cycle is not None:
-                    excl = onp.random.random(len(evParams["Mc"])) \
+                    excl = (
+                        onp.random.random(len(evParams["Mc"]))
                         > self.detector.duty_cycle
+                    )
                     tmpFisher = tmpFisher * excl
                 # Fisher += tmpFisher
                 allFishers.append(tmpFisher)

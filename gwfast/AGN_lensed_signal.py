@@ -146,8 +146,11 @@ class AGNLensedGWSignal(GWSignal):
                 )
             )
 
-        self.strain_model_keys = \
-            list(self.wf_model.ParNums.keys()) + ['R_orbit', 'M_lz', 'src_pos']
+        self.strain_model_keys = list(self.wf_model.ParNums.keys()) + [
+            "R_orbit",
+            "M_lz",
+            "src_pos",
+        ]
 
         # Modifications from lensing goes the end
         eval_params_1, eval_params_2 = get_lensed_parameter_sets(eval_params)
@@ -485,7 +488,6 @@ class AGNLensedGWSignal(GWSignal):
 
         utils.check_evparams(evParams)
         all_params_keys = list(evParams.keys())
-
 
         Mc, dL, theta, phi = (
             evParams["Mc"].astype("complex128"),
