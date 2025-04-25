@@ -114,6 +114,7 @@ class GWSignal(object):
             )
 
         self.wf_model = wf_model
+        self.strain_model_keys = list(self.wf_model.ParNums.keys()) 
 
         self.detector = Detector(
             "ifo",
@@ -398,6 +399,12 @@ class GWSignal(object):
             time = tcoal
         delta_t = self.detector.compute_geocent_deltat(theta, phi, time)
         return time + delta_t, delta_t
+
+    def duty_cycle_mask(self, shape):
+        '''
+        Generate a (new) duty-cycle mask for the given shape.
+        '''
+        return onp.random.random(shape) > self.detector.duty_cycle
 
     def GWAmplitudes(self, evParams, f, rot=0.0):
         """

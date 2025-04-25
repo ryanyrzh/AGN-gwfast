@@ -80,6 +80,16 @@ class AGNLensedGWSignal(GWSignal):
 
     """
 
+    def __init__(self, **kwargs):
+
+        super().__init__(**kwargs)
+
+        self.strain_model_keys = list(self.wf_model.ParNums.keys()) + [
+            "R_orbit",
+            "M_lz",
+            "src_pos",
+        ]
+
     def GWAmplitudes(self, evParams, f, rot=0.0):
         raise NotImplementedError("Yeah, someone should work on this.")
 
