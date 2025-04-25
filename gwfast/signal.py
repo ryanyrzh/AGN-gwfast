@@ -43,7 +43,7 @@ from gwfast.lensing_utils import (
     get_lensing_time_delay,
     get_mag_factors,
 )
-from detector import Detector, FpFcsqInt
+from gwfast.detector import Detector, FpFcsqInt
 
 
 class GWSignal(object):
@@ -92,6 +92,7 @@ class GWSignal(object):
         noMotion=False,  # use only for checks
         fmin=2.0,
         fmax=None,
+        detector=None,
         IntTablePath=None,
         DutyFactor=None,
         compute2arms=True,
@@ -114,27 +115,32 @@ class GWSignal(object):
             )
 
         self.wf_model = wf_model
-        self.strain_model_keys = list(self.wf_model.ParNums.keys()) 
+        self.strain_model_keys = list(self.wf_model.ParNums.keys())
 
-        self.detector = Detector(
-            "ifo",
-            det_lat,
-            det_long,
-            det_xax,
-            detector_shape,
-            DutyFactor,
-            psd_path,
-            verbose=verbose,
-        )
+        if detector is None:
+            self.detector = Detector(
+                "ifo",
+                det_lat,
+                det_long,
+                det_xax,
+                detector_shape,
+                DutyFactor,
+                psd_path,
+                verbose=verbose,
+            )
+        else:
+            self.detector = detector
 
         self.verbose = verbose
         self.IntTablePath = IntTablePath
 
         self.fmin = fmin  # Hz
         self.fmax = fmax  # Hz or None
-        mask = (self.detector.psd_frequencies >= self.fmin) * (
-            self.detector.psd_frequencies <= self.fmax
-        )
+
+        mask = self.detector.psd_frequencies >= self.fmin
+        if self.fmax is not None:
+            mask *= self.detector.psd_frequencies <= self.fmax
+
         masked_freqs = self.detector.psd_frequencies[mask]
         self.strainInteg = cumulative_trapezoid(
             masked_freqs ** (-7.0 / 3.0) / self.detector.psd_array[mask],
