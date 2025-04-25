@@ -381,149 +381,6 @@ class AGNLensedGWSignal(GWSignal):
         if self.detector.duty_cycle is not None:
             onp.random.seed(self.seedUse)
 
-        utils.check_evparams(evParams)
-        all_params_keys = list(evParams.keys())
-
-        Mc, dL, theta, phi = (
-            evParams["Mc"].astype("complex128"),
-            evParams["dL"].astype("complex128"),
-            evParams["theta"].astype("complex128"),
-            evParams["phi"].astype("complex128"),
-        )
-        iota, psi, tcoal, etaOr, Phicoal = (
-            evParams["iota"].astype("complex128"),
-            evParams["psi"].astype("complex128"),
-            evParams["tcoal"].astype("complex128"),
-            evParams["eta"].astype("complex128"),
-            evParams["Phicoal"].astype("complex128"),
-        )
-
-        ZEROS = np.zeros_like(Mc)
-
-        if not self.wf_model.is_Precessing:
-            # For the aligned-spin models:
-
-            # We first guarantee the existence of chi1z and chi2z.
-            if ("chi1z" in all_params_keys) and ("chi2z" in all_params_keys):
-                # If both of them are present, we do nothing.
-                pass
-            elif ("chiS" in all_params_keys) and ("chiA" in all_params_keys):
-                # We compute chi1z and chi2z from chiS and chiA
-                if self.verbose:
-                    print("Adding chi1z, chi2z from chiS, chiA")
-                evParams["chi1z"] = evParams["chiS"] + evParams["chiA"]
-                evParams["chi2z"] = evParams["chiS"] - evParams["chiA"]
-            else:
-                raise ValueError(
-                    "One pair among (chi1z, chi2z) and (chiS, chiA) have to be provided."
-                )
-
-            chi1z = evParams["chi1z"].astype("complex128")
-            chi2z = evParams["chi2z"].astype("complex128")
-
-            # In any case, we set all in-plane components to zeroes.
-            chi1x, chi2x, chi1y, chi2y = ZEROS, ZEROS, ZEROS, ZEROS
-
-        else:
-            # Check if cartesian spins are provided
-            if not all([(key in all_params_keys) for key in spin_comps_keys]):
-                # Check if spin angles are provided instead
-                if all([(key in all_params_keys) for key in spin_angle_keys]):
-
-                    if self.verbose:
-                        print(
-                            "Adding cartesian components of the spins from angular variables"
-                        )
-                    (
-                        evParams["iota"],
-                        evParams["chi1x"],
-                        evParams["chi1y"],
-                        evParams["chi1z"],
-                        evParams["chi2x"],
-                        evParams["chi2y"],
-                        evParams["chi2z"],
-                    ) = utils.TransformPrecessing_angles2comp(
-                        thetaJN=evParams["thetaJN"],
-                        phiJL=evParams["phiJL"],
-                        tilt1=evParams["tilt1"],
-                        tilt2=evParams["tilt2"],
-                        phi12=evParams["phi12"],
-                        chi1=evParams["chi1"],
-                        chi2=evParams["chi2"],
-                        Mc=evParams["Mc"],
-                        eta=evParams["eta"],
-                        fRef=self.fmin,
-                        phiRef=0.0,
-                    )
-                else:
-                    raise ValueError(
-                        "Either the cartesian components of the precessing spins (iota, chi1x, chi1y, chi1z, chi2x, chi2y, chi2z) or their modulus and orientations (thetaJN, chi1, chi2, tilt1, tilt2, phiJL, phi12) have to be provided."
-                    )
-
-            chi1x = evParams["chi1x"].astype("complex128")
-            chi1y = evParams["chi1y"].astype("complex128")
-            _chi1z = evParams["chi1z"].astype("complex128")
-            chi2x = evParams["chi2x"].astype("complex128")
-            chi2y = evParams["chi2y"].astype("complex128")
-            _chi2z = evParams["chi2z"].astype("complex128")
-
-            if not use_prec_ang:
-                chiS = _chi1z
-                chiA = _chi2z
-            else:
-                # In this case iota=thetaJN, chi1y=phiJL, chi1x=tilt1, chi2x=tilt2, chi2y=phi12, chiS=chi1, chiA=chi2
-                iota, chi1y, chi1x, chi2x, chi2y, chiS, chiA = (
-                    utils.TransformPrecessing_comp2angles(
-                        evParams["iota"].astype("complex128"),
-                        chi1x,
-                        chi1y,
-                        _chi1z,
-                        chi2x,
-                        chi2y,
-                        _chi2z,
-                        McOr,
-                        etaOr,
-                        fRef=self.fmin,
-                        phiRef=0.0,
-                    )
-                )
-
-        if self.wf_model.is_tidal:
-            if ("Lambda1" in all_params_keys) and ("Lambda2" in all_params_keys):
-                Lambda1 = evParams["Lambda1"].astype("complex128")
-                Lambda2 = evParams["Lambda2"].astype("complex128")
-                LambdaTilde, deltaLambda = utils.Lamt_delLam_from_Lam12(
-                    Lambda1, Lambda2, etaOr
-                )
-            elif ("LambdaTilde" in all_params_keys) and (
-                "deltaLambda" in all_params_keys
-            ):
-                LambdaTilde = evParams["LambdaTilde"].astype("complex128")
-                deltaLambda = evParams["deltaLambda"].astype("complex128")
-                Lambda1, Lambda2 = utils.Lam12_from_Lamt_delLam(
-                    LambdaTilde, deltaLambda, etaOr
-                )
-            else:
-                raise ValueError(
-                    "One pair among (Lambda1, Lambda2) and (LambdaTilde and deltaLambda) have to be provided."
-                )
-        else:
-            Lambda1, Lambda2, LambdaTilde, deltaLambda = ZEROS, ZEROS, ZEROS, ZEROS
-
-        if self.wf_model.is_eccentric:
-            try:
-                ecc = evParams["ecc"].astype("complex128")
-            except KeyError:
-                raise ValueError(
-                    "Eccentricity has to be provided for an eccentric model."
-                )
-        else:
-            ecc = ZEROS
-
-        R_orbit = evParams["R_orbit"].astype("complex128")
-        M_lz = evParams["M_lz"].astype("complex128")
-        src_pos = evParams["src_pos"].astype("complex128")
-
         fcut = self.wf_model.fcut(**evParams)
 
         if self.fmax is not None:
@@ -545,7 +402,6 @@ class AGNLensedGWSignal(GWSignal):
             fgrids, self.strainFreq, self.noiseCurve, left=1.0, right=1.0
         )
 
-        nParams = self.wf_model.nParams + 3
         tcelem = self.wf_model.ParNums["tcoal"]
 
         if (self.wf_model.is_LAL) and (not computeDerivFinDiff):
@@ -559,37 +415,13 @@ class AGNLensedGWSignal(GWSignal):
 
         if self.detector.shape == "L":
             # Compute derivatives
-            FisherDerivs = self._SignalDerivatives_use(
-                fgrids,
-                Mc,
-                eta,
-                dL,
-                theta,
-                phi,
-                iota,
-                psi,
-                tcoal,
-                Phicoal,
-                chiS,
-                chiA,
-                chi1x,
-                chi2x,
-                chi1y,
-                chi2y,
-                LambdaTilde,
-                deltaLambda,
-                ecc,
-                R_orbit,
-                M_lz,
-                src_pos,
-                rot=0.0,
-                computeAnalyticalDeriv=computeAnalyticalDeriv,
-                computeDerivFinDiff=computeDerivFinDiff,
-                **kwargs,
+            jacobian_dict = self._jax_derivative(
+                fgrids, evParams
             )
+            jacobian_dict['tcoal'] /= DAY_TO_SEC
             # Change the units of the tcoal derivative from days to seconds (this improves conditioning)
-            FisherDerivs = onp.array(FisherDerivs)
-            FisherDerivs[tcelem, :, :] /= DAY_TO_SEC
+            # TODO: convert it to a matrix array
+            jacobian_mat = onp.array()
 
             FisherIntegrands = onp.conjugate(
                 FisherDerivs[:, :, onp.newaxis, :]
@@ -832,6 +664,34 @@ class AGNLensedGWSignal(GWSignal):
             return onp.array(allFishers).sum(axis=0)
         else:
             return allFishers[0]
+
+    def _jax_derivative(
+            self, freq_grid, parameters
+    ):
+        '''
+        Forget about analytic derivatives or finite differencing, just use JAX.
+
+        Assuming shape of freq_grid is (N_freq, N_params).
+        '''
+        if self.wf_model.is_holomorphic:
+            return vmap(jacrev(self.GWstrain, argnums=1, holomorphic=True))(
+                    freq_grid.T, parameters
+                )
+
+        def real_strain(freqs, params): 
+            return self.GWstrain(freqs, params).real
+        def imag_strain(freqs, params): 
+            return self.GWstrain(freqs, params).imag
+
+        real_deriv = vmap(jacrev(real_strain, argnums=1, holomorphic=True))(
+            freq_grid.T, parameters
+        )
+        imag_deriv = vmap(jacrev(imag_strain, argnums=1, holomorphic=True))(
+            freq_grid.T, parameters
+        )
+        return {key: real_deriv[key] + 1j * imag_deriv[key] for key in real_deriv.keys()}
+
+
 
     def _SignalDerivatives(
         self,
