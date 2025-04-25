@@ -3,6 +3,7 @@ from pathlib import Path
 from jax import config
 import jax.numpy as np
 from jax.scipy.interpolate import RegularGridInterpolator as RGInterp
+from scipy.interpolate import interp1d
 
 # Enable 64bit on JAX, fundamental
 config.update("jax_enable_x64", True)
@@ -67,19 +68,17 @@ class Detector(object):
             if verbose:
                 print("Using ASD from file %s " % file_path)
             self.asd_array = spectral_density
-            self.psd_array = spectral_density**2
+            self.psd_array = spectral_density ** 2
         else:
             if verbose:
                 print("Using PSD from file %s " % file_path)
             self.asd_array = np.sqrt(spectral_density)
             self.psd_array = spectral_density
 
-        # Out of the provided PSD range, we use a constant value of 1, 
+        # Out of the provided PSD range, we use a constant value of 1,
         # which results in completely negligible conntributions
-        self.psd_interp = RGInterp(
-            self.psd_frequencies,
-            self.psd_array,
-            fill_value=1.
+        self.psd_interp = interp1d(
+            self.psd_frequencies, self.psd_array, bounds_error=False, fill_value=1.0
         )
 
         return 0
@@ -102,7 +101,7 @@ class Detector(object):
 
         rot_rad = rot * DEG_TO_RAD
         ras, decs = ra_dec_from_th_phi_rad(theta, phi)
-        ab_factors, _ = self.compute_ab_factors(ras, decs, t, rot_rad)
+        *ab_factors, _ = self._compute_ab_factors(ras, decs, t, rot_rad)
 
         sin_angbtwarms = np.sin(self.ang_btw_arms)
         Fp, Fc = apply_psi_rotation(psi, *ab_factors) * sin_angbtwarms
@@ -121,15 +120,15 @@ class Detector(object):
 
         """
         # Time needed to go from Earth center to detector location
-        ras, decs = self._ra_dec_from_th_phi(theta, phi)
+        ras, decs = ra_dec_from_th_phi_rad(theta, phi)
 
         # Note the change on 2025/04/21,
         # Output from second to days, as all subsequent usages are in seconds.
-        return self._geocentric_deltat(ras, decs, t, self.lat_rad, self.long_rad)
+        return self._geocentric_deltat(ras, decs, t)
 
     def CoeffsRot(self, ra, dec, psi, rot=0.0):
         rot = rot * DEG_TO_RAD
-        rasDet = ra - self.long_rad
+        rasDet = ra - self.lon_rad
         # Referring to overleaf, I now call VC2 the last vector appearing in the C2 expression, VS2 the one in the S2 expression and so on
         # e1 is the first element and e2 the second
 
@@ -237,7 +236,7 @@ class Detector(object):
         a2 = 0.25 * cos_2xax * sin_lat
         a3 = 0.25 * sin_2xax * sin_2lat
         a4 = 0.5 * cos_2xax * cos_lat
-        a5 = 3.0 * 0.25 * sin_2xax * cos_lat**2
+        a5 = 3.0 * 0.25 * sin_2xax * cos_lat ** 2
 
         b1 = cos_2xax * sin_lat
         b2 = 0.25 * sin_2xax * m3_cos_2lat

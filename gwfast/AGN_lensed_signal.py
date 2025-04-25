@@ -1,5 +1,5 @@
 #
-#    Copyright (c) 2022 Francesco Iacovelli <francesco.iacovelli@unige.ch>, Michele Mancarella <michele.mancarella@unige.ch>
+#    Copyright (c) 2025 Samson Leong <samson.leong@link.cuhk.edu.hk>
 #
 #    All rights reserved. Use of this source code is governed by the
 #    license that can be found in the LICENSE file.
@@ -21,8 +21,6 @@ import numpy as onp
 import copy
 from collections import OrderedDict
 
-from gwfast import gwfastUtils as utils
-from gwfast import gwfastGlobals as glob
 from gwfast.gwfastGlobals import TWOPI, DAY_TO_SEC
 from gwfast.gwfastUtils import (
     noise_weighted_inner_product,
@@ -35,7 +33,7 @@ from gwfast.lensing_utils import (
     get_lensing_time_delay,
     get_mag_factors,
 )
-from signal import GWSignal
+from gwfast.signal import GWSignal
 
 
 class AGNLensedGWSignal(GWSignal):
@@ -455,6 +453,9 @@ class AGNLensedGWSignal(GWSignal):
 
         Assuming shape of freq_grid is (N_freq, N_params).
         """
+        # cplx_fgrid = freq_grid.T.astype('complex128')
+        # _parameters = {
+        #         key: val.astype('complex128') for key, val in parameters.items() }
         if self.wf_model.is_holomorphic:
             return OrderedDict(
                 vmap(jacrev(self.GWstrain, argnums=1, holomorphic=True))(
@@ -468,12 +469,8 @@ class AGNLensedGWSignal(GWSignal):
         def imag_strain(freqs, params):
             return self.GWstrain(freqs, params, rot).imag
 
-        real_deriv = vmap(jacrev(real_strain, argnums=1, holomorphic=True))(
-            freq_grid.T, parameters
-        )
-        imag_deriv = vmap(jacrev(imag_strain, argnums=1, holomorphic=True))(
-            freq_grid.T, parameters
-        )
+        real_deriv = vmap(jacrev(real_strain, argnums=1))(freq_grid.T, parameters)
+        imag_deriv = vmap(jacrev(imag_strain, argnums=1))(freq_grid.T, parameters)
         return OrderedDict(
             {key: real_deriv[key] + 1j * imag_deriv[key] for key in real_deriv.keys()}
         )
@@ -490,10 +487,14 @@ class AGNLensedGWSignal(GWSignal):
 
         fisher_mat = onp.zeros(fisher_shape)
 
-        psd_grids = self.detector.psd_interp(freqs_grid)
+        freqs_grid_T = freqs_grid.T
+        psd_grids = self.detector.psd_interp(freqs_grid_T)
         for row, col in zip(*np.triu_indices(fisher_shape[0])):
-            fisher_mat[row, col] = 4 * np.trapz(
-                pre_fisher_mat[row, col] / psd_grids, freqs_grid, axis=1
+            fisher_mat[row, col] = (
+                4
+                * np.trapezoid(
+                    pre_fisher_mat[row, col] / psd_grids, freqs_grid_T, axis=1
+                ).real
             )
             if row != col:
                 fisher_mat[col, row] = fisher_mat[row, col]
@@ -519,8 +520,8 @@ class AGNLensedGWSignal(GWSignal):
 
         """
         # Checks on imput parameters for waveforms
-        utils.check_evparams(evParams1)
-        utils.check_evparams(evParams2)
+        check_evparams(evParams1)
+        check_evparams(evParams2)
 
         wfm_1_keys = list(WF1.ParNums.keys()) + ["R_orbit", "M_lz", "src_pos"]
         wfm_2_keys = list(WF2.ParNums.keys()) + ["R_orbit", "M_lz", "src_pos"]

@@ -30,6 +30,8 @@ from gwfast import gwfastUtils as utils
 from gwfast import gwfastGlobals as glob
 from gwfast.gwfastGlobals import TWOPI, DAY_TO_SEC, DEG_TO_RAD
 from gwfast.gwfastUtils import (
+    ra_dec_from_th_phi_rad,
+    check_evparams,
     spin_angle_keys,
     spin_comps_keys,
     apply_psi_rotation,
@@ -158,7 +160,7 @@ class GWSignal(object):
         self.compute2arms = compute2arms
 
         onp.random.seed(None)
-        self.seedUse = onp.random.randint(2**32 - 1, size=1)
+        self.seedUse = onp.random.randint(2 ** 32 - 1, size=1)
         self.jitCompileDerivs = jitCompileDerivs
 
         if not self.wf_model.is_LAL:
@@ -219,11 +221,16 @@ class GWSignal(object):
             "chi1y": np.array([0.1]),
             "chi2y": np.array([-0.01]),
             "ecc": np.array([0.0]),
+            "R_orbit": np.array([100.0]),
+            "M_lz": np.array([1e6]),
+            "src_pos": np.array([0.1]),
         }
         _verbose = self.verbose
         self.verbose = False
         _detector_shape = self.detector.shape
         self.detector.shape = "L"  # Get a faster Initialization with an L
+        _strain_model_keys = self.strain_model_keys
+        self.strain_model_keys = list(inj_params_init.keys())
         _ = self.SNRInteg(inj_params_init, res=10)
         _ = self.FisherMatr(inj_params_init, res=10)
 
@@ -232,6 +239,7 @@ class GWSignal(object):
         # Restore the original values
         self.verbose = _verbose
         self.detector.shape = _detector_shape
+        self.strain_model_keys = _strain_model_keys
 
     def _clear_cache(self):
         if self.jitCompileDerivs:
@@ -249,7 +257,7 @@ class GWSignal(object):
         """
         onp.random.seed(None)
         if seed is None:
-            self.seedUse = onp.random.randint(2**32 - 1, size=1)
+            self.seedUse = onp.random.randint(2 ** 32 - 1, size=1)
         else:
             self.seedUse = seed
 
@@ -407,9 +415,9 @@ class GWSignal(object):
         return time + delta_t, delta_t
 
     def duty_cycle_mask(self, shape):
-        '''
+        """
         Generate a (new) duty-cycle mask for the given shape.
-        '''
+        """
         return onp.random.random(shape) > self.detector.duty_cycle
 
     def GWAmplitudes(self, evParams, f, rot=0.0):
@@ -565,20 +573,26 @@ class GWSignal(object):
                 chi2yUse = chi2y
             else:
                 # convert angles and iota
-                iota, chi1xUse, chi1yUse, chi1z, chi2xUse, chi2yUse, chi2z = (
-                    utils.TransformPrecessing_angles2comp(
-                        thetaJN=iota,
-                        phiJL=chi1y,
-                        tilt1=chi1x,
-                        tilt2=chi2x,
-                        phi12=chi2y,
-                        chi1=chiS,
-                        chi2=chiA,
-                        Mc=McUse,
-                        eta=etaUse,
-                        fRef=self.fmin,
-                        phiRef=0.0,
-                    )
+                (
+                    iota,
+                    chi1xUse,
+                    chi1yUse,
+                    chi1z,
+                    chi2xUse,
+                    chi2yUse,
+                    chi2z,
+                ) = utils.TransformPrecessing_angles2comp(
+                    thetaJN=iota,
+                    phiJL=chi1y,
+                    tilt1=chi1x,
+                    tilt2=chi2x,
+                    phi12=chi2y,
+                    chi1=chiS,
+                    chi2=chiA,
+                    Mc=McUse,
+                    eta=etaUse,
+                    fRef=self.fmin,
+                    phiRef=0.0,
                 )
 
         evParams = {
@@ -1337,20 +1351,26 @@ class GWSignal(object):
                 chiA = _chi2z
             else:
                 # In this case iota=thetaJN, chi1y=phiJL, chi1x=tilt1, chi2x=tilt2, chi2y=phi12, chiS=chi1, chiA=chi2
-                iota, chi1y, chi1x, chi2x, chi2y, chiS, chiA = (
-                    utils.TransformPrecessing_comp2angles(
-                        evParams["iota"].astype("complex128"),
-                        chi1x,
-                        chi1y,
-                        _chi1z,
-                        chi2x,
-                        chi2y,
-                        _chi2z,
-                        McOr,
-                        etaOr,
-                        fRef=self.fmin,
-                        phiRef=0.0,
-                    )
+                (
+                    iota,
+                    chi1y,
+                    chi1x,
+                    chi2x,
+                    chi2y,
+                    chiS,
+                    chiA,
+                ) = utils.TransformPrecessing_comp2angles(
+                    evParams["iota"].astype("complex128"),
+                    chi1x,
+                    chi1y,
+                    _chi1z,
+                    chi2x,
+                    chi2y,
+                    _chi2z,
+                    McOr,
+                    etaOr,
+                    fRef=self.fmin,
+                    phiRef=0.0,
                 )
 
         if self.wf_model.is_tidal:
@@ -3669,20 +3689,26 @@ class GWSignal(object):
                 chi2yUse = chi2y
             else:
                 # convert angles and iota
-                iota, chi1xUse, chi1yUse, chi1z, chi2xUse, chi2yUse, chi2z = (
-                    utils.TransformPrecessing_angles2comp(
-                        thetaJN=iota,
-                        phiJL=chi1y,
-                        tilt1=chi1x,
-                        tilt2=chi2x,
-                        phi12=chi2y,
-                        chi1=chiS,
-                        chi2=chiA,
-                        Mc=McUse,
-                        eta=etaUse,
-                        fRef=self.fmin,
-                        phiRef=0.0,
-                    )
+                (
+                    iota,
+                    chi1xUse,
+                    chi1yUse,
+                    chi1z,
+                    chi2xUse,
+                    chi2yUse,
+                    chi2z,
+                ) = utils.TransformPrecessing_angles2comp(
+                    thetaJN=iota,
+                    phiJL=chi1y,
+                    tilt1=chi1x,
+                    tilt2=chi2x,
+                    phi12=chi2y,
+                    chi1=chiS,
+                    chi2=chiA,
+                    Mc=McUse,
+                    eta=etaUse,
+                    fRef=self.fmin,
+                    phiRef=0.0,
                 )
 
         # if use_lensing:
@@ -3747,7 +3773,7 @@ class GWSignal(object):
         rot_rad = rot * DEG_TO_RAD
         sin_angbtwArms = np.sin(self.angbtwArms)
 
-        ras, decs = self._ra_dec_from_th_phi(theta, phi)
+        ras, decs = ra_dec_from_th_phi_rad(theta, phi)
         Fpc = self.detector.compute_antenna_pattern(theta, phi, t, psi, rot)
 
         omega = TWOPI * f * DAY_TO_SEC
@@ -3869,7 +3895,7 @@ class GWSignal(object):
 
         def pattern_fixedtpsi(pars, tc=tc):
             Fp, Fc = self.detector.compute_antenna_pattern(*pars, t=tc, psi=0)
-            return -np.sqrt(Fp**2 + Fc**2)
+            return -np.sqrt(Fp ** 2 + Fc ** 2)
 
         # we actually minimize the pattern function times -1, which is the same as maximizing it
         return minimize(
@@ -3897,7 +3923,7 @@ class GWSignal(object):
             evParams["eta"],
         )
 
-        ras, decs = self._ra_dec_from_th_phi(theta, phi)
+        ras, decs = ra_dec_from_th_phi_rad(theta, phi)
 
         if not np.isscalar(Mc):
             SNR = np.zeros(Mc.shape)
@@ -4016,8 +4042,8 @@ class GWSignal(object):
 
         """
         # Checks on imput parameters for waveforms
-        utils.check_evparams(evParams1)
-        utils.check_evparams(evParams2)
+        check_evparams(evParams1)
+        check_evparams(evParams2)
 
         if WF1.is_Precessing:
             try:
@@ -4081,10 +4107,11 @@ class GWSignal(object):
                 _ = evParams1["LambdaTilde"]
             except KeyError:
                 try:
-                    evParams1["LambdaTilde"], evParams1["deltaLambda"] = (
-                        utils.Lamt_delLam_from_Lam12(
-                            evParams1["Lambda1"], evParams1["Lambda2"], evParams1["eta"]
-                        )
+                    (
+                        evParams1["LambdaTilde"],
+                        evParams1["deltaLambda"],
+                    ) = utils.Lamt_delLam_from_Lam12(
+                        evParams1["Lambda1"], evParams1["Lambda2"], evParams1["eta"]
                     )
                 except KeyError:
                     raise ValueError(
@@ -4162,10 +4189,11 @@ class GWSignal(object):
                 _ = evParams2["LambdaTilde"]
             except KeyError:
                 try:
-                    evParams2["LambdaTilde"], evParams2["deltaLambda"] = (
-                        utils.Lamt_delLam_from_Lam12(
-                            evParams2["Lambda1"], evParams2["Lambda2"], evParams2["eta"]
-                        )
+                    (
+                        evParams2["LambdaTilde"],
+                        evParams2["deltaLambda"],
+                    ) = utils.Lamt_delLam_from_Lam12(
+                        evParams2["Lambda1"], evParams2["Lambda2"], evParams2["eta"]
                     )
                 except KeyError:
                     raise ValueError(
