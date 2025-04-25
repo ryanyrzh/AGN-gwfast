@@ -561,8 +561,8 @@ class GWSignal(object):
                         phi12=chi2y,
                         chi1=chiS,
                         chi2=chiA,
-                        Mc=Mc,
-                        eta=eta,
+                        Mc=McUse,
+                        eta=etaUse,
                         fRef=self.fmin,
                         phiRef=0.0,
                     )
@@ -930,11 +930,8 @@ class GWSignal(object):
 
             SNRsq = np.trapezoid(Atot / strainGrids, fgrids, axis=0)
             if self.detector.duty_cycle is not None:
-                excl = onp.random.choice(
-                    [0, 1],
-                    len(evParams["Mc"]),
-                    p=[1.0 - self.detector.duty_cycle, self.detector.duty_cycle],
-                )
+                excl = onp.random.random(len(evParams["Mc"])) \
+                    > self.detector.duty_cycle
                 SNRsq = SNRsq * excl
             allSNRsq.append(SNRsq)
         elif self.detector.shape == "T":
@@ -1007,14 +1004,8 @@ class GWSignal(object):
                         Atot = abs(htot1 + htot2) ** 2
                     tmpSNRsq = np.trapezoid(Atot / strainGrids, fgrids, axis=0)
                     if self.detector.duty_cycle is not None:
-                        excl = onp.random.choice(
-                            [0, 1],
-                            len(evParams["Mc"]),
-                            p=[
-                                1.0 - self.detector.duty_cycle,
-                                self.detector.duty_cycle,
-                            ],
-                        )
+                        excl = onp.random.random(len(evParams["Mc"])) \
+                            > self.detector.duty_cycle
                         tmpSNRsq = tmpSNRsq * excl
                     allSNRsq.append(tmpSNRsq)
                     # SNR = SNR + tmpSNRsq
