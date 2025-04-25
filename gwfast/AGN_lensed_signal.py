@@ -453,9 +453,6 @@ class AGNLensedGWSignal(GWSignal):
 
         Assuming shape of freq_grid is (N_freq, N_params).
         """
-        # cplx_fgrid = freq_grid.T.astype('complex128')
-        # _parameters = {
-        #         key: val.astype('complex128') for key, val in parameters.items() }
         if self.wf_model.is_holomorphic:
             return OrderedDict(
                 vmap(jacrev(self.GWstrain, argnums=1, holomorphic=True))(
@@ -479,9 +476,8 @@ class AGNLensedGWSignal(GWSignal):
         # The matrix has shape: (N_params, param_len, N_freq)
         jacobian_mat = np.array(tree.leaves(jacobian_dict))
 
-        pre_fisher_mat = jacobian_mat[:, :, None, :].conj() * jacobian_mat.transpose(
-            1, 0, 2
-        )
+        pre_fisher_mat = jacobian_mat[:, :, None, :].conj() * \
+                jacobian_mat.transpose(1, 0, 2)
         pre_fisher_mat = np.swapaxes(pre_fisher_mat, 1, 2)
         fisher_shape = pre_fisher_mat.shape[:-1]
 
@@ -496,6 +492,7 @@ class AGNLensedGWSignal(GWSignal):
                     pre_fisher_mat[row, col] / psd_grids, freqs_grid_T, axis=1
                 ).real
             )
+
             if row != col:
                 fisher_mat[col, row] = fisher_mat[row, col]
 
