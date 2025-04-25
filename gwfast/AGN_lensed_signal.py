@@ -562,16 +562,8 @@ class AGNLensedGWSignal(GWSignal):
         elif self.detector.shape == "T":
             for model, params in zip((WF1, WF2), (model_params_1, model_params_2)):
                 self.wf_model = model
-                h_1 = self.GWstrain(
-                    fgrids,
-                    params,
-                    rot=0.0,
-                )
-                h_2 = self.GWstrain(
-                    fgrids,
-                    params,
-                    rot=60.0,
-                )
+                h_1 = self.GWstrain(fgrids, params, rot=0.0)
+                h_2 = self.GWstrain(fgrids, params, rot=60.0)
                 h_3 = -(h_1 + h_2)
 
                 strains.append((h_1, h_2, h_3))
