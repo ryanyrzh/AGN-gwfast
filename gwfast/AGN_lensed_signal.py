@@ -295,17 +295,11 @@ class AGNLensedGWSignal(GWSignal):
 
         allSNRsq = []
         # Out of the provided PSD range, we use a constant value of 1, which results in completely negligible conntributions
-        strainGrids = np.interp(
-            fgrids,
-            self.detector.psd_frequencies,
-            self.detector.psd_array,
-            left=1.0,
-            right=1.0,
-        )
+        psd_strain_grids = self.detector.psd_interp(fgrids)
 
         if self.detector.shape == "L":
             Atot = self.GWstrain(fgrids, parameters, return_single_comp="At") ** 2
-            SNRsq = np.trapezoid(Atot / strainGrids, fgrids, axis=0)
+            SNRsq = np.trapezoid(Atot / psd_strain_grids, fgrids, axis=0)
             if self.detector.duty_cycle is not None:
                 SNRsq *= self.duty_cycle_mask(params_shape)
             allSNRsq.append(SNRsq)
@@ -318,7 +312,7 @@ class AGNLensedGWSignal(GWSignal):
                         )
                         ** 2
                     )
-                    tmpSNRsq = np.trapezoid(Atot / strainGrids, fgrids, axis=0)
+                    tmpSNRsq = np.trapezoid(Atot / psd_strain_grids, fgrids, axis=0)
                     if self.detector.duty_cycle is not None:
                         tmpSNRsq = tmpSNRsq * self.duty_cycle_mask(params_shape)
                     allSNRsq.append(tmpSNRsq)
@@ -331,7 +325,7 @@ class AGNLensedGWSignal(GWSignal):
                 Atot3 = abs(h1 + h2) ** 2
 
                 for amplitude in (Atot1, Atot2, Atot3):
-                    snr_sq = np.trapezoid(amplitude / strainGrids, fgrids, axis=0)
+                    snr_sq = np.trapezoid(amplitude / psd_strain_grids, fgrids, axis=0)
                     if self.detector.duty_cycle is not None:
                         snr_sq *= self.duty_cycle_mask(params_shape)
                     allSNRsq.append(snr_sq)
@@ -396,13 +390,6 @@ class AGNLensedGWSignal(GWSignal):
             fgrids = np.linspace(fminarr, fcut, num=int(res))
         elif spacing == "geom":
             fgrids = np.geomspace(fminarr, fcut, num=int(res))
-
-        # Out of the provided PSD range, we use a constant value of 1, which results in completely negligible conntributions
-        strainGrids = np.interp(
-            fgrids, self.strainFreq, self.noiseCurve, left=1.0, right=1.0
-        )
-
-        tcelem = self.wf_model.ParNums["tcoal"]
 
         if (self.wf_model.is_LAL) and (not computeDerivFinDiff):
             computeDerivFinDiff = True
@@ -731,13 +718,7 @@ class AGNLensedGWSignal(GWSignal):
 
         fgrids = np.geomspace(fminarr, fcutUse, num=int(res))
         # Out of the provided PSD range, we use a constant value of 1, which results in completely negligible conntributions
-        psd_strain_grids = np.interp(
-            fgrids,
-            self.detector.psd_frequencies,
-            self.detector.psd_array,
-            left=1.0,
-            right=1.0,
-        )
+        psd_strain_grids = self.detector.psd_interp(fgrids)
 
         # This is a horrible way of changing the waveform, but the fastest to implement
         WFor = copy.deepcopy(self.wf_model)

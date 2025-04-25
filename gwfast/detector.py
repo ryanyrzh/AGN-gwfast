@@ -2,6 +2,7 @@ from pathlib import Path
 
 from jax import config
 import jax.numpy as np
+from jax.scipy.interpolate import RegularGridInterpolator as RGInterp
 
 # Enable 64bit on JAX, fundamental
 config.update("jax_enable_x64", True)
@@ -72,6 +73,14 @@ class Detector(object):
                 print("Using PSD from file %s " % file_path)
             self.asd_array = np.sqrt(spectral_density)
             self.psd_array = spectral_density
+
+        # Out of the provided PSD range, we use a constant value of 1, 
+        # which results in completely negligible conntributions
+        self.psd_interp = RGInterp(
+            self.psd_frequencies,
+            self.psd_array,
+            fill_value=1.
+        )
 
         return 0
 
