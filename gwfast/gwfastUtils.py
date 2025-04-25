@@ -19,6 +19,7 @@ from gwfast.gwfastGlobals import TWOPI, DAY_TO_SEC
 
 spin_angle_keys = ("thetaJN", "phiJL", "tilt1", "tilt2", "phi12", "chi1", "chi2")
 spin_comps_keys = ("iota", "chi1x", "chi1y", "chi1z", "chi2x", "chi2y", "chi2z")
+masses_keys = ('m1', 'm2', 'Mc', 'eta', 'Mtot', 'q')
 
 
 ##############################################################################
@@ -205,8 +206,8 @@ def expand_params(parameters):
         [(key in all_keys) for key in ("chiA", "chiS")]
         + [(key not in all_keys) for key in ("chi1z", "chi2z")]
     ):
-        output["chi1z"] = 0.5 * (parameters["chiS"] + parameters["chiA"])
-        output["chi2z"] = 0.5 * (parameters["chiS"] - parameters["chiA"])
+        output["chi1z"] = parameters["chiS"] + parameters["chiA"]
+        output["chi2z"] = parameters["chiS"] - parameters["chiA"]
 
     if any([(key not in all_keys) for key in spin_comps_keys]):
         spin_comps = TransformPrecessing_angles2comp(
@@ -244,6 +245,73 @@ def expand_params(parameters):
     output["Lambda1"], output["Lambda2"] = Lam12_from_Lamt_delLam(
         LambdaTilde, deltaLambda, output["eta"]
     )
+
+
+def get_model_parameters(input_params, model_param_keys):
+    input_keys = set(input_params.keys())
+    common_keys = input_keys.intersection(model_param_keys)
+    missing_keys = set(model_param_keys) - common_keys
+
+    converted_params = input_params.copy()
+
+    ## Masses
+    if any([key in missing_keys for key in masses_keys]):
+        converted_params = get_mass_parameters(converted_params)
+        for key in masses_keys:
+            missing_keys.discard(key)
+
+    ## Spins
+    if ('chiS' in missing_keys) or ('chiA' in missing_keys):
+        converted_params['chiS'] = 0.5 * (input_params['chi1z'] + input_params['chi2z'])
+        converted_params['chiA'] = 0.5 * (input_params['chi1z'] - input_params['chi2z'])
+        missing_keys.discard('chiS')
+        missing_keys.discard('chiA')
+    elif ('chi1z' in missing_keys) or ('chi2z' in missing_keys):
+        converted_params['chi1z'] = converted_params['chiS'] + converted_params['chiA']
+        converted_params['chi2z'] = converted_params['chiS'] - converted_params['chiA']
+
+    if any([key in missing_keys for key in spin_comps_keys]):
+        pass
+    elif any([key in missing_keys for key in spin_angle_keys]):
+        pass
+
+    ## Tidal
+    if any([key in missing_keys for key in ("Lambda1", "Lambda2")]):
+        pass
+    elif any([key in missing_keys for key in ("LambdaTilde", "deltaLambda")]):
+        pass
+
+    return {key: converted_params.get(key, None) for key in model_param_keys}
+
+    
+def get_mass_parameters(input_params):
+    all_keys = list(input_params.keys())
+    parameters = input_params.copy()
+    if ("m1" not in all_keys) or ("m2" not in all_keys):
+        if ("Mc" in all_keys) or ("eta" in all_keys):
+            m1, m2 = m1m2_from_Mceta(parameters["Mc"], parameters["eta"])
+            parameters["m1"] = m1
+            parameters["m2"] = m2
+        elif ("Mtot" in all_keys) or ("q" in all_keys):
+            total_mass = parameters["Mtot"]
+            mass_ratio = parameters["q"]
+            parameters["m1"] = total_mass / (1 + mass_ratio)
+            parameters["m2"] = total_mass - parameters["m1"]
+        else:
+            raise ValueError(
+                "Either 'Mc' and 'eta' or 'Mtot' and 'q' must be provided to calculate m1 and m2."
+            )
+
+    if ("Mc" not in all_keys) or ("eta" not in all_keys):
+        Mc, eta = Mceta_from_m1m2(parameters["m1"], parameters["m2"])
+        parameters["Mc"] = Mc
+        parameters["eta"] = eta
+
+    if ("Mtot" not in all_keys) or ("q" not in all_keys):
+        parameters["Mtot"] = parameters["m1"] + parameters["m2"]
+        parameters["q"] = parameters["m1"] / parameters["m2"]
+
+    return parameters
 
 
 ##############################################################################
