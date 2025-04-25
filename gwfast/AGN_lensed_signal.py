@@ -6,7 +6,7 @@
 
 import os
 
-from jax import config, vmap, jacrev
+from jax import config, vmap, jacrev, tree
 import jax.numpy as np
 
 # Enable 64bit on JAX, fundamental
@@ -18,18 +18,13 @@ os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform"
 
 # We use both the original numpy, denoted as onp, and the JAX implementation of numpy, denoted as np
 import numpy as onp
-import numdifftools as ndt
 import copy
-from numdifftools.step_generators import MaxStepGenerator
+from collections import OrderedDict
 
 from gwfast import gwfastUtils as utils
 from gwfast import gwfastGlobals as glob
 from gwfast.gwfastGlobals import TWOPI, DAY_TO_SEC
 from gwfast.gwfastUtils import (
-    spin_angle_keys,
-    spin_comps_keys,
-    CosineIntegrand,
-    SineIntegrand,
     noise_weighted_inner_product,
     optimal_snr,
     get_model_parameters,
@@ -41,7 +36,6 @@ from gwfast.lensing_utils import (
     get_mag_factors,
 )
 from signal import GWSignal
-from detector import FpFcsqInt
 
 
 class AGNLensedGWSignal(GWSignal):
@@ -402,248 +396,51 @@ class AGNLensedGWSignal(GWSignal):
 
         if self.detector.shape == "L":
             # Compute derivatives
-            jacobian_dict = self._jax_derivative(
-                fgrids, evParams
-            )
-            jacobian_dict['tcoal'] /= DAY_TO_SEC
+            jacobian_dict = self._jax_derivative(fgrids, evParams)
             # Change the units of the tcoal derivative from days to seconds (this improves conditioning)
-            # TODO: convert it to a matrix array
-            jacobian_mat = onp.array()
+            jacobian_dict["tcoal"] /= DAY_TO_SEC
+            fisher_mat = self.convert_Jacobian_to_Fisher(jacobian_dict, fgrids)
 
-            FisherIntegrands = onp.conjugate(
-                FisherDerivs[:, :, onp.newaxis, :]
-            ) * FisherDerivs.transpose(1, 0, 2)
-
-            Fisher = onp.zeros((nParams, nParams, len(Mc)))
-            # This for is unavoidable
-            for alpha in range(nParams):
-                for beta in range(alpha, nParams):
-                    tmpElem = FisherIntegrands[alpha, :, beta, :].T
-                    Fisher[alpha, beta, :] = (
-                        onp.trapz(tmpElem.real / strainGrids.real, fgrids.real, axis=0)
-                        * 4.0
-                    )
-
-                    Fisher[beta, alpha, :] = Fisher[alpha, beta, :]
             if self.detector.duty_cycle is not None:
-                excl = onp.random.random(len(evParams["Mc"])) > self.detector.duty_cycle
-                Fisher = Fisher * excl
-            allFishers.append(Fisher)
+                fisher_mat *= self.duty_cycle_mask(fisher_mat.shape[2])
+            allFishers.append(fisher_mat)
         else:
             # Fisher = onp.zeros((nParams,nParams,len(Mc)))
             if not self.compute2arms:
                 for i in range(3):
                     # Change rot and compute derivatives
-                    FisherDerivs = self._SignalDerivatives_use(
-                        fgrids,
-                        Mc,
-                        eta,
-                        dL,
-                        theta,
-                        phi,
-                        iota,
-                        psi,
-                        tcoal,
-                        Phicoal,
-                        chiS,
-                        chiA,
-                        chi1x,
-                        chi2x,
-                        chi1y,
-                        chi2y,
-                        LambdaTilde,
-                        deltaLambda,
-                        ecc,
-                        R_orbit,
-                        M_lz,
-                        src_pos,
-                        rot=i * 60.0,
-                        computeAnalyticalDeriv=computeAnalyticalDeriv,
-                        computeDerivFinDiff=computeDerivFinDiff,
-                        **kwargs,
-                    )
+                    jacobian_dict = self._jax_derivative(fgrids, evParams, rot=i * 60.0)
                     # Change the units of the tcoal derivative from days to seconds (this improves conditioning)
-                    FisherDerivs = onp.array(FisherDerivs)
-                    FisherDerivs[tcelem, :, :] /= DAY_TO_SEC
-                    FisherIntegrands = onp.conjugate(
-                        FisherDerivs[:, :, onp.newaxis, :]
-                    ) * FisherDerivs.transpose(1, 0, 2)
-
-                    tmpFisher = onp.zeros((nParams, nParams, len(Mc)))
-                    # This for is unavoidable
-                    if self.verbose:
-                        print("Filling matrix for arm %s..." % (i + 1))
-
-                    for alpha in range(nParams):
-                        for beta in range(alpha, nParams):
-                            tmpElem = FisherIntegrands[alpha, :, beta, :].T
-                            tmpFisher[alpha, beta, :] = (
-                                onp.trapz(
-                                    tmpElem.real / strainGrids.real, fgrids.real, axis=0
-                                )
-                                * 4.0
-                            )
-
-                            tmpFisher[beta, alpha, :] = tmpFisher[alpha, beta, :]
+                    jacobian_dict["tcoal"] /= DAY_TO_SEC
+                    fisher_mat = self.convert_Jacobian_to_Fisher(jacobian_dict, fgrids)
                     if self.detector.duty_cycle is not None:
-                        excl = (
-                            onp.random.random(len(evParams["Mc"]))
-                            > self.detector.duty_cycle
-                        )
-                        tmpFisher = tmpFisher * excl
-                    allFishers.append(tmpFisher)
+                        fisher_mat *= self.duty_cycle_mask(fisher_mat.shape[2])
+                    allFishers.append(fisher_mat)
                     # Fisher += tmpFisher
             else:
                 # The signal in 3 arms sums to zero for geometrical reasons, so we can use this to skip some calculations
-
-                # Compute derivatives
-                FisherDerivs1 = self._SignalDerivatives_use(
-                    fgrids,
-                    Mc,
-                    eta,
-                    dL,
-                    theta,
-                    phi,
-                    iota,
-                    psi,
-                    tcoal,
-                    Phicoal,
-                    chiS,
-                    chiA,
-                    chi1x,
-                    chi2x,
-                    chi1y,
-                    chi2y,
-                    LambdaTilde,
-                    deltaLambda,
-                    ecc,
-                    R_orbit,
-                    M_lz,
-                    src_pos,
-                    rot=0.0,
-                    computeAnalyticalDeriv=computeAnalyticalDeriv,
-                    computeDerivFinDiff=computeDerivFinDiff,
-                    **kwargs,
-                )
-                # Change the units of the tcoal derivative from days to seconds (this improves conditioning)
-                FisherDerivs1 = onp.array(FisherDerivs1)
-                FisherDerivs1[tcelem, :, :] /= DAY_TO_SEC
-
-                FisherIntegrands = onp.conjugate(
-                    FisherDerivs1[:, :, onp.newaxis, :]
-                ) * FisherDerivs1.transpose(1, 0, 2)
-
-                tmpFisher = onp.zeros((nParams, nParams, len(Mc)))
-                if self.verbose:
-                    print("Filling matrix for arm 1...")
-                # This for is unavoidable
-                for alpha in range(nParams):
-                    for beta in range(alpha, nParams):
-                        tmpElem = FisherIntegrands[alpha, :, beta, :].T
-                        tmpFisher[alpha, beta, :] = (
-                            onp.trapz(
-                                tmpElem.real / strainGrids.real, fgrids.real, axis=0
-                            )
-                            * 4.0
-                        )
-
-                        tmpFisher[beta, alpha, :] = tmpFisher[alpha, beta, :]
+                jacobian_dict_1 = self._jax_derivative(fgrids, evParams, rot=0.0)
+                jacobian_dict_1["tcoal"] /= DAY_TO_SEC
+                fisher_mat_1 = self.convert_Jacobian_to_Fisher(jacobian_dict_1, fgrids)
                 if self.detector.duty_cycle is not None:
-                    excl = (
-                        onp.random.random(len(evParams["Mc"]))
-                        > self.detector.duty_cycle
-                    )
-                    tmpFisher = tmpFisher * excl
-                # Fisher += tmpFisher
-                allFishers.append(tmpFisher)
+                    fisher_mat_1 *= self.duty_cycle_mask(fisher_mat_1.shape[2])
+                allFishers.append(fisher_mat_1)
 
-                FisherDerivs2 = self._SignalDerivatives_use(
-                    fgrids,
-                    Mc,
-                    eta,
-                    dL,
-                    theta,
-                    phi,
-                    iota,
-                    psi,
-                    tcoal,
-                    Phicoal,
-                    chiS,
-                    chiA,
-                    chi1x,
-                    chi2x,
-                    chi1y,
-                    chi2y,
-                    LambdaTilde,
-                    deltaLambda,
-                    ecc,
-                    R_orbit,
-                    M_lz,
-                    src_pos,
-                    rot=60.0,
-                    computeAnalyticalDeriv=computeAnalyticalDeriv,
-                    computeDerivFinDiff=computeDerivFinDiff,
-                    **kwargs,
-                )
-                FisherDerivs2 = onp.array(FisherDerivs2)
-                FisherDerivs2[tcelem, :, :] /= DAY_TO_SEC
-                FisherIntegrands = onp.conjugate(
-                    FisherDerivs2[:, :, onp.newaxis, :]
-                ) * FisherDerivs2.transpose(1, 0, 2)
-
-                tmpFisher = onp.zeros((nParams, nParams, len(Mc)))
-                # This for is unavoidable
-                if self.verbose:
-                    print("Filling matrix for arm 2...")
-                for alpha in range(nParams):
-                    for beta in range(alpha, nParams):
-                        tmpElem = FisherIntegrands[alpha, :, beta, :].T
-                        tmpFisher[alpha, beta, :] = (
-                            onp.trapz(
-                                tmpElem.real / strainGrids.real, fgrids.real, axis=0
-                            )
-                            * 4.0
-                        )
-
-                        tmpFisher[beta, alpha, :] = tmpFisher[alpha, beta, :]
+                jacobian_dict_2 = self._jax_derivative(fgrids, evParams, rot=60.0)
+                jacobian_dict_2["tcoal"] /= DAY_TO_SEC
+                fisher_mat_2 = self.convert_Jacobian_to_Fisher(jacobian_dict_2, fgrids)
                 if self.detector.duty_cycle is not None:
-                    excl = (
-                        onp.random.random(len(evParams["Mc"]))
-                        > self.detector.duty_cycle
-                    )
-                    tmpFisher = tmpFisher * excl
-                # Fisher += tmpFisher
-                allFishers.append(tmpFisher)
+                    fisher_mat_1 *= self.duty_cycle_mask(fisher_mat_2.shape[2])
+                allFishers.append(fisher_mat_2)
 
-                FisherDerivs3 = -(FisherDerivs1 + FisherDerivs2)
-
-                FisherIntegrands = onp.conjugate(
-                    FisherDerivs3[:, :, onp.newaxis, :]
-                ) * FisherDerivs3.transpose(1, 0, 2)
-
-                tmpFisher = onp.zeros((nParams, nParams, len(Mc)))
-                # This for is unavoidable
-                if self.verbose:
-                    print("Filling matrix for arm 3...")
-                for alpha in range(nParams):
-                    for beta in range(alpha, nParams):
-                        tmpElem = FisherIntegrands[alpha, :, beta, :].T
-                        tmpFisher[alpha, beta, :] = (
-                            onp.trapz(
-                                tmpElem.real / strainGrids.real, fgrids.real, axis=0
-                            )
-                            * 4.0
-                        )
-
-                        tmpFisher[beta, alpha, :] = tmpFisher[alpha, beta, :]
+                jacobian_dict_3 = {
+                    key: -(jacobian_dict_1[key] + jacobian_dict_2[key])
+                    for key in jacobian_dict_1.keys()
+                }
+                fisher_mat_3 = self.convert_Jacobian_to_Fisher(jacobian_dict_3, fgrids)
                 if self.detector.duty_cycle is not None:
-                    excl = (
-                        onp.random.random(len(evParams["Mc"]))
-                        > self.detector.duty_cycle
-                    )
-                    tmpFisher = tmpFisher * excl
-                # Fisher += tmpFisher
-                allFishers.append(tmpFisher)
+                    fisher_mat_3 *= self.duty_cycle_mask(fisher_mat_3.shape[2])
+                allFishers.append(fisher_mat_3)
 
         if return_all:
             return allFishers
@@ -652,23 +449,24 @@ class AGNLensedGWSignal(GWSignal):
         else:
             return allFishers[0]
 
-    def _jax_derivative(
-            self, freq_grid, parameters
-    ):
-        '''
+    def _jax_derivative(self, freq_grid, parameters, rot=0.0):
+        """
         Forget about analytic derivatives or finite differencing, just use JAX.
 
         Assuming shape of freq_grid is (N_freq, N_params).
-        '''
+        """
         if self.wf_model.is_holomorphic:
-            return vmap(jacrev(self.GWstrain, argnums=1, holomorphic=True))(
-                    freq_grid.T, parameters
+            return OrderedDict(
+                vmap(jacrev(self.GWstrain, argnums=1, holomorphic=True))(
+                    freq_grid.T, parameters, rot
                 )
+            )
 
-        def real_strain(freqs, params): 
-            return self.GWstrain(freqs, params).real
-        def imag_strain(freqs, params): 
-            return self.GWstrain(freqs, params).imag
+        def real_strain(freqs, params):
+            return self.GWstrain(freqs, params, rot).real
+
+        def imag_strain(freqs, params):
+            return self.GWstrain(freqs, params, rot).imag
 
         real_deriv = vmap(jacrev(real_strain, argnums=1, holomorphic=True))(
             freq_grid.T, parameters
@@ -676,7 +474,31 @@ class AGNLensedGWSignal(GWSignal):
         imag_deriv = vmap(jacrev(imag_strain, argnums=1, holomorphic=True))(
             freq_grid.T, parameters
         )
-        return {key: real_deriv[key] + 1j * imag_deriv[key] for key in real_deriv.keys()}
+        return OrderedDict(
+            {key: real_deriv[key] + 1j * imag_deriv[key] for key in real_deriv.keys()}
+        )
+
+    def convert_Jacobian_to_Fisher(self, jacobian_dict, freqs_grid):
+        # The matrix has shape: (N_params, param_len, N_freq)
+        jacobian_mat = np.array(tree.leaves(jacobian_dict))
+
+        pre_fisher_mat = jacobian_mat[:, :, None, :].conj() * jacobian_mat.transpose(
+            1, 0, 2
+        )
+        pre_fisher_mat = np.swapaxes(pre_fisher_mat, 1, 2)
+        fisher_shape = pre_fisher_mat.shape[:-1]
+
+        fisher_mat = onp.zeros(fisher_shape)
+
+        psd_grids = self.detector.psd_interp(freqs_grid)
+        for row, col in zip(*np.triu_indices(fisher_shape[0])):
+            fisher_mat[row, col] = 4 * np.trapz(
+                pre_fisher_mat[row, col] / psd_grids, freqs_grid, axis=1
+            )
+            if row != col:
+                fisher_mat[col, row] = fisher_mat[row, col]
+
+        return fisher_mat
 
     def WFOverlap(
         self, WF1, WF2, evParams1, evParams2, res=1000, return_separate=False, **kwargs
