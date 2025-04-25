@@ -19,7 +19,7 @@ from gwfast.gwfastGlobals import TWOPI, DAY_TO_SEC
 
 spin_angle_keys = ("thetaJN", "phiJL", "tilt1", "tilt2", "phi12", "chi1", "chi2")
 spin_comps_keys = ("iota", "chi1x", "chi1y", "chi1z", "chi2x", "chi2y", "chi2z")
-masses_keys = ('m1', 'm2', 'Mc', 'eta', 'Mtot', 'q')
+masses_keys = ("m1", "m2", "Mc", "eta", "Mtot", "q")
 
 
 ##############################################################################
@@ -261,14 +261,14 @@ def get_model_parameters(input_params, model_param_keys):
             missing_keys.discard(key)
 
     ## Spins
-    if ('chiS' in missing_keys) or ('chiA' in missing_keys):
-        converted_params['chiS'] = 0.5 * (input_params['chi1z'] + input_params['chi2z'])
-        converted_params['chiA'] = 0.5 * (input_params['chi1z'] - input_params['chi2z'])
-        missing_keys.discard('chiS')
-        missing_keys.discard('chiA')
-    elif ('chi1z' in missing_keys) or ('chi2z' in missing_keys):
-        converted_params['chi1z'] = converted_params['chiS'] + converted_params['chiA']
-        converted_params['chi2z'] = converted_params['chiS'] - converted_params['chiA']
+    if ("chiS" in missing_keys) or ("chiA" in missing_keys):
+        converted_params["chiS"] = 0.5 * (input_params["chi1z"] + input_params["chi2z"])
+        converted_params["chiA"] = 0.5 * (input_params["chi1z"] - input_params["chi2z"])
+        missing_keys.discard("chiS")
+        missing_keys.discard("chiA")
+    elif ("chi1z" in missing_keys) or ("chi2z" in missing_keys):
+        converted_params["chi1z"] = converted_params["chiS"] + converted_params["chiA"]
+        converted_params["chi2z"] = converted_params["chiS"] - converted_params["chiA"]
 
     if any([key in missing_keys for key in spin_comps_keys]):
         pass
@@ -283,7 +283,7 @@ def get_model_parameters(input_params, model_param_keys):
 
     return {key: converted_params.get(key, None) for key in model_param_keys}
 
-    
+
 def get_mass_parameters(input_params):
     all_keys = list(input_params.keys())
     parameters = input_params.copy()
