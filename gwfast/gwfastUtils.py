@@ -17,6 +17,10 @@ import h5py
 from gwfast import gwfastGlobals as glob
 from gwfast.gwfastGlobals import TWOPI, DAY_TO_SEC
 
+spin_angle_keys = ("thetaJN", "phiJL", "tilt1", "tilt2", "phi12", "chi1", "chi2")
+spin_comps_keys = ("iota", "chi1x", "chi1y", "chi1z", "chi2x", "chi2y", "chi2z")
+masses_keys = ("m1", "m2", "Mc", "eta", "Mtot", "q")
+
 
 ##############################################################################
 # LOADING AND SAVING CATALOGS
@@ -167,6 +171,147 @@ def load_population(name, nEventsUse=None, calculate_params=[], keys_skip=[]):
 
     events = check_evparams(events)
     return events
+
+
+def expand_params(parameters):
+    all_keys = list(parameters.keys())
+    output = parameters.copy()
+
+    if ("m1" not in all_keys) or ("m2" not in all_keys):
+        if ("Mc" in all_keys) or ("eta" in all_keys):
+            m1, m2 = m1m2_from_Mceta(parameters["Mc"], parameters["eta"])
+            output["m1"] = m1
+            output["m2"] = m2
+        elif ("Mtot" in all_keys) or ("q" in all_keys):
+            total_mass = parameters["Mtot"]
+            mass_ratio = parameters["q"]
+            output["m1"] = total_mass / (1 + mass_ratio)
+            output["m2"] = total_mass - output["m1"]
+        else:
+            raise ValueError(
+                "Either 'Mc' and 'eta' or 'Mtot' and 'q' must be provided to calculate m1 and m2."
+            )
+
+    ZEROS = np.zeros_like(output["m1"])
+    if ("Mc" not in all_keys) or ("eta" not in all_keys):
+        Mc, eta = Mceta_from_m1m2(output["m1"], output["m2"])
+        output["Mc"] = Mc
+        output["eta"] = eta
+
+    if ("Mtot" not in all_keys) or ("q" not in all_keys):
+        output["Mtot"] = output["m1"] + output["m2"]
+        output["q"] = output["m1"] / output["m2"]
+
+    if all(
+        [(key in all_keys) for key in ("chiA", "chiS")]
+        + [(key not in all_keys) for key in ("chi1z", "chi2z")]
+    ):
+        output["chi1z"] = parameters["chiS"] + parameters["chiA"]
+        output["chi2z"] = parameters["chiS"] - parameters["chiA"]
+
+    if any([(key not in all_keys) for key in spin_comps_keys]):
+        spin_comps = TransformPrecessing_angles2comp(
+            parameters["thetaJN"],
+            parameters["phiJL"],
+            parameters["tilt1"],
+            parameters["tilt2"],
+            parameters["phi12"],
+            parameters["chi1"],
+            parameters["chi2"],
+            parameters["Mc"],
+            parameters["eta"],
+            parameters["fRef"],
+            parameters["Phicoal"],
+        )
+        output.update({key: value for key, value in zip(spin_comps_keys, spin_comps)})
+    elif any([(key not in all_keys) for key in spin_angle_keys]):
+        spin_angles = TransformPrecessing_comp2angles(
+            parameters["iota"],
+            parameters["chi1x"],
+            parameters["chi1y"],
+            parameters["chi1z"],
+            parameters["chi2x"],
+            parameters["chi2y"],
+            parameters["chi2z"],
+            parameters["Mc"],
+            parameters["eta"],
+            parameters["fRef"],
+            parameters["Phicoal"],
+        )
+        output.update({key: value for key, value in zip(spin_angle_keys, spin_angles)})
+
+    LambdaTilde = output.get("LambdaTilde", ZEROS)
+    deltaLambda = output.get("deltaLambda", ZEROS)
+    output["Lambda1"], output["Lambda2"] = Lam12_from_Lamt_delLam(
+        LambdaTilde, deltaLambda, output["eta"]
+    )
+
+
+def get_model_parameters(input_params, model_param_keys):
+    input_keys = set(input_params.keys())
+    common_keys = input_keys.intersection(model_param_keys)
+    missing_keys = set(model_param_keys) - common_keys
+
+    converted_params = input_params.copy()
+
+    ## Masses
+    if any([key in missing_keys for key in masses_keys]):
+        converted_params = get_mass_parameters(converted_params)
+        for key in masses_keys:
+            missing_keys.discard(key)
+
+    ## Spins
+    if ("chiS" in missing_keys) or ("chiA" in missing_keys):
+        converted_params["chiS"] = 0.5 * (input_params["chi1z"] + input_params["chi2z"])
+        converted_params["chiA"] = 0.5 * (input_params["chi1z"] - input_params["chi2z"])
+        missing_keys.discard("chiS")
+        missing_keys.discard("chiA")
+    elif ("chi1z" in missing_keys) or ("chi2z" in missing_keys):
+        converted_params["chi1z"] = converted_params["chiS"] + converted_params["chiA"]
+        converted_params["chi2z"] = converted_params["chiS"] - converted_params["chiA"]
+
+    if any([key in missing_keys for key in spin_comps_keys]):
+        pass
+    elif any([key in missing_keys for key in spin_angle_keys]):
+        pass
+
+    ## Tidal
+    if any([key in missing_keys for key in ("Lambda1", "Lambda2")]):
+        pass
+    elif any([key in missing_keys for key in ("LambdaTilde", "deltaLambda")]):
+        pass
+
+    return {key: converted_params.get(key, None) for key in model_param_keys}
+
+
+def get_mass_parameters(input_params):
+    all_keys = list(input_params.keys())
+    parameters = input_params.copy()
+    if ("m1" not in all_keys) or ("m2" not in all_keys):
+        if ("Mc" in all_keys) or ("eta" in all_keys):
+            m1, m2 = m1m2_from_Mceta(parameters["Mc"], parameters["eta"])
+            parameters["m1"] = m1
+            parameters["m2"] = m2
+        elif ("Mtot" in all_keys) or ("q" in all_keys):
+            total_mass = parameters["Mtot"]
+            mass_ratio = parameters["q"]
+            parameters["m1"] = total_mass / (1 + mass_ratio)
+            parameters["m2"] = total_mass - parameters["m1"]
+        else:
+            raise ValueError(
+                "Either 'Mc' and 'eta' or 'Mtot' and 'q' must be provided to calculate m1 and m2."
+            )
+
+    if ("Mc" not in all_keys) or ("eta" not in all_keys):
+        Mc, eta = Mceta_from_m1m2(parameters["m1"], parameters["m2"])
+        parameters["Mc"] = Mc
+        parameters["eta"] = eta
+
+    if ("Mtot" not in all_keys) or ("q" not in all_keys):
+        parameters["Mtot"] = parameters["m1"] + parameters["m2"]
+        parameters["q"] = parameters["m1"] / parameters["m2"]
+
+    return parameters
 
 
 ##############################################################################
@@ -457,7 +602,7 @@ def Lamt_delLam_from_Lam12(Lambda1, Lambda2, eta):
     """
     eta2 = eta * eta
     # This is needed to stabilize JAX derivatives
-    Seta = jnp.sqrt(jnp.where(eta < 0.25, 1.0 - 4.0 * eta, 0.0))
+    Seta = compute_Seta(eta)
 
     Lamt = (8.0 / 13.0) * (
         (1.0 + 7.0 * eta - 31.0 * eta2) * (Lambda1 + Lambda2)
@@ -493,7 +638,7 @@ def Lam12_from_Lamt_delLam(Lamt, delLam, eta):
     """
 
     eta2 = eta * eta
-    Seta = jnp.sqrt(jnp.where(eta < 0.25, 1.0 - 4.0 * eta, 0.0))
+    Seta = compute_Seta(eta)
 
     mLp = (8.0 / 13.0) * (1.0 + 7.0 * eta - 31.0 * eta2)
     mLm = (8.0 / 13.0) * Seta * (1.0 + 9.0 * eta - 11.0 * eta2)
@@ -516,6 +661,16 @@ def Lam12_from_Lamt_delLam(Lamt, delLam, eta):
 ##############################################################################
 # MASSES
 ##############################################################################
+def compute_Seta(eta):
+    """
+    Compute the square root of the symmetric mass ratio.
+
+    :param array or float eta: The symmetric mass ratio(s), :math:`\eta`, of the objects.
+    :return: The square root of the symmetric mass ratio(s).
+    :rtype: array or float
+
+    """
+    return np.sqrt(np.where(eta < 0.25, 1.0 - 4.0 * eta, 0.0))
 
 
 def m1m2_from_Mceta(Mc, eta):
@@ -528,7 +683,7 @@ def m1m2_from_Mceta(Mc, eta):
     :rtype: tuple(array, array) or tuple(float, float)
 
     """
-    Seta = np.sqrt(np.where(eta < 0.25, 1.0 - 4.0 * eta, 0.0))
+    Seta = compute_Seta(eta)
     m1 = 0.5 * (Mc / (eta ** (3.0 / 5.0))) * (1.0 + Seta)
     m2 = 0.5 * (Mc / (eta ** (3.0 / 5.0))) * (1.0 - Seta)
 
@@ -554,8 +709,6 @@ def Mceta_from_m1m2(m1, m2):
 ##############################################################################
 # SPINS
 ##############################################################################
-
-
 def zrot(angle, vx, vy, vz):
     """
     Perofrm a rotation of the components of a vector around the :math:`z` axis by a given angle.
@@ -597,7 +750,7 @@ def yrot(angle, vx, vy, vz):
 
 
 def TransformPrecessing_angles2comp(
-    thetaJN, phiJL, theta1, theta2, phi12, chi1, chi2, Mc, eta, fRef, phiRef
+    thetaJN, phiJL, tilt1, tilt2, phi12, chi1, chi2, Mc, eta, fRef, phiRef
 ):
     """
     Compute the components of the spin in cartesian frame given the angular variables.
@@ -606,8 +759,8 @@ def TransformPrecessing_angles2comp(
 
     :param array or float thetaJN: Inclination between total angular momentum (:math:`J`) and the direction of propagation, :math:`\\theta_{JN}` (so that :math:`\\theta_{JN} \\to \iota` for :math:`\\chi_1 + \\chi_2 \\to 0`).
     :param array or float phiJL: Azimuthal angle of the Newtonian orbital angular momentum :math:`L_N` on its cone about the total angular momentum :math:`J`, :math:`\phi_{JL}`.
-    :param array or float theta1: Inclination (tilt angle) of object 1 measured from the Newtonian orbital angular momentum (:math:`L_N`), :math:`\\theta_{s,1}`.
-    :param array or float theta2: Inclination (tilt angle) of object 2 measured from the Newtonian orbital angular momentum (:math:`L_N`), :math:`\\theta_{s,2}`.
+    :param array or float tilt1: Inclination (tilt angle) of object 1 measured from the Newtonian orbital angular momentum (:math:`L_N`), :math:`\\theta_{s,1}`.
+    :param array or float tilt2: Inclination (tilt angle) of object 2 measured from the Newtonian orbital angular momentum (:math:`L_N`), :math:`\\theta_{s,2}`.
     :param array or float phi12: Difference in azimuthal angles between the two spins, :math:`\phi_{1,2}`.
     :param array or float chi1: Dimensionless spin magnitude of object 1, :math:`\chi_1`.
     :param array or float chi2: Dimensionless spin magnitude of object 2, :math:`\chi_2`.
@@ -625,12 +778,12 @@ def TransformPrecessing_angles2comp(
     LNhy = 0.0
     LNhz = 1.0
 
-    s1hatx = np.sin(theta1) * np.cos(phiRef)
-    s1haty = np.sin(theta1) * np.sin(phiRef)
-    s1hatz = np.cos(theta1)
-    s2hatx = np.sin(theta2) * np.cos(phi12 + phiRef)
-    s2haty = np.sin(theta2) * np.sin(phi12 + phiRef)
-    s2hatz = np.cos(theta2)
+    s1hatx = np.sin(tilt1) * np.cos(phiRef)
+    s1haty = np.sin(tilt1) * np.sin(phiRef)
+    s1hatz = np.cos(tilt1)
+    s2hatx = np.sin(tilt2) * np.cos(phi12 + phiRef)
+    s2haty = np.sin(tilt2) * np.sin(phi12 + phiRef)
+    s2hatz = np.cos(tilt2)
 
     m1, m2 = m1m2_from_Mceta(Mc, eta)
     M = m1 + m2
@@ -694,7 +847,6 @@ def TransformPrecessing_angles2comp(
     Nx, Ny, Nz = yrot(-thetaLJ, Nx, Ny, Nz)
 
     # Rotation 6: Now L is along z and we have to bring N in the y-z plane with >ve y components.
-
     phiN = np.arctan2(np.real(Ny), np.real(Nx))
 
     s1hatx, s1haty, s1hatz = zrot(np.pi / 2.0 - phiN - phiRef, s1hatx, s1haty, s1hatz)
@@ -753,8 +905,8 @@ def TransformPrecessing_comp2angles(
 
     phi12 = np.where(phi2 - phi1 < 0.0, 2.0 * np.pi + (phi2 - phi1), phi2 - phi1)
 
-    theta1 = np.arccos(s1hatz)
-    theta2 = np.arccos(s2hatz)
+    tilt1 = np.arccos(s1hatz)
+    tilt2 = np.arccos(s2hatz)
 
     m1, m2 = m1m2_from_Mceta(Mc, eta)
     M = m1 + m2
@@ -805,151 +957,7 @@ def TransformPrecessing_comp2angles(
     phiJL = np.arctan2(np.real(LNhy), np.real(LNhx))
     phiJL = np.where(phiJL < 0.0, phiJL + 2.0 * np.pi, phiJL)
 
-    return thetaJN, phiJL, theta1, theta2, phi12, chi1, chi2
-
-
-##############################################################################
-# Antenna Pattern
-##############################################################################
-def compute_ab_factors(
-    ra,
-    dec,
-    time,
-    rot,
-    long_rad,
-    lat_rad,
-    xax_rad,
-    dphi=False,
-    dtheta=False,
-    dtime=False,
-):
-    """
-    See P. Jaranowski, A. Krolak, B. F. Schutz, PRD 58, 063001, eq. (10)--(13)
-    """
-    sin_lat = jnp.sin(lat_rad)
-    cos_lat = jnp.cos(lat_rad)
-    sin_2lat = jnp.sin(2.0 * lat_rad)
-    m3_cos_2lat = 3 - jnp.cos(2.0 * lat_rad)
-    sin_2xax = jnp.sin(2.0 * (xax_rad + rot))
-    cos_2xax = jnp.cos(2.0 * (xax_rad + rot))
-    m3_cos_2dec = 3 - jnp.cos(2.0 * dec)
-    cos_2dec = jnp.cos(2.0 * dec)
-    sin_2dec = jnp.sin(2.0 * dec)
-
-    ang = ra - long_rad - TWOPI * time
-    cos_2ang = jnp.cos(2.0 * ang)
-    sin_2ang = jnp.sin(2.0 * ang)
-    cos_ang = jnp.cos(ang)
-    sin_ang = jnp.sin(ang)
-
-    deltat_deriv = 0.0
-
-    a1 = 0.0625 * sin_2xax * m3_cos_2lat
-    a2 = 0.25 * cos_2xax * sin_lat
-    a3 = 0.25 * sin_2xax * sin_2lat
-    a4 = 0.5 * cos_2xax * cos_lat
-    a5 = 3.0 * 0.25 * sin_2xax * cos_lat**2
-
-    b1 = cos_2xax * sin_lat
-    b2 = 0.25 * sin_2xax * m3_cos_2lat
-    b3 = cos_2xax * cos_lat
-    b4 = 0.5 * sin_2xax * sin_2lat
-
-    if dphi or dtime:
-        cos_2ang = -2 * jnp.sin(2.0 * ang)
-        sin_2ang = +2 * jnp.cos(2.0 * ang)
-        cos_ang = -1 * jnp.sin(ang)
-        sin_ang = +1 * jnp.cos(ang)
-
-    if dtheta:
-        deltat_deriv = geocentric_deltat(ra, dec, time, lat_rad, long_rad, dtheta=True)
-        pi2_deltat = TWOPI * deltat_deriv
-        a1 *= -2.0 * sin_2dec * cos_2ang + m3_cos_2dec * sin_2ang * (2.0 * pi2_deltat)
-        a2 *= -2.0 * sin_2dec * sin_2ang - m3_cos_2dec * cos_2ang * (2.0 * pi2_deltat)
-        a3 *= -2.0 * cos_2dec * cos_ang + sin_2dec * sin_ang * pi2_deltat
-        a4 *= -1 * (2.0 * cos_2dec * sin_ang + sin_2dec * cos_ang * pi2_deltat)
-        a5 *= sin_2dec
-
-        b1 *= -jnp.cos(dec) * cos_2ang + jnp.sin(dec) * sin_2ang * (2.0 * pi2_deltat)
-        b2 *= -jnp.cos(dec) * sin_2ang - jnp.sin(dec) * cos_2ang * (2.0 * pi2_deltat)
-        b3 *= jnp.sin(dec) * cos_ang + jnp.cos(dec) * sin_ang * pi2_deltat
-        b4 *= jnp.sin(dec) * sin_ang - jnp.cos(dec) * cos_ang * pi2_deltat
-
-    else:
-        a1 *= m3_cos_2dec * cos_2ang
-        a2 *= m3_cos_2dec * sin_2ang
-        a3 *= sin_2dec * cos_ang
-        a4 *= sin_2dec * sin_ang
-        a5 *= jnp.cos(dec) ** 2.0
-        b1 *= jnp.sin(dec) * cos_2ang
-        b2 *= jnp.sin(dec) * sin_2ang
-        b3 *= jnp.cos(dec) * cos_ang
-        b4 *= jnp.cos(dec) * sin_ang
-
-    a_factor = a1 - a2 + a3 - a4 + a5
-    b_factor = b1 + b2 + b3 + b4
-
-    if dphi:
-        a_factor = a1 - a2 + a3 - a4
-        deltat_deriv = geocentric_deltat(ra, dec, time, lat_rad, long_rad, dphi=True)
-        a_factor *= 1.0 - TWOPI * deltat_deriv
-        b_factor *= 1.0 - TWOPI * deltat_deriv
-    elif dtime:
-        a_factor = a1 - a2 + a3 - a4
-        deltat_deriv = geocentric_deltat(ra, dec, time, lat_rad, long_rad, dtime=True)
-        a_factor *= -TWOPI * (1.0 + deltat_deriv)
-        b_factor *= -TWOPI * (1.0 + deltat_deriv)
-
-    return a_factor, b_factor, deltat_deriv
-
-
-def geocentric_deltat(
-    ra, dec, time, lat_rad, long_rad, dphi=False, dtheta=False, dtime=False
-):
-    """
-    Compute the time needed to go from Earth center to detector location
-    for a set of sky coordinates and time(s). The result is given in days.
-
-    Also the derivatives, simplified from:
-    * `Delt_loc_phider`
-    * `Delt_loc_thder`
-    * `Delt_loc_tcder`
-
-    :param array or float ra: The :math:`\\theta` sky position angle(s), in :math:`\\rm rad`.
-    :param array or float dec: The :math:`\phi` sky position angle(s), in :math:`\\rm rad`.
-    :param array or float time: The time(s) given as GMST.
-
-    :return: Time shift (days) to go from Earth center to detector location.
-    :rtype: array or float
-    """
-    cos_lat = jnp.cos(lat_rad)
-    sin_lat = jnp.sin(lat_rad)
-    sin_ra = jnp.sin(ra)
-    cos_ra = jnp.cos(ra)
-    sin_dec = jnp.sin(dec)
-    cos_dec = jnp.cos(dec)
-
-    deltat = long_rad + TWOPI * time
-    cos_deltat = jnp.cos(deltat)
-    sin_deltat = jnp.sin(deltat)
-
-    _comp1 = cos_ra * cos_lat
-    _comp2 = sin_ra * cos_lat
-
-    # This is to maintain the function being jit-able.
-    deriv_case = 1 * dphi + 2 * dtheta + 4 * dtime
-    comp1, comp2, comp3 = {
-        0: (cos_dec * cos_deltat, cos_dec * sin_deltat, sin_dec * sin_lat),
-        1: (-cos_dec * sin_deltat, +cos_dec * cos_deltat, 0.0),
-        2: (sin_dec * cos_deltat, sin_dec * sin_deltat, -cos_dec * sin_lat),
-        4: (-cos_dec * sin_deltat * TWOPI, +cos_dec * cos_deltat * TWOPI, 0.0),
-    }[deriv_case]
-
-    sum_comp = comp1 * _comp1 + comp2 * _comp2 + comp3
-    # The minus sign arises from the definition of the unit vector pointing to the source
-    earth_traverse_time = -glob.REarth / glob.clight / DAY_TO_SEC
-
-    return sum_comp * earth_traverse_time
+    return thetaJN, phiJL, tilt1, tilt2, phi12, chi1, chi2
 
 
 def psi_rotation_matrix(psi):

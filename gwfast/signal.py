@@ -6,10 +6,10 @@
 
 import os
 
-# Enable 64bit on JAX, fundamental
 from jax import config, vmap, jacrev, jit, device_count, local_device_count
 import jax.numpy as np
 
+# Enable 64bit on JAX, fundamental
 config.update("jax_enable_x64", True)
 # config.update("TF_CPP_MIN_LOG_LEVEL", 0)
 
@@ -18,6 +18,8 @@ os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform"
 
 # We use both the original numpy, denoted as onp, and the JAX implementation of numpy, denoted as np
 import numpy as onp
+from scipy.optimize import minimize
+from scipy.integrate import cumulative_trapezoid
 import time
 import h5py
 import numdifftools as ndt
@@ -28,8 +30,10 @@ from gwfast import gwfastUtils as utils
 from gwfast import gwfastGlobals as glob
 from gwfast.gwfastGlobals import TWOPI, DAY_TO_SEC, DEG_TO_RAD
 from gwfast.gwfastUtils import (
-    compute_ab_factors,
-    geocentric_deltat,
+    ra_dec_from_th_phi_rad,
+    check_evparams,
+    spin_angle_keys,
+    spin_comps_keys,
     apply_psi_rotation,
     CosineIntegrand,
     SineIntegrand,
@@ -41,6 +45,7 @@ from gwfast.lensing_utils import (
     get_lensing_time_delay,
     get_mag_factors,
 )
+from gwfast.detector import Detector, FpFcsqInt
 
 
 class GWSignal(object):
@@ -62,7 +67,7 @@ class GWSignal(object):
     :param float fmin: Minimum frequency to use for the grid in the analysis, in :math:`\\rm Hz`.
     :param float fmax: Maximum frequency to use for the grid in the analysis, in :math:`\\rm Hz`. The cut frequency of the waveform (which depends on the events parameters) will be used as maximum frequency if ``fmax=None`` or if it is smaller than ``fmax``.
     :param str IntTablePath: Deprecated, not used.
-    :param float DutyFactor: Duty factor of the detector, between 0 and 1, representing the percentage of time the detector (each detector independently in the case of a triangular detector) is supposed to be operational.
+    :param float detector.duty_cycle: Duty factor of the detector, between 0 and 1, representing the percentage of time the detector (each detector independently in the case of a triangular detector) is supposed to be operational.
     :param bool, optional compute2arms: Boolean specifying if, in the case of a triangular detector, the computation can be performed only in two of the instruments, using the null-stream to get the signal in the third instrument, speeding up the computation by 1/3.
     :param bool, optional jitCompileDerivs: Boolean specifying if the derivatives function has to be jit compiled.
 
@@ -85,11 +90,11 @@ class GWSignal(object):
         det_long=9.45,
         det_xax=0.0,
         verbose=True,
-        is_ASD=True,
         useEarthMotion=False,
         noMotion=False,  # use only for checks
         fmin=2.0,
         fmax=None,
+        detector=None,
         IntTablePath=None,
         DutyFactor=None,
         compute2arms=True,
@@ -98,18 +103,6 @@ class GWSignal(object):
         """
         Constructor method
         """
-        if (detector_shape != "L") and (detector_shape != "T"):
-            raise ValueError("Enter valid detector configuration")
-
-        if psd_path is None:
-            raise ValueError("Enter a valid PSD or ASD path")
-
-        if verbose:
-            if not is_ASD:
-                print("Using PSD from file %s " % psd_path)
-            else:
-                print("Using ASD from file %s " % psd_path)
-
         if (useEarthMotion) and (wf_model.objType == "BBH") and (verbose):
             print(
                 "WARNING: the motion of Earth gives a negligible contribution for BBH signals, consider switching it off to make the code run faster"
@@ -124,37 +117,36 @@ class GWSignal(object):
             )
 
         self.wf_model = wf_model
+        self.strain_model_keys = list(self.wf_model.ParNums.keys())
 
-        self.psd_base_path = ("/").join(psd_path.split("/")[:-1])
-        self.psd_file_name = psd_path.split("/")[-1]
+        if detector is None:
+            self.detector = Detector(
+                "ifo",
+                det_lat,
+                det_long,
+                det_xax,
+                detector_shape,
+                DutyFactor,
+                psd_path,
+                verbose=verbose,
+            )
+        else:
+            self.detector = detector
 
         self.verbose = verbose
-        self.detector_shape = detector_shape
-
-        self.det_lat_rad = det_lat * DEG_TO_RAD
-        self.det_long_rad = det_long * DEG_TO_RAD
-        self.det_xax_rad = det_xax * DEG_TO_RAD
-
         self.IntTablePath = IntTablePath
-        # This is the percentage of time each arm of the detector (or the whole detector for an L) is supposed to be operational, between 0 and 1, default is None, resulting in a detector always online
-        self.DutyFactor = DutyFactor
 
-        noise = onp.loadtxt(psd_path, usecols=(0, 1))
-        f = noise[:, 0]
-        if is_ASD:
-            S = (noise[:, 1]) ** 2
-        else:
-            S = noise[:, 1]
+        self.fmin = fmin  # Hz
+        self.fmax = fmax  # Hz or None
 
-        self.strainFreq = f
-        self.noiseCurve = S
+        mask = self.detector.psd_frequencies >= self.fmin
+        if self.fmax is not None:
+            mask *= self.detector.psd_frequencies <= self.fmax
 
-        import scipy.integrate as igt
-
-        mask = self.strainFreq >= fmin
-        self.strainInteg = igt.cumulative_trapezoid(
-            self.strainFreq[mask] ** (-7.0 / 3.0) / S[mask],
-            self.strainFreq[mask],
+        masked_freqs = self.detector.psd_frequencies[mask]
+        self.strainInteg = cumulative_trapezoid(
+            masked_freqs ** (-7.0 / 3.0) / self.detector.psd_array[mask],
+            masked_freqs,
             initial=0,
         )
 
@@ -163,13 +155,6 @@ class GWSignal(object):
         if self.noMotion and self.useEarthMotion:
             print("noMotion and useEarthMotion are True. switching off useEarthMotion ")
             self.useEarthMotion = False
-        self.fmin = fmin  # Hz
-        self.fmax = fmax  # Hz or None
-
-        if detector_shape == "L":
-            self.angbtwArms = 0.5 * np.pi
-        elif detector_shape == "T":
-            self.angbtwArms = np.pi / 3.0
 
         self.IntegInterpArr = None
         self.compute2arms = compute2arms
@@ -236,18 +221,25 @@ class GWSignal(object):
             "chi1y": np.array([0.1]),
             "chi2y": np.array([-0.01]),
             "ecc": np.array([0.0]),
+            "R_orbit": np.array([100.0]),
+            "M_lz": np.array([1e6]),
+            "src_pos": np.array([0.1]),
         }
-        verboseOr = self.verbose
+        _verbose = self.verbose
         self.verbose = False
-        detector_shapeOr = self.detector_shape
-        self.detector_shape = "L"  # Get a faster Initialization with an L
+        _detector_shape = self.detector.shape
+        self.detector.shape = "L"  # Get a faster Initialization with an L
+        _strain_model_keys = self.strain_model_keys
+        self.strain_model_keys = list(inj_params_init.keys())
         _ = self.SNRInteg(inj_params_init, res=10)
         _ = self.FisherMatr(inj_params_init, res=10)
 
         if self.verbose:
             print("Done.")
-        self.verbose = verboseOr
-        self.detector_shape = detector_shapeOr
+        # Restore the original values
+        self.verbose = _verbose
+        self.detector.shape = _detector_shape
+        self.strain_model_keys = _strain_model_keys
 
     def _clear_cache(self):
         if self.jitCompileDerivs:
@@ -294,16 +286,19 @@ class GWSignal(object):
                     "eta": np.array([eta]),
                 }
                 fcut = self.wf_model.fcut(**tmpev)
-                mask = (self.strainFreq >= self.fmin) & (self.strainFreq <= fcut)
+                mask = self.detector.psd_frequencies >= self.fmin
+                mask *= self.detector.psd_frequencies <= fcut
+                masked_freqs = self.detector.psd_frequencies[mask]
+                masked_psd = self.detector.psd_array[mask]
                 # for k,tc in enumerate(tcgrid):
                 # TODO: Use some kind of expand axis
                 fgrids = (
-                    np.ones((res, len(self.strainFreq[mask]))) * self.strainFreq[mask]
+                    np.ones((res, len(masked_freqs))) * masked_freqs
                 )
                 noisegrids = (
-                    np.ones((res, len(self.noiseCurve[mask]))) * self.noiseCurve[mask]
+                    np.ones((res, len(masked_psd))) * masked_psd
                 )
-                masked_freqs = self.strainFreq[mask][:, onp.newaxis]
+                masked_freqs = masked_freqs[:, onp.newaxis]
                 for m in range(4):
                     tmpIntegrandC = CosineIntegrand(masked_freqs, Mc, tcgrid, m + 1.0)
                     tmpIntegrandS = SineIntegrand(masked_freqs, Mc, tcgrid, m + 1.0)
@@ -395,66 +390,38 @@ class GWSignal(object):
                 RegularGridInterpolator((Mcs, etas, tcs), Igrid[:, :, :, i]),
             )
 
-    def _ra_dec_from_th_phi(self, theta, phi):
-        return utils.ra_dec_from_th_phi_rad(theta, phi)
-
-    def _PatternFunction(self, theta, phi, t, psi, rot=0.0):
-        """
-        Compute the value of the so-called pattern functions of the detector for a set of sky coordinates, GW polarisation(s) and time(s).
-
-        For the definition of the pattern functions see `arXiv:gr-qc/9804014 <https://arxiv.org/abs/gr-qc/9804014>`_ eq. (10)--(13).
-
-        :param array or float theta: The :math:`\\theta` sky position angle(s), in :math:`\\rm rad`.
-        :param array or float phi: The :math:`\phi` sky position angle(s), in :math:`\\rm rad`.
-        :param array or float t: The time(s) given as GMST.
-        :param array or float psi: The GW polarisation angle(s) :math:`\psi`, in :math:`\\rm rad`.
-        :param float rot: Further rotation of the interferometer with respect to the :py:data:`self.xax` orientation, in degrees, needed for the triangular geometry. In this case, the three arms will have orientations 1 --> :py:data:`self.xax`, 2 --> :py:data:`self.xax` + 60°, 3 --> :py:data:`self.xax` + 120°.
-        :return: Plus and cross pattern functions of the detector evaluated at the given parameters.
-        :rtype: tuple(array, array) or tuple(float, float)
-
-        """
-
-        rot_rad = rot * DEG_TO_RAD
-
-        ras, decs = self._ra_dec_from_th_phi(theta, phi)
-        ab_factors = compute_ab_factors(
-            ras, decs, t, rot_rad, self.det_long_rad, self.det_lat_rad, self.det_xax_rad
-        )[:-1]
-
-        sin_angbtwArms = np.sin(self.angbtwArms)
-        Fp, Fc = apply_psi_rotation(psi, *ab_factors) * sin_angbtwArms
-
-        return Fp, Fc
-
     def _phiPhase(self, theta, phi, t, iota, psi, Fp=None, Fc=None):
         # The polarization phase contribution (the change in F+ and Fx with time influences also the phase)
-
         if (Fp is None) or (Fc is None):
-            Fp, Fc = self._PatternFunction(theta, phi, t, psi)
+            Fp, Fc = self.detector.compute_antenna_pattern(theta, phi, t, psi)
 
-        phiP = -np.arctan2(np.cos(iota) * Fc, 0.5 * (1.0 + ((np.cos(iota)) ** 2)) * Fp)
+        phiP = -np.arctan2(np.cos(iota) * Fc, 0.5 * (1.0 + np.cos(iota) ** 2) * Fp)
 
         # The contriution to the amplitude is negligible, so we do not compute it
         return phiP
 
-    def _DeltLoc(self, theta, phi, t):
+    def shifted_time(self, parameters, frequencies):
+        theta, phi, tcoal = (
+            parameters["theta"],
+            parameters["phi"],
+            parameters["tcoal"],
+        )
+        if self.noMotion:
+            time = 0.0
+        elif self.useEarthMotion:
+            time = (
+                tcoal - self.wf_model.tau_star(frequencies, **parameters) / DAY_TO_SEC
+            )
+        else:
+            time = tcoal
+        delta_t = self.detector.compute_geocent_deltat(theta, phi, time)
+        return time + delta_t, delta_t
+
+    def duty_cycle_mask(self, shape):
         """
-        Compute the time needed to go from Earth center to detector location for a set of sky coordinates and time(s). The result is given in seconds.
-
-        :param array or float theta: The :math:`\\theta` sky position angle(s), in :math:`\\rm rad`.
-        :param array or float phi: The :math:`\phi` sky position angle(s), in :math:`\\rm rad`.
-        :param array or float t: The time(s) given as GMST.
-
-        :return: Time shift(s) to go from Earth center to detector location.
-        :rtype: array or float
-
+        Generate a (new) duty-cycle mask for the given shape.
         """
-        # Time needed to go from Earth center to detector location
-        ras, decs = self._ra_dec_from_th_phi(theta, phi)
-
-        # Note the change on 2025/04/21,
-        # Output from second to days, as all subsequent usages are in seconds.
-        return geocentric_deltat(ras, decs, t, self.det_lat_rad, self.det_long_rad)
+        return onp.random.random(shape) > self.detector.duty_cycle
 
     def GWAmplitudes(self, evParams, f, rot=0.0):
         """
@@ -473,26 +440,15 @@ class GWSignal(object):
         # chi1z, chi2z -> dimensionless spin components aligned to orbital angular momentum [-1;1], Lambda1,2 -> tidal parameters of the objects,
         # f is the frequency (Hz)
 
-        theta, phi, iota, psi, tcoal = (
+        theta, phi, iota, psi = (
             evParams["theta"],
             evParams["phi"],
             evParams["iota"],
             evParams["psi"],
-            evParams["tcoal"],
         )
 
-        if self.noMotion:
-            t = 0.0
-            t = t + self._DeltLoc(theta, phi, t)
-        else:
-            if self.useEarthMotion:
-                t = tcoal - self.wf_model.tau_star(f, **evParams) / DAY_TO_SEC
-                t = t + self._DeltLoc(theta, phi, t)
-            else:
-                t = tcoal  # - self.wf_model.tau_star(self.fmin, **evParams)/(3600.*24)
-                t = t + self._DeltLoc(theta, phi, t)
-        # wfAmpl = self.wf_model.Ampl(f, **evParams)
-        Fp, Fc = self._PatternFunction(theta, phi, t, psi, rot=rot)
+        time, _ = self.shifted_time(evParams, f)
+        Fp, Fc = self.detector.compute_antenna_pattern(theta, phi, time, psi, rot=rot)
 
         if (self.wf_model.is_HigherModes) or (self.wf_model.is_Precessing):
             # If the waveform includes higher modes or precessing spins,
@@ -592,7 +548,6 @@ class GWSignal(object):
         # Full GW strain expression (complex)
         # Here we have the decompressed parameters and we put them back in a dictionary just to have an easier
         # implementation of the JAX module for derivatives
-
         if is_m1m2:
             # Interpret Mc as m1 and eta as m2
             McUse, etaUse = utils.Mceta_from_m1m2(Mc, eta)
@@ -625,8 +580,8 @@ class GWSignal(object):
                     utils.TransformPrecessing_angles2comp(
                         thetaJN=iota,
                         phiJL=chi1y,
-                        theta1=chi1x,
-                        theta2=chi2x,
+                        tilt1=chi1x,
+                        tilt2=chi2x,
                         phi12=chi2y,
                         chi1=chiS,
                         chi2=chiA,
@@ -672,40 +627,16 @@ class GWSignal(object):
         # Not sure what does this do, but it was set to zero in both cases
         # (with or without useEarthMotion)
         phiD = ZEROS
-        if self.useEarthMotion:
-            if not use_lensing:
-                t = tcoal - self.wf_model.tau_star(f, **evParams) / DAY_TO_SEC
-                tmpDeltLoc = self._DeltLoc(theta, phi, t)  # in days
-                t = t + tmpDeltLoc
-                # phiP is necessary if we write the signal as A*exp(i Psi) with A = sqrt(Ap^2 + Ac^2), uncomment if needed
-                # phiP = self._phiPhase(theta, phi, t, iota, psi)
-            else:
-                t1 = tcoal - self.wf_model.tau_star(f, **evParams1) / DAY_TO_SEC
-                tmpDeltLoc1 = self._DeltLoc(theta, phi, t1)  # in days
-                t1 += tmpDeltLoc1
 
-                t2 = tcoal - self.wf_model.tau_star(f, **evParams2) / DAY_TO_SEC
-                tmpDeltLoc2 = self._DeltLoc(theta, phi, t2)  # in days
-                t2 += tmpDeltLoc2
+        omega = TWOPI * f * DAY_TO_SEC
+        if use_lensing:
+            t1, deltaT_1 = self.shifted_time(evParams1, f)
+            phiL1 = omega * deltaT_1
+            t2, deltaT_2 = self.shifted_time(evParams2, f)
+            phiL2 = omega * deltaT_2
         else:
-            # phiP = Mc*0.
-            if self.noMotion:
-                t = 0.0
-            else:
-                t = tcoal
-            tmpDeltLoc = self._DeltLoc(theta, phi, t)  # in days
-            t += tmpDeltLoc
-
-            if use_lensing:
-                # Without Earth motion, both images takes the same value.
-                t1, t2 = t, t
-                tmpDeltLoc1, tmpDeltLoc2 = tmpDeltLoc, tmpDeltLoc
-
-        if not use_lensing:
-            phiL = (TWOPI * f) * tmpDeltLoc * DAY_TO_SEC
-        else:
-            phiL1 = (TWOPI * f) * tmpDeltLoc1 * DAY_TO_SEC
-            phiL2 = (TWOPI * f) * tmpDeltLoc2 * DAY_TO_SEC
+            t, deltaT = self.shifted_time(evParams, f)
+            phiL = omega * deltaT
 
         # Moving on to combining the strain with the antenna patterns
         need_HM = (self.wf_model.is_HigherModes) or (self.wf_model.is_Precessing)
@@ -770,11 +701,11 @@ class GWSignal(object):
                 return (Ap + 1j * Ac) * np.exp(Psi * 1j)
             # return np.sqrt(Ap*Ap + Ac*Ac)*np.exp((Psi+phiP)*1j)
 
-        phase_shift_factor = np.exp(1j * (phiD + TWOPI * f * (tcoal * DAY_TO_SEC)))
+        phase_shift_factor = np.exp(1j * (phiD + omega * tcoal))
         # It appears that using LAL or not only matters in the antenna pattern, combining both cases.
         if not use_lensing:
             # If the waveform includes higher modes or precessing spins, it is not possible to compute amplitude and phase separately, make all together
-            Fp, Fc = self._PatternFunction(theta, phi, t, psi, rot=rot)
+            Fp, Fc = self.detector.compute_antenna_pattern(theta, phi, t, psi, rot=rot)
             hp, hc = self.wf_model.hphc(f, **evParams)
 
             hp *= Fp * phase_shift_factor * np.exp(1j * (phiL - Phicoal))
@@ -788,7 +719,9 @@ class GWSignal(object):
             iota1 = evParams1["iota"]
             psi1 = evParams1["psi"]
             Phicoal1 = evParams1["Phicoal"]
-            Fp1, Fc1 = self._PatternFunction(theta, phi, t1, psi1, rot=rot)
+            Fp1, Fc1 = self.detector.compute_antenna_pattern(
+                theta, phi, t1, psi1, rot=rot
+            )
             hp1, hc1 = self.wf_model.hphc(f, **evParams1)
             hp1 = hp1 * Fp1 * phase_shift_factor * np.exp(1j * (phiL1 - Phicoal1))
             hc1 = hc1 * Fc1 * phase_shift_factor * np.exp(1j * (phiL1 - Phicoal1))
@@ -800,7 +733,9 @@ class GWSignal(object):
             iota2 = evParams2["iota"]
             psi2 = evParams2["psi"]
             Phicoal2 = evParams2["Phicoal"]
-            Fp2, Fc2 = self._PatternFunction(theta, phi, t2, psi2, rot=rot)
+            Fp2, Fc2 = self.detector.compute_antenna_pattern(
+                theta, phi, t2, psi2, rot=rot
+            )
             hp2, hc2 = self.wf_model.hphc(f, **evParams2)
             hp2 = hp2 * Fp2 * phase_shift_factor * np.exp(1j * (phiL2 - Phicoal2))
             hc2 = hc2 * Fc2 * phase_shift_factor * np.exp(1j * (phiL2 - Phicoal2))
@@ -857,7 +792,7 @@ class GWSignal(object):
         """
         # SNR calculation performing the frequency integral for each signal
         # This is computationally more expensive, but needed for complex waveform models
-        if self.DutyFactor is not None:
+        if self.detector.duty_cycle is not None:
             onp.random.seed(self.seedUse)
 
         utils.check_evparams(evParams)
@@ -872,36 +807,9 @@ class GWSignal(object):
 
         if self.wf_model.is_Precessing:
             # Check if cartesian spins are provided
-            if not all(
-                [
-                    (key in all_params_keys)
-                    for key in (
-                        "iota",
-                        "chi1x",
-                        "chi1y",
-                        "chi1z",
-                        "chi2x",
-                        "chi2y",
-                        "chi2z",
-                    )
-                ]
-            ):
+            if not all([(key in all_params_keys) for key in spin_comps_keys]):
                 # Check if spin angles are provided instead
-                if all(
-                    [
-                        (key in all_params_keys)
-                        for key in (
-                            "thetaJN",
-                            "chi1",
-                            "chi2",
-                            "tilt1",
-                            "tilt2",
-                            "phiJL",
-                            "phi12",
-                        )
-                    ]
-                ):
-
+                if all([(key in all_params_keys) for key in spin_angle_keys]):
                     if self.verbose:
                         print(
                             "Adding cartesian components of the spins from angular variables"
@@ -917,8 +825,8 @@ class GWSignal(object):
                     ) = utils.TransformPrecessing_angles2comp(
                         thetaJN=evParams["thetaJN"],
                         phiJL=evParams["phiJL"],
-                        theta1=evParams["tilt1"],
-                        theta2=evParams["tilt2"],
+                        tilt1=evParams["tilt1"],
+                        tilt2=evParams["tilt2"],
                         phi12=evParams["phi12"],
                         chi1=evParams["chi1"],
                         chi2=evParams["chi2"],
@@ -971,12 +879,9 @@ class GWSignal(object):
 
         fminarr = np.full(fcut.shape, self.fmin)
         fgrids = np.geomspace(fminarr, fcut, num=int(res))
-        # Out of the provided PSD range, we use a constant value of 1, which results in completely negligible conntributions
-        strainGrids = np.interp(
-            fgrids, self.strainFreq, self.noiseCurve, left=1.0, right=1.0
-        )
+        strainGrids = self.detector.psd_interp(fgrids)
 
-        if self.detector_shape == "L":
+        if self.detector.shape == "L":
             if not use_lensing:
                 Aps, Acs = self.GWAmplitudes(evParams, fgrids)
                 Atot = Aps * Aps + Acs * Acs
@@ -1045,15 +950,11 @@ class GWSignal(object):
                 # print(htot1)
 
             SNRsq = np.trapezoid(Atot / strainGrids, fgrids, axis=0)
-            if self.DutyFactor is not None:
-                excl = onp.random.choice(
-                    [0, 1],
-                    len(evParams["Mc"]),
-                    p=[1.0 - self.DutyFactor, self.DutyFactor],
-                )
+            if self.detector.duty_cycle is not None:
+                excl = onp.random.random(len(evParams["Mc"])) > self.detector.duty_cycle
                 SNRsq = SNRsq * excl
             allSNRsq.append(SNRsq)
-        elif self.detector_shape == "T":
+        elif self.detector.shape == "T":
             if not self.compute2arms:
                 for i in range(3):
                     if not use_lensing:
@@ -1122,11 +1023,10 @@ class GWSignal(object):
                         )
                         Atot = abs(htot1 + htot2) ** 2
                     tmpSNRsq = np.trapezoid(Atot / strainGrids, fgrids, axis=0)
-                    if self.DutyFactor is not None:
-                        excl = onp.random.choice(
-                            [0, 1],
-                            len(evParams["Mc"]),
-                            p=[1.0 - self.DutyFactor, self.DutyFactor],
+                    if self.detector.duty_cycle is not None:
+                        excl = (
+                            onp.random.random(len(evParams["Mc"]))
+                            > self.detector.duty_cycle
                         )
                         tmpSNRsq = tmpSNRsq * excl
                     allSNRsq.append(tmpSNRsq)
@@ -1269,23 +1169,20 @@ class GWSignal(object):
                 tmpSNRsq1 = np.trapezoid(Atot1 / strainGrids, fgrids, axis=0)
                 tmpSNRsq2 = np.trapezoid(Atot2 / strainGrids, fgrids, axis=0)
                 tmpSNRsq3 = np.trapezoid(Atot3 / strainGrids, fgrids, axis=0)
-                if self.DutyFactor is not None:
-                    excl = onp.random.choice(
-                        [0, 1],
-                        len(evParams["Mc"]),
-                        p=[1.0 - self.DutyFactor, self.DutyFactor],
+                if self.detector.duty_cycle is not None:
+                    excl = (
+                        onp.random.random(len(evParams["Mc"]))
+                        > self.detector.duty_cycle
                     )
                     tmpSNRsq1 = tmpSNRsq1 * excl
-                    excl = onp.random.choice(
-                        [0, 1],
-                        len(evParams["Mc"]),
-                        p=[1.0 - self.DutyFactor, self.DutyFactor],
+                    excl = (
+                        onp.random.random(len(evParams["Mc"]))
+                        > self.detector.duty_cycle
                     )
                     tmpSNRsq2 = tmpSNRsq2 * excl
-                    excl = onp.random.choice(
-                        [0, 1],
-                        len(evParams["Mc"]),
-                        p=[1.0 - self.DutyFactor, self.DutyFactor],
+                    excl = (
+                        onp.random.random(len(evParams["Mc"]))
+                        > self.detector.duty_cycle
                     )
                     tmpSNRsq3 = tmpSNRsq3 * excl
                 allSNRsq.append(tmpSNRsq1)
@@ -1294,15 +1191,14 @@ class GWSignal(object):
                 # SNR = np.sqrt(tmpSNRsq1 + tmpSNRsq2 + tmpSNRsq3)
         allSNRsq = np.array(allSNRsq)
 
-        if return_all:
-            if self.detector_shape == "T":
-                return 2 * np.sqrt(allSNRsq)
-            else:
-                return np.squeeze(2 * np.sqrt(allSNRsq), axis=0)
-        elif self.detector_shape == "T":
-            return 2 * np.sqrt(allSNRsq.sum(axis=0))
-        else:
-            return np.squeeze(2 * np.sqrt(allSNRsq), axis=0)
+        if self.detector.shape == "T":
+            return (
+                2 * np.sqrt(allSNRsq)
+                if return_all
+                else 2 * np.sqrt(allSNRsq.sum(axis=0))
+            )
+
+        return np.squeeze(2 * np.sqrt(allSNRsq), axis=0)
 
         # The factor of two arises by cutting the integral from 0 to infinity
 
@@ -1341,7 +1237,7 @@ class GWSignal(object):
         """
         # If use_m1m2=True the Fisher is computed w.r.t. m1 and m2, not Mc and eta
         # If use_chi1chi2=True the Fisher is computed w.r.t. chi1z and chi2z, not chiS and chiA
-        if self.DutyFactor is not None:
+        if self.detector.duty_cycle is not None:
             onp.random.seed(self.seedUse)
 
         utils.check_evparams(evParams)
@@ -1387,9 +1283,8 @@ class GWSignal(object):
                     "One pair among (chi1z, chi2z) and (chiS, chiA) have to be provided."
                 )
 
-            chi1z, chi2z = evParams["chi1z"].astype("complex128"), evParams[
-                "chi2z"
-            ].astype("complex128")
+            chi1z = evParams["chi1z"].astype("complex128")
+            chi2z = evParams["chi2z"].astype("complex128")
 
             # Get sym and asym spin components
             if use_chi1chi2:
@@ -1404,36 +1299,9 @@ class GWSignal(object):
 
         else:
             # Check if cartesian spins are provided
-            if not all(
-                [
-                    (key in all_params_keys)
-                    for key in (
-                        "iota",
-                        "chi1x",
-                        "chi1y",
-                        "chi1z",
-                        "chi2x",
-                        "chi2y",
-                        "chi2z",
-                    )
-                ]
-            ):
-
+            if not all([(key in all_params_keys) for key in spin_comps_keys]):
                 # Check if spin angles are provided instead
-                if all(
-                    [
-                        (key in all_params_keys)
-                        for key in (
-                            "thetaJN",
-                            "chi1",
-                            "chi2",
-                            "tilt1",
-                            "tilt2",
-                            "phiJL",
-                            "phi12",
-                        )
-                    ]
-                ):
+                if all([(key in all_params_keys) for key in spin_angle_keys]):
 
                     if self.verbose:
                         print(
@@ -1450,8 +1318,8 @@ class GWSignal(object):
                     ) = utils.TransformPrecessing_angles2comp(
                         thetaJN=evParams["thetaJN"],
                         phiJL=evParams["phiJL"],
-                        theta1=evParams["tilt1"],
-                        theta2=evParams["tilt2"],
+                        tilt1=evParams["tilt1"],
+                        tilt2=evParams["tilt2"],
                         phi12=evParams["phi12"],
                         chi1=evParams["chi1"],
                         chi2=evParams["chi2"],
@@ -1552,9 +1420,7 @@ class GWSignal(object):
             fgrids = np.geomspace(fminarr, fcut, num=int(res))
 
         # Out of the provided PSD range, we use a constant value of 1, which results in completely negligible conntributions
-        strainGrids = np.interp(
-            fgrids, self.strainFreq, self.noiseCurve, left=1.0, right=1.0
-        )
+        strainGrids = self.detector.psd_interp(fgrids)
 
         nParams = self.wf_model.nParams
         if use_lensing:
@@ -1570,7 +1436,7 @@ class GWSignal(object):
 
         allFishers = []
 
-        if self.detector_shape == "L":
+        if self.detector.shape == "L":
             # Compute derivatives
             FisherDerivs = self._SignalDerivatives_use(
                 fgrids,
@@ -1623,12 +1489,8 @@ class GWSignal(object):
                     )
 
                     Fisher[beta, alpha, :] = Fisher[alpha, beta, :]
-            if self.DutyFactor is not None:
-                excl = onp.random.choice(
-                    [0, 1],
-                    len(evParams["Mc"]),
-                    p=[1.0 - self.DutyFactor, self.DutyFactor],
-                )
+            if self.detector.duty_cycle is not None:
+                excl = onp.random.random(len(evParams["Mc"])) > self.detector.duty_cycle
                 Fisher = Fisher * excl
             allFishers.append(Fisher)
         else:
@@ -1691,11 +1553,10 @@ class GWSignal(object):
                             )
 
                             tmpFisher[beta, alpha, :] = tmpFisher[alpha, beta, :]
-                    if self.DutyFactor is not None:
-                        excl = onp.random.choice(
-                            [0, 1],
-                            len(evParams["Mc"]),
-                            p=[1.0 - self.DutyFactor, self.DutyFactor],
+                    if self.detector.duty_cycle is not None:
+                        excl = (
+                            onp.random.random(len(evParams["Mc"]))
+                            > self.detector.duty_cycle
                         )
                         tmpFisher = tmpFisher * excl
                     allFishers.append(tmpFisher)
@@ -1759,11 +1620,10 @@ class GWSignal(object):
                         )
 
                         tmpFisher[beta, alpha, :] = tmpFisher[alpha, beta, :]
-                if self.DutyFactor is not None:
-                    excl = onp.random.choice(
-                        [0, 1],
-                        len(evParams["Mc"]),
-                        p=[1.0 - self.DutyFactor, self.DutyFactor],
+                if self.detector.duty_cycle is not None:
+                    excl = (
+                        onp.random.random(len(evParams["Mc"]))
+                        > self.detector.duty_cycle
                     )
                     tmpFisher = tmpFisher * excl
                 # Fisher += tmpFisher
@@ -1822,11 +1682,10 @@ class GWSignal(object):
                         )
 
                         tmpFisher[beta, alpha, :] = tmpFisher[alpha, beta, :]
-                if self.DutyFactor is not None:
-                    excl = onp.random.choice(
-                        [0, 1],
-                        len(evParams["Mc"]),
-                        p=[1.0 - self.DutyFactor, self.DutyFactor],
+                if self.detector.duty_cycle is not None:
+                    excl = (
+                        onp.random.random(len(evParams["Mc"]))
+                        > self.detector.duty_cycle
                     )
                     tmpFisher = tmpFisher * excl
                 # Fisher += tmpFisher
@@ -1853,11 +1712,10 @@ class GWSignal(object):
                         )
 
                         tmpFisher[beta, alpha, :] = tmpFisher[alpha, beta, :]
-                if self.DutyFactor is not None:
-                    excl = onp.random.choice(
-                        [0, 1],
-                        len(evParams["Mc"]),
-                        p=[1.0 - self.DutyFactor, self.DutyFactor],
+                if self.detector.duty_cycle is not None:
+                    excl = (
+                        onp.random.random(len(evParams["Mc"]))
+                        > self.detector.duty_cycle
                     )
                     tmpFisher = tmpFisher * excl
                 # Fisher += tmpFisher
@@ -1865,7 +1723,7 @@ class GWSignal(object):
 
         if return_all:
             return allFishers
-        elif self.detector_shape == "T":
+        elif self.detector.shape == "T":
             return onp.array(allFishers).sum(axis=0)
         else:
             return allFishers[0]
@@ -3786,6 +3644,7 @@ class GWSignal(object):
         :rtype: tuple(array, array, array, array, array, array, array)
 
         """
+        ZEROS = np.zeros_like(Mc)
         # Module to compute analytically the derivatives w.r.t. dL, theta, phi, psi, tcoal, Phicoal and also iota in absence of HM or precessing spins. Each derivative is inserted into its own function with representative name, for ease of check.
         if use_m1m2:
             # Interpret Mc as m1 and eta as m2
@@ -3802,12 +3661,10 @@ class GWSignal(object):
             else:
                 chi1z = chiS + chiA
                 chi2z = chiS - chiA
-            chi1xUse, chi2xUse, chi1yUse, chi2yUse = (
-                McUse * 0.0,
-                McUse * 0.0,
-                McUse * 0.0,
-                McUse * 0.0,
-            )
+            chi1xUse = ZEROS
+            chi2xUse = ZEROS
+            chi1yUse = ZEROS
+            chi2yUse = ZEROS
         else:
             if not use_prec_ang:
                 chi1z = chiS
@@ -3822,8 +3679,8 @@ class GWSignal(object):
                     utils.TransformPrecessing_angles2comp(
                         thetaJN=iota,
                         phiJL=chi1y,
-                        theta1=chi1x,
-                        theta2=chi2x,
+                        tilt1=chi1x,
+                        tilt2=chi2x,
                         phi12=chi2y,
                         chi1=chiS,
                         chi2=chiA,
@@ -3872,12 +3729,9 @@ class GWSignal(object):
         }
 
         if self.wf_model.is_tidal:
-            Lambda1, Lambda2 = utils.Lam12_from_Lamt_delLam(
+            evParams["Lambda1"], evParams["Lambda2"] = utils.Lam12_from_Lamt_delLam(
                 LambdaTilde, deltaLambda, etaUse
             )
-
-            evParams["Lambda1"] = Lambda1
-            evParams["Lambda2"] = Lambda2
 
         if self.wf_model.is_eccentric:
             evParams["ecc"] = ecc
@@ -3892,46 +3746,15 @@ class GWSignal(object):
             # If the waveform includes higher modes, it is not possible to compute amplitude and phase separately, make all together
             wfhp, wfhc = self.wf_model.hphc(f, **evParams)
 
-        if self.useEarthMotion:
-            # Compute Doppler contribution
-            tnoloc = tcoal - self.wf_model.tau_star(f, **evParams) / DAY_TO_SEC
-            tmpDeltLoc = self._DeltLoc(theta, phi, tnoloc)  # in seconds
-            t = tnoloc + tmpDeltLoc / DAY_TO_SEC
-            phiD = Mc * 0.0
-            # phiP is necessary if we write the signal as A*exp(i Psi) with A = sqrt(Ap^2 + Ac^2), uncomment if necessary
-            # phiP = self._phiPhase(theta, phi, t, iota, psi)
-        else:
-            phiD = Mc * 0.0
-            # phiP = Mc*0.
-            if self.noMotion:
-                tnoloc = 0
-            else:
-                tnoloc = tcoal
-            tmpDeltLoc = self._DeltLoc(theta, phi, tnoloc)  # in seconds
-            t = tnoloc + tmpDeltLoc / DAY_TO_SEC
-
+        phiD = np.zeros_like(Mc)
+        t, tmpDeltLoc = self.shifted_time(evParams, f)
         phiL = (TWOPI * f) * tmpDeltLoc
 
         rot_rad = rot * DEG_TO_RAD
         sin_angbtwArms = np.sin(self.angbtwArms)
 
-        ras, decs = self._ra_dec_from_th_phi(theta, phi)
-
-        ab_factors = np.array(
-            compute_ab_factors(
-                ras,
-                decs,
-                t,
-                rot_rad,
-                self.det_long_rad,
-                self.det_lat_rad,
-                self.det_xax_rad,
-            )[:-1]
-        )
-
-        cos_2psi = np.cos(2 * psi)
-        sin_2psi = np.sin(2 * psi)
-        Fpc = apply_psi_rotation(psi, *ab_factors) * sin_angbtwArms
+        ras, decs = ra_dec_from_th_phi_rad(theta, phi)
+        Fpc = self.detector.compute_antenna_pattern(theta, phi, t, psi, rot)
 
         omega = TWOPI * f * DAY_TO_SEC
         phase = 1j * (omega * tcoal - Phicoal + phiD + phiL)
@@ -3941,7 +3764,10 @@ class GWSignal(object):
         hp, hc = Fpc[0] * _hp, Fpc[1] * _hc
 
         def psi_par_deriv():
+            cos_2psi = np.cos(2 * psi)
+            sin_2psi = np.sin(2 * psi)
             dpsi_rotation = -2 * np.array([[sin_2psi, -cos_2psi], [cos_2psi, sin_2psi]])
+            ab_factors, _ = self.detector._compute_ab_factors(ras, decs, t, rot_rad)
             Fpc_dpsi = (
                 np.einsum("ij...,j...->i...", dpsi_rotation, ab_factors)
                 * sin_angbtwArms
@@ -3949,20 +3775,11 @@ class GWSignal(object):
             return Fpc_dpsi[0] * _hp, Fpc_dpsi[1] * _hc
 
         def phi_par_deriv():
-
-            afac_dphi, bfac_dphi, deltat_dphi = compute_ab_factors(
-                ras,
-                decs,
-                t,
-                rot_rad,
-                self.det_long_rad,
-                self.det_lat_rad,
-                self.det_xax_rad,
-                dphi=True,
+            afac_dphi, bfac_dphi, deltat_dphi = self.detector._compute_ab_factors(
+                ras, decs, t, rot_rad, dphi=True
             )
 
             Fpc = apply_psi_rotation(psi, afac_dphi, bfac_dphi) * sin_angbtwArms
-
             Ap_dphi = Fpc[0] * _hp
             Ac_dphi = Fpc[1] * _hc
 
@@ -3977,20 +3794,11 @@ class GWSignal(object):
             )
 
         def theta_par_deriv():
-
-            afac_dtheta, bfac_dtheta, deltat_dtheta = compute_ab_factors(
-                ras,
-                decs,
-                t,
-                rot_rad,
-                self.det_long_rad,
-                self.det_lat_rad,
-                self.det_xax_rad,
-                dtheta=True,
+            afac_dtheta, bfac_dtheta, deltat_dtheta = self.detector._compute_ab_factors(
+                ras, decs, t, rot_rad, dtheta=True
             )
 
             Fpc = apply_psi_rotation(psi, afac_dtheta, bfac_dtheta) * sin_angbtwArms
-
             Ap_dtheta = Fpc[0] * _hp
             Ac_dtheta = Fpc[1] * _hc
 
@@ -4005,20 +3813,11 @@ class GWSignal(object):
             )
 
         def tcoal_par_deriv():
-
-            afac_dtime, bfac_dtime, deltat_dtime = compute_ab_factors(
-                ras,
-                decs,
-                t,
-                rot_rad,
-                self.det_long_rad,
-                self.det_lat_rad,
-                self.det_xax_rad,
-                dtheta=True,
+            afac_dtime, bfac_dtime, deltat_dtime = self.detector._compute_ab_factors(
+                ras, decs, t, rot_rad, dtheta=True
             )
 
             Fpc = apply_psi_rotation(psi, afac_dtime, bfac_dtime) * sin_angbtwArms
-
             Ap_dtime = Fpc[0] * _hp
             Ac_dtime = Fpc[1] * _hc
 
@@ -4068,7 +3867,6 @@ class GWSignal(object):
         # Function to compute the optimal theta and phi for a signal to be seen by the detector at a given GMST. The boolean is_tGPS can be used to specify whether the provided time is a GPS time rather than a GMST, so that it will be converted.
         # For a triangle the best location is the same of an L in the same place, as can be shown by explicit geometrical computation.
         # Even if considering Earth rotation, the highest SNR will still be obtained if the source is in the optimal location close to the merger.
-        from scipy.optimize import minimize
 
         if is_tGPS:
             tc = utils.GPSt_to_LMST(tcoal, lat=0.0, long=0.0)
@@ -4076,8 +3874,7 @@ class GWSignal(object):
             tc = tcoal
 
         def pattern_fixedtpsi(pars, tc=tc):
-            theta, phi = pars
-            Fp, Fc = self._PatternFunction(theta, phi, t=tc, psi=0)
+            Fp, Fc = self.detector.compute_antenna_pattern(*pars, t=tc, psi=0)
             return -np.sqrt(Fp**2 + Fc**2)
 
         # we actually minimize the pattern function times -1, which is the same as maximizing it
@@ -4106,7 +3903,7 @@ class GWSignal(object):
             evParams["eta"],
         )
 
-        ras, decs = self._ra_dec_from_th_phi(theta, phi)
+        ras, decs = ra_dec_from_th_phi_rad(theta, phi)
 
         if not np.isscalar(Mc):
             SNR = np.zeros(Mc.shape)
@@ -4125,133 +3922,15 @@ class GWSignal(object):
         fcut = self.wf_model.fcut(**evParams)
         if self.fmax is not None:
             fcut = np.where(fcut > self.fmax, self.fmax, fcut)
-        mask = self.strainFreq >= self.fmin
-
-        def CoeffsRot(ra, dec, psi, rot=0.0):
-            rot = rot * DEG_TO_RAD
-            rasDet = ra - self.det_long_rad
-            # Referring to overleaf, I now call VC2 the last vector appearing in the C2 expression, VS2 the one in the S2 expression and so on
-            # e1 is the first element and e2 the second
-
-            sin_angbtwArms = np.sin(self.angbtwArms)
-
-            sin_lat = np.sin(self.det_lat_rad)
-            cos_lat = np.cos(self.det_lat_rad)
-            sin_2lat = np.sin(2.0 * self.det_lat_rad)
-            m3_cos_2lat = 3 - np.cos(2.0 * self.det_lat_rad)
-            sin_2xax = np.sin(2.0 * (self.det_xax_rad + rot))
-            cos_2xax = np.cos(2.0 * (self.det_xax_rad + rot))
-            cos_2ra = np.cos(2.0 * rasDet)
-            sin_2ra = np.sin(2.0 * rasDet)
-            m3_cos_2dec = 3 - np.cos(2.0 * dec)
-            sin_2dec = np.sin(2.0 * dec)
-
-            # TODO: Why 0.0675?
-            VC2e1 = (
-                0.0675 * cos_2ra * sin_2xax * m3_cos_2dec * m3_cos_2lat
-                - 0.25 * sin_2ra * cos_2xax * m3_cos_2dec * sin_lat
-            )
-            VC2e2 = (
-                0.25 * sin_2ra * sin_2xax * np.sin(dec) * m3_cos_2lat
-                + cos_2ra * cos_2xax * np.sin(dec) * sin_lat
-            )
-            C2p, C2c = sin_angbtwArms * apply_psi_rotation(psi, VC2e1, VC2e2)
-
-            VS2e1 = (
-                0.0675 * sin_2ra * sin_2xax * m3_cos_2dec * m3_cos_2lat
-                + 0.25 * cos_2ra * cos_2xax * m3_cos_2dec * sin_lat
-            )
-            VS2e2 = (
-                -0.25 * cos_2ra * sin_2xax * np.sin(dec) * m3_cos_2lat
-                + sin_2ra * cos_2xax * np.sin(dec) * sin_lat
-            )
-            S2p, S2c = sin_angbtwArms * apply_psi_rotation(psi, VS2e1, VS2e2)
-
-            VC1e1 = 0.25 * (
-                np.cos(rasDet) * sin_2xax * sin_2dec * sin_2lat
-                - 2 * np.sin(rasDet) * cos_2xax * sin_2dec * cos_lat
-            )
-            VC1e2 = (
-                np.cos(rasDet) * cos_2xax * np.cos(dec) * cos_lat
-                + 0.5 * np.sin(rasDet) * sin_2xax * np.cos(dec) * sin_2lat
-            )
-            C1p, C1c = sin_angbtwArms * apply_psi_rotation(psi, VC1e1, VC1e2)
-
-            VS1e1 = 0.25 * (
-                np.sin(rasDet) * sin_2xax * sin_2dec * sin_2lat
-                + 2 * np.cos(rasDet) * cos_2xax * sin_2dec * cos_lat
-            )
-            VS1e2 = (
-                np.sin(rasDet) * cos_2xax * np.cos(dec) * cos_lat
-                - 0.5 * np.cos(rasDet) * sin_2xax * np.cos(dec) * sin_2lat
-            )
-            S1p, S1c = sin_angbtwArms * apply_psi_rotation(psi, VS1e1, VS1e2)
-
-            _C0 = 0.75 * sin_2xax * ((np.cos(dec) * cos_lat) ** 2) * sin_angbtwArms
-            C0p = _C0 * np.cos(2.0 * psi)
-            C0c = -_C0 * np.sin(2.0 * psi)
-
-            return (
-                np.array([C2p, C2c]),
-                np.array([S2p, S2c]),
-                np.array([C1p, C1c]),
-                np.array([S1p, S1c]),
-                np.array([C0p, C0c]),
-            )
-
-        def FpFcsqInt(C2s, S2s, C1s, S1s, C0s, Igs, iota):
-            # Is he out of his mind??
-            Fp4 = 0.5 * (C2s[0] ** 2 - S2s[0] ** 2) * Igs[3] + C2s[0] * S2s[0] * Igs[7]
-
-            Fp3 = (C2s[0] * C1s[0] - S2s[0] * S1s[0]) * Igs[2] + (
-                C2s[0] * S1s[0] + S2s[0] * C1s[0]
-            ) * Igs[6]
-
-            Fp2 = (0.5 * (C1s[0] ** 2 - S1s[0] ** 2) + 2.0 * C2s[0] * C0s[0]) * Igs[
-                1
-            ] + (2.0 * C0s[0] * S2s[0] + C1s[0] * S1s[0]) * Igs[5]
-
-            Fp1 = (2.0 * C0s[0] * C1s[0] + C1s[0] * C2s[0] + S2s[0] * S1s[0]) * Igs[
-                0
-            ] + (2.0 * C0s[0] * S1s[0] + C1s[0] * S2s[0] - S1s[0] * C2s[0]) * Igs[4]
-
-            Fp0 = (
-                C0s[0] ** 2
-                + 0.5 * (C1s[0] ** 2 + C2s[0] ** 2 + S1s[0] ** 2 + S2s[0] ** 2)
-            ) * Igs[8]
-
-            FpsqInt = Fp4 + Fp3 + Fp2 + Fp1 + Fp0
-
-            Fc4 = 0.5 * (C2s[1] ** 2 - S2s[1] ** 2) * Igs[3] + C2s[1] * S2s[1] * Igs[7]
-
-            Fc3 = (C2s[1] * C1s[1] - S2s[1] * S1s[1]) * Igs[2] + (
-                C2s[1] * S1s[1] + S2s[1] * C1s[1]
-            ) * Igs[6]
-
-            Fc2 = (0.5 * (C1s[1] ** 2 - S1s[1] ** 2) + 2.0 * C2s[1] * C0s[1]) * Igs[
-                1
-            ] + (2.0 * C0s[1] * S2s[1] + C1s[1] * S1s[1]) * Igs[5]
-
-            Fc1 = (2.0 * C0s[1] * C1s[1] + C1s[1] * C2s[1] + S2s[1] * S1s[1]) * Igs[
-                0
-            ] + (2.0 * C0s[1] * S1s[1] + C1s[1] * S2s[1] - S1s[1] * C2s[1]) * Igs[4]
-
-            Fc0 = (
-                C0s[1] ** 2
-                + 0.5 * (C1s[1] ** 2 + C2s[1] ** 2 + S1s[1] ** 2 + S2s[1] ** 2)
-            ) * Igs[8]
-
-            FcsqInt = Fc4 + Fc3 + Fc2 + Fc1 + Fc0
-
-            return (
-                FpsqInt * (0.5 * (1.0 + (np.cos(iota)) ** 2)) ** 2,
-                FcsqInt * (np.cos(iota)) ** 2,
-            )
+        mask = self.detector.psd_frequencies >= self.fmin
+        masked_freqs = self.detector.psd_frequencies[mask]
 
         if not self.useEarthMotion:
             t = tcoal - self.wf_model.tau_star(self.fmin, **evParams) / DAY_TO_SEC
-            if self.detector_shape == "L":
-                Fp, Fc = self._PatternFunction(theta, phi, t, psi, rot=0.0)
+            if self.detector.shape == "L":
+                Fp, Fc = self.detector.compute_antenna_pattern(
+                    theta, phi, t, psi, rot=0.0
+                )
                 Qsq = (Fp * 0.5 * (1.0 + (np.cos(iota)) ** 2)) ** 2 + (
                     Fc * np.cos(iota)
                 ) ** 2
@@ -4259,23 +3938,25 @@ class GWSignal(object):
                     Qsq
                     * onp.interp(
                         fcut,
-                        self.strainFreq[mask],
+                        masked_freqs,
                         self.strainInteg,
                         left=1.0,
                         right=1.0,
                     )
                 )
-            elif self.detector_shape == "T":
+            elif self.detector.shape == "T":
                 for i in range(3):
-                    Fp, Fc = self._PatternFunction(theta, phi, t, psi, rot=60.0 * i)
-                    Qsq = (Fp * 0.5 * (1.0 + (np.cos(iota)) ** 2)) ** 2 + (
+                    Fp, Fc = self.detector.compute_antenna_pattern(
+                        theta, phi, t, psi, rot=60.0 * i
+                    )
+                    Qsq = (Fp * 0.5 * (1.0 + np.cos(iota) ** 2)) ** 2 + (
                         Fc * np.cos(iota)
                     ) ** 2
                     tmpSNR = fac * np.sqrt(
                         Qsq
                         * onp.interp(
                             fcut,
-                            self.strainFreq[mask],
+                            masked_freqs,
                             self.strainInteg,
                             left=1.0,
                             right=1.0,
@@ -4283,346 +3964,345 @@ class GWSignal(object):
                     )
                     SNR = SNR + tmpSNR * tmpSNR
                 SNR = np.sqrt(SNR)
+            return SNR
+
+        if self.IntegInterpArr is None:
+            self._make_SNRig_interpolator()
+        Igs = onp.zeros((9, len(Mc)))
+        if not checkInterp:
+            for i in range(9):
+                Igs[i, :] = self.IntegInterpArr[i](onp.array([Mc, eta, tcoal]).T)
         else:
-            if self.IntegInterpArr is None:
-                self._make_SNRig_interpolator()
-            Igs = onp.zeros((9, len(Mc)))
-            if not checkInterp:
-                for i in range(9):
-                    Igs[i, :] = self.IntegInterpArr[i](onp.array([Mc, eta, tcoal]).T)
-            else:
-                fminarr = np.full(fcut.shape, self.fmin)
-                fgrids = np.geomspace(fminarr, fcut, num=int(5000))
-                strainGrids = np.interp(
-                    fgrids, self.strainFreq, self.noiseCurve, left=1.0, right=1.0
+            fminarr = np.full(fcut.shape, self.fmin)
+            fgrids = np.geomspace(fminarr, fcut, num=int(5000))
+            strainGrids = self.detector.psd_interp(fgrids)
+
+            for m in range(4):
+                tmpIntegrandC = CosineIntegrand(fgrids, Mc, tcoal, m + 1.0)
+                tmpIntegrandS = SineIntegrand(fgrids, Mc, tcoal, m + 1.0)
+                Igs[m, :] = onp.trapz(tmpIntegrandC / strainGrids, fgrids, axis=0)
+                Igs[m + 4, :] = onp.trapz(tmpIntegrandS / strainGrids, fgrids, axis=0)
+            tmpIntegrand = CosineIntegrand(fgrids, Mc, tcoal, 0.0)
+            Igs[8, :] = onp.trapz(tmpIntegrand / strainGrids, fgrids, axis=0)
+
+        if self.detector.shape == "L":
+            C2s, S2s, C1s, S1s, C0s = self.detector.CoeffsRot(ras, decs, psi, rot=0.0)
+            FpsqInt, FcsqInt = FpFcsqInt(C2s, S2s, C1s, S1s, C0s, Igs, iota)
+            QsqInt = FpsqInt + FcsqInt
+            SNR = fac * np.sqrt(QsqInt)
+        elif self.detector.shape == "T":
+            snr_sq = 0.0
+            for i in range(3):
+                C2s, S2s, C1s, S1s, C0s = self.detector.CoeffsRot(
+                    ras, decs, psi, rot=i * 60.0
                 )
-
-                for m in range(4):
-                    tmpIntegrandC = CosineIntegrand(fgrids, Mc, tcoal, m + 1.0)
-                    tmpIntegrandS = SineIntegrand(fgrids, Mc, tcoal, m + 1.0)
-                    Igs[m, :] = onp.trapz(tmpIntegrandC / strainGrids, fgrids, axis=0)
-                    Igs[m + 4, :] = onp.trapz(
-                        tmpIntegrandS / strainGrids, fgrids, axis=0
-                    )
-                tmpIntegrand = CosineIntegrand(fgrids, Mc, tcoal, 0.0)
-                Igs[8, :] = onp.trapz(tmpIntegrand / strainGrids, fgrids, axis=0)
-
-            if self.detector_shape == "L":
-                C2s, S2s, C1s, S1s, C0s = CoeffsRot(ras, decs, psi, rot=0.0)
                 FpsqInt, FcsqInt = FpFcsqInt(C2s, S2s, C1s, S1s, C0s, Igs, iota)
                 QsqInt = FpsqInt + FcsqInt
-                SNR = fac * np.sqrt(QsqInt)
-            elif self.detector_shape == "T":
-                for i in range(3):
-                    C2s, S2s, C1s, S1s, C0s = CoeffsRot(ras, decs, psi, rot=i * 60.0)
-                    FpsqInt, FcsqInt = FpFcsqInt(C2s, S2s, C1s, S1s, C0s, Igs, iota)
-                    QsqInt = FpsqInt + FcsqInt
-                    tmpSNR = fac * np.sqrt(QsqInt)
-                    SNR = SNR + tmpSNR * tmpSNR
-                SNR = np.sqrt(SNR)
-
+                snr_sq += fac * fac * QsqInt
+            SNR = np.sqrt(snr_sq)
         return SNR
 
+    def WFOverlap(
+        self, WF1, WF2, evParams1, evParams2, res=1000, return_separate=False, **kwargs
+    ):
+        """
+        Compute the *overlap* of two waveforms in a single detector on two sets of parameters, for one or multiple events.
 
-def WFOverlap(
-    self, WF1, WF2, evParams1, evParams2, res=1000, return_separate=False, **kwargs
-):
-    """
-    Compute the *overlap* of two waveforms in a single detector on two sets of parameters, for one or multiple events.
+        :param WaveFormModel WF1: Object containing the first waveform model to analyse.
+        :param WaveFormModel WF2: Object containing the second waveform model to analyse.
+        :param dict(array, array, ...) evParams1: Dictionary containing the parameters of the event(s) for the first waveform model, as in :py:data:`events`.
+        :param dict(array, array, ...) evParams2: Dictionary containing the parameters of the event(s) for the second waveform model, as in :py:data:`events`.
+        :param int res: The resolution of the frequency grid to use.
+        :param bool, optional return_all: Boolean specifying if, instead of returning the overlap, the function has to return separately product at the numerator of the definition, :math:`(h_1|h_2)`, and the SNRs at the denominator. This is needed to compute the overlap for a detector network. In this case the return type is *tuple(array, array, array)*.
+        :param unused kwargs: Optional arguments.
 
-    :param WaveFormModel WF1: Object containing the first waveform model to analyse.
-    :param WaveFormModel WF2: Object containing the second waveform model to analyse.
-    :param dict(array, array, ...) evParams1: Dictionary containing the parameters of the event(s) for the first waveform model, as in :py:data:`events`.
-    :param dict(array, array, ...) evParams2: Dictionary containing the parameters of the event(s) for the second waveform model, as in :py:data:`events`.
-    :param int res: The resolution of the frequency grid to use.
-    :param bool, optional return_all: Boolean specifying if, instead of returning the overlap, the function has to return separately product at the numerator of the definition, :math:`(h_1|h_2)`, and the SNRs at the denominator. This is needed to compute the overlap for a detector network. In this case the return type is *tuple(array, array, array)*.
-    :param unused kwargs: Optional arguments.
+        :return: Overlap(s) of the two waveforms. The shape is :math:`(N_{\\rm events})`.
+        :rtype: 1-D array
 
-    :return: Overlap(s) of the two waveforms. The shape is :math:`(N_{\\rm events})`.
-    :rtype: 1-D array
+        """
+        # Checks on imput parameters for waveforms
+        check_evparams(evParams1)
+        check_evparams(evParams2)
 
-    """
-    utils.check_evparams(evParams1)
-    utils.check_evparams(evParams2)
-
-    # Checks on imput parameters for waveform 1
-
-    if WF1.is_Precessing:
-        try:
-            _ = evParams1["chi1x"]
-        except KeyError:
+        if WF1.is_Precessing:
             try:
-                print("Adding cartesian components of the spins from angular variables")
+                _ = evParams1["chi1x"]
+            except KeyError:
+                try:
+                    print(
+                        "Adding cartesian components of the spins from angular variables"
+                    )
+                    (
+                        evParams1["iota"],
+                        evParams1["chi1x"],
+                        evParams1["chi1y"],
+                        evParams1["chi1z"],
+                        evParams1["chi2x"],
+                        evParams1["chi2y"],
+                        evParams1["chi2z"],
+                    ) = utils.TransformPrecessing_angles2comp(
+                        thetaJN=evParams1["thetaJN"],
+                        phiJL=evParams1["phiJL"],
+                        tilt1=evParams1["tilt1"],
+                        tilt2=evParams1["tilt2"],
+                        phi12=evParams1["phi12"],
+                        chi1=evParams1["chi1"],
+                        chi2=evParams1["chi2"],
+                        Mc=evParams1["Mc"],
+                        eta=evParams1["eta"],
+                        fRef=self.fmin,
+                        phiRef=0.0,
+                    )
+                except KeyError:
+                    raise ValueError(
+                        "Either the cartesian components of the precessing spins (iota, chi1x, chi1y, chi1z, chi2x, chi2y, chi2z) or their modulus and orientations (thetaJN, chi1, chi2, tilt1, tilt2, phiJL, phi12) have to be provided."
+                    )
+        else:
+            try:
+                _ = evParams1["chi1z"]
                 (
-                    evParams1["iota"],
                     evParams1["chi1x"],
                     evParams1["chi1y"],
-                    evParams1["chi1z"],
                     evParams1["chi2x"],
                     evParams1["chi2y"],
-                    evParams1["chi2z"],
-                ) = utils.TransformPrecessing_angles2comp(
-                    thetaJN=evParams1["thetaJN"],
-                    phiJL=evParams1["phiJL"],
-                    theta1=evParams1["tilt1"],
-                    theta2=evParams1["tilt2"],
-                    phi12=evParams1["phi12"],
-                    chi1=evParams1["chi1"],
-                    chi2=evParams1["chi2"],
-                    Mc=evParams1["Mc"],
-                    eta=evParams1["eta"],
-                    fRef=self.fmin,
-                    phiRef=0.0,
+                ) = (
+                    np.zeros_like(evParams1["Mc"]),
+                    np.zeros_like(evParams1["Mc"]),
+                    np.zeros_like(evParams1["Mc"]),
+                    np.zeros_like(evParams1["Mc"]),
                 )
             except KeyError:
-                raise ValueError(
-                    "Either the cartesian components of the precessing spins (iota, chi1x, chi1y, chi1z, chi2x, chi2y, chi2z) or their modulus and orientations (thetaJN, chi1, chi2, tilt1, tilt2, phiJL, phi12) have to be provided."
-                )
-    else:
-        try:
-            _ = evParams1["chi1z"]
-            (
-                evParams1["chi1x"],
-                evParams1["chi1y"],
-                evParams1["chi2x"],
-                evParams1["chi2y"],
-            ) = (
-                np.zeros_like(evParams1["Mc"]),
-                np.zeros_like(evParams1["Mc"]),
-                np.zeros_like(evParams1["Mc"]),
-                np.zeros_like(evParams1["Mc"]),
-            )
-        except KeyError:
-            try:
-                print("Adding chi1z, chi2z from chiS, chiA")
-                evParams1["chi1z"] = evParams1["chiS"] + evParams1["chiA"]
-                evParams1["chi2z"] = evParams1["chiS"] - evParams1["chiA"]
-            except KeyError:
-                raise ValueError(
-                    "Two among chi1z, chi2z and chiS, chiA have to be provided."
-                )
-
-    if WF1.is_tidal:
-        try:
-            _ = evParams1["LambdaTilde"]
-        except KeyError:
-            try:
-                evParams1["LambdaTilde"], evParams1["deltaLambda"] = (
-                    utils.Lamt_delLam_from_Lam12(
-                        evParams1["Lambda1"], evParams1["Lambda2"], evParams1["eta"]
+                try:
+                    print("Adding chi1z, chi2z from chiS, chiA")
+                    evParams1["chi1z"] = evParams1["chiS"] + evParams1["chiA"]
+                    evParams1["chi2z"] = evParams1["chiS"] - evParams1["chiA"]
+                except KeyError:
+                    raise ValueError(
+                        "Two among chi1z, chi2z and chiS, chiA have to be provided."
                     )
-                )
-            except KeyError:
-                raise ValueError(
-                    "Two among Lambda1, Lambda2 and LambdaTilde and deltaLambda have to be provided."
-                )
-    else:
-        evParams1["LambdaTilde"], evParams1["deltaLambda"] = np.zeros_like(
-            evParams1["Mc"]
-        ), np.zeros_like(evParams1["Mc"])
 
-    if not WF1.is_eccentric:
-        evParams1["ecc"] = np.zeros_like(evParams1["Mc"])
-
-    # Checks on imput parameters for waveform 2
-
-    if WF2.is_Precessing:
-        try:
-            _ = evParams2["chi1x"]
-        except KeyError:
+        if WF1.is_tidal:
             try:
-                print("Adding cartesian components of the spins from angular variables")
+                _ = evParams1["LambdaTilde"]
+            except KeyError:
+                try:
+                    evParams1["LambdaTilde"], evParams1["deltaLambda"] = (
+                        utils.Lamt_delLam_from_Lam12(
+                            evParams1["Lambda1"], evParams1["Lambda2"], evParams1["eta"]
+                        )
+                    )
+                except KeyError:
+                    raise ValueError(
+                        "Two among Lambda1, Lambda2 and LambdaTilde and deltaLambda have to be provided."
+                    )
+        else:
+            evParams1["LambdaTilde"], evParams1["deltaLambda"] = np.zeros_like(
+                evParams1["Mc"]
+            ), np.zeros_like(evParams1["Mc"])
+
+        if not WF1.is_eccentric:
+            evParams1["ecc"] = np.zeros_like(evParams1["Mc"])
+
+        # Checks on imput parameters for waveform 2
+
+        if WF2.is_Precessing:
+            try:
+                _ = evParams2["chi1x"]
+            except KeyError:
+                try:
+                    print(
+                        "Adding cartesian components of the spins from angular variables"
+                    )
+                    (
+                        evParams2["iota"],
+                        evParams2["chi1x"],
+                        evParams2["chi1y"],
+                        evParams2["chi1z"],
+                        evParams2["chi2x"],
+                        evParams2["chi2y"],
+                        evParams2["chi2z"],
+                    ) = utils.TransformPrecessing_angles2comp(
+                        thetaJN=evParams2["thetaJN"],
+                        phiJL=evParams2["phiJL"],
+                        tilt1=evParams2["tilt1"],
+                        tilt2=evParams2["tilt2"],
+                        phi12=evParams2["phi12"],
+                        chi1=evParams2["chi1"],
+                        chi2=evParams2["chi2"],
+                        Mc=evParams2["Mc"],
+                        eta=evParams2["eta"],
+                        fRef=self.fmin,
+                        phiRef=0.0,
+                    )
+                except KeyError:
+                    raise ValueError(
+                        "Either the cartesian components of the precessing spins (iota, chi1x, chi1y, chi1z, chi2x, chi2y, chi2z) or their modulus and orientations (thetaJN, chi1, chi2, tilt1, tilt2, phiJL, phi12) have to be provided."
+                    )
+        else:
+            try:
+                _ = evParams2["chi1z"]
                 (
-                    evParams2["iota"],
                     evParams2["chi1x"],
                     evParams2["chi1y"],
-                    evParams2["chi1z"],
                     evParams2["chi2x"],
                     evParams2["chi2y"],
-                    evParams2["chi2z"],
-                ) = utils.TransformPrecessing_angles2comp(
-                    thetaJN=evParams2["thetaJN"],
-                    phiJL=evParams2["phiJL"],
-                    theta1=evParams2["tilt1"],
-                    theta2=evParams2["tilt2"],
-                    phi12=evParams2["phi12"],
-                    chi1=evParams2["chi1"],
-                    chi2=evParams2["chi2"],
-                    Mc=evParams2["Mc"],
-                    eta=evParams2["eta"],
-                    fRef=self.fmin,
-                    phiRef=0.0,
+                ) = (
+                    np.zeros_like(evParams2["Mc"]),
+                    np.zeros_like(evParams2["Mc"]),
+                    np.zeros_like(evParams2["Mc"]),
+                    np.zeros_like(evParams2["Mc"]),
                 )
             except KeyError:
-                raise ValueError(
-                    "Either the cartesian components of the precessing spins (iota, chi1x, chi1y, chi1z, chi2x, chi2y, chi2z) or their modulus and orientations (thetaJN, chi1, chi2, tilt1, tilt2, phiJL, phi12) have to be provided."
-                )
-    else:
-        try:
-            _ = evParams2["chi1z"]
-            (
-                evParams2["chi1x"],
-                evParams2["chi1y"],
-                evParams2["chi2x"],
-                evParams2["chi2y"],
-            ) = (
-                np.zeros_like(evParams2["Mc"]),
-                np.zeros_like(evParams2["Mc"]),
-                np.zeros_like(evParams2["Mc"]),
-                np.zeros_like(evParams2["Mc"]),
-            )
-        except KeyError:
-            try:
-                print("Adding chi1z, chi2z from chiS, chiA")
-                evParams2["chi1z"] = evParams2["chiS"] + evParams2["chiA"]
-                evParams2["chi2z"] = evParams2["chiS"] - evParams2["chiA"]
-            except KeyError:
-                raise ValueError(
-                    "Two among chi1z, chi2z and chiS, chiA have to be provided."
-                )
-
-    if WF2.is_tidal:
-        try:
-            _ = evParams2["LambdaTilde"]
-        except KeyError:
-            try:
-                evParams2["LambdaTilde"], evParams2["deltaLambda"] = (
-                    utils.Lamt_delLam_from_Lam12(
-                        evParams2["Lambda1"], evParams2["Lambda2"], evParams2["eta"]
+                try:
+                    print("Adding chi1z, chi2z from chiS, chiA")
+                    evParams2["chi1z"] = evParams2["chiS"] + evParams2["chiA"]
+                    evParams2["chi2z"] = evParams2["chiS"] - evParams2["chiA"]
+                except KeyError:
+                    raise ValueError(
+                        "Two among chi1z, chi2z and chiS, chiA have to be provided."
                     )
-                )
+
+        if WF2.is_tidal:
+            try:
+                _ = evParams2["LambdaTilde"]
             except KeyError:
-                raise ValueError(
-                    "Two among Lambda1, Lambda2 and LambdaTilde and deltaLambda have to be provided."
+                try:
+                    evParams2["LambdaTilde"], evParams2["deltaLambda"] = (
+                        utils.Lamt_delLam_from_Lam12(
+                            evParams2["Lambda1"], evParams2["Lambda2"], evParams2["eta"]
+                        )
+                    )
+                except KeyError:
+                    raise ValueError(
+                        "Two among Lambda1, Lambda2 and LambdaTilde and deltaLambda have to be provided."
+                    )
+        else:
+            evParams2["LambdaTilde"], evParams2["deltaLambda"] = np.zeros_like(
+                evParams2["Mc"]
+            ), np.zeros_like(evParams2["Mc"])
+
+        if not WF2.is_eccentric:
+            evParams2["ecc"] = np.zeros_like(evParams2["Mc"])
+
+        # The frequency cut is chosen to be the highest among the two
+        fcut1 = WF1.fcut(**evParams1)
+        fcut2 = WF2.fcut(**evParams2)
+
+        fcutUse = np.where(fcut1 > fcut2, fcut1, fcut2)
+
+        if self.fmax is not None:
+            fcutUse = np.where(fcutUse > self.fmax, self.fmax, fcut1)
+        fminarr = np.full(fcutUse.shape, self.fmin)
+
+        fgrids = np.geomspace(fminarr, fcutUse, num=int(res))
+        psd_strain_grids = self.detector.psd_interp(fgrids)
+
+        # This is a horrible way of changing the waveform, but the fastest to implement
+        WFor = copy.deepcopy(self.wf_model)
+
+        strains = []
+        SNRhs = []
+        if self.detector.shape == "L":
+            for model, params in zip((WF1, WF2), (evParams1, evParams2)):
+                self.wf_model = model
+                strain = self.GWstrain(
+                    fgrids,
+                    params["Mc"],
+                    params["eta"],
+                    params["dL"],
+                    params["theta"],
+                    params["phi"],
+                    params["iota"],
+                    params["psi"],
+                    params["tcoal"],
+                    params["Phicoal"],
+                    params["chi1z"],
+                    params["chi2z"],
+                    params["chi1x"],
+                    params["chi2x"],
+                    params["chi1y"],
+                    params["chi2y"],
+                    params["LambdaTilde"],
+                    params["deltaLambda"],
+                    params["ecc"],
+                    is_chi1chi2=True,
                 )
-    else:
-        evParams2["LambdaTilde"], evParams2["deltaLambda"] = np.zeros_like(
-            evParams2["Mc"]
-        ), np.zeros_like(evParams2["Mc"])
 
-    if not WF2.is_eccentric:
-        evParams2["ecc"] = np.zeros_like(evParams2["Mc"])
+                strains.append(strain)
+                SNRhs.append(optimal_snr(fgrids, strain, psd_strain_grids))
 
-    # The frequency cut is chosen to be the highest among the two
-    fcut1 = WF1.fcut(**evParams1)
-    fcut2 = WF2.fcut(**evParams2)
-
-    fcutUse = np.where(fcut1 > fcut2, fcut1, fcut2)
-
-    if self.fmax is not None:
-        fcutUse = np.where(fcutUse > self.fmax, self.fmax, fcut1)
-    fminarr = np.full(fcutUse.shape, self.fmin)
-
-    fgrids = np.geomspace(fminarr, fcutUse, num=int(res))
-    # Out of the provided PSD range, we use a constant value of 1, which results in completely negligible conntributions
-    psd_strain_grids = np.interp(
-        fgrids, self.strainFreq, self.noiseCurve, left=1.0, right=1.0
-    )
-
-    # This is a horrible way of changing the waveform, but the fastest to implement
-    WFor = copy.deepcopy(self.wf_model)
-
-    strains = []
-    SNRhs = []
-    if self.detector_shape == "L":
-        for model, params in zip((WF1, WF2), (evParams1, evParams2)):
-            self.wf_model = model
-            strain = self.GWstrain(
-                fgrids,
-                params["Mc"],
-                params["eta"],
-                params["dL"],
-                params["theta"],
-                params["phi"],
-                params["iota"],
-                params["psi"],
-                params["tcoal"],
-                params["Phicoal"],
-                params["chi1z"],
-                params["chi2z"],
-                params["chi1x"],
-                params["chi2x"],
-                params["chi1y"],
-                params["chi2y"],
-                params["LambdaTilde"],
-                params["deltaLambda"],
-                params["ecc"],
-                is_chi1chi2=True,
+            overlap_int = noise_weighted_inner_product(
+                fgrids, *strains, psd_strain_grids
             )
 
-            strains.append(strain)
-            SNRhs.append(optimal_snr(fgrids, strain, psd_strain_grids))
+        elif self.detector.shape == "T":
+            for model, params in zip((WF1, WF2), (evParams1, evParams2)):
+                self.wf_model = model
+                h_1 = self.GWstrain(
+                    fgrids,
+                    params["Mc"],
+                    params["eta"],
+                    params["dL"],
+                    params["theta"],
+                    params["phi"],
+                    params["iota"],
+                    params["psi"],
+                    params["tcoal"],
+                    params["Phicoal"],
+                    params["chi1z"],
+                    params["chi2z"],
+                    params["chi1x"],
+                    params["chi2x"],
+                    params["chi1y"],
+                    params["chi2y"],
+                    params["LambdaTilde"],
+                    params["deltaLambda"],
+                    params["ecc"],
+                    is_chi1chi2=True,
+                    rot=0.0,
+                )
+                h_2 = self.GWstrain(
+                    fgrids,
+                    params["Mc"],
+                    params["eta"],
+                    params["dL"],
+                    params["theta"],
+                    params["phi"],
+                    params["iota"],
+                    params["psi"],
+                    params["tcoal"],
+                    params["Phicoal"],
+                    params["chi1z"],
+                    params["chi2z"],
+                    params["chi1x"],
+                    params["chi2x"],
+                    params["chi1y"],
+                    params["chi2y"],
+                    params["LambdaTilde"],
+                    params["deltaLambda"],
+                    params["ecc"],
+                    is_chi1chi2=True,
+                    rot=60.0,
+                )
+                h_3 = -(h_1 + h_2)
 
-        overlap_int = noise_weighted_inner_product(fgrids, *strains, psd_strain_grids)
+                strains.append((h_1, h_2, h_3))
 
-    elif self.detector_shape == "T":
-        for model, params in zip((WF1, WF2), (evParams1, evParams2)):
-            self.wf_model = model
-            h_1 = self.GWstrain(
-                fgrids,
-                params["Mc"],
-                params["eta"],
-                params["dL"],
-                params["theta"],
-                params["phi"],
-                params["iota"],
-                params["psi"],
-                params["tcoal"],
-                params["Phicoal"],
-                params["chi1z"],
-                params["chi2z"],
-                params["chi1x"],
-                params["chi2x"],
-                params["chi1y"],
-                params["chi2y"],
-                params["LambdaTilde"],
-                params["deltaLambda"],
-                params["ecc"],
-                is_chi1chi2=True,
-                rot=0.0,
-            )
-            h_2 = self.GWstrain(
-                fgrids,
-                params["Mc"],
-                params["eta"],
-                params["dL"],
-                params["theta"],
-                params["phi"],
-                params["iota"],
-                params["psi"],
-                params["tcoal"],
-                params["Phicoal"],
-                params["chi1z"],
-                params["chi2z"],
-                params["chi1x"],
-                params["chi2x"],
-                params["chi1y"],
-                params["chi2y"],
-                params["LambdaTilde"],
-                params["deltaLambda"],
-                params["ecc"],
-                is_chi1chi2=True,
-                rot=60.0,
-            )
-            h_3 = -(h_1 + h_2)
+                SNRh_1_sq = optimal_snr(fgrids, h_1, psd_strain_grids) ** 2
+                SNRh_2_sq = optimal_snr(fgrids, h_2, psd_strain_grids) ** 2
+                SNRh_3_sq = optimal_snr(fgrids, h_3, psd_strain_grids) ** 2
+                SNRhs.append(np.sqrt(SNRh_1_sq + SNRh_2_sq + SNRh_3_sq))
 
-            strains.append((h_1, h_2, h_3))
+            overlap_int = 0.0
+            for h1_i, h2_i in zip(strains[0], strains[1]):
+                overlap_int += noise_weighted_inner_product(
+                    fgrids, h1_i, h2_i, psd_strain_grids
+                )
 
-            SNRh_1_sq = optimal_snr(fgrids, h_1, psd_strain_grids) ** 2
-            SNRh_2_sq = optimal_snr(fgrids, h_2, psd_strain_grids) ** 2
-            SNRh_3_sq = optimal_snr(fgrids, h_3, psd_strain_grids) ** 2
-            SNRhs.append(np.sqrt(SNRh_1_sq + SNRh_2_sq + SNRh_3_sq))
+        # Restore the waveform
+        self.wf_model = WFor
 
-        overlap_int = 0.0
-        for h1_i, h2_i in zip(strains[0], strains[1]):
-            overlap_int += noise_weighted_inner_product(
-                fgrids, h1_i, h2_i, psd_strain_grids
-            )
-
-    # Restore the waveform
-    self.wf_model = WFor
-
-    if return_separate:
-        return overlap_int, *SNRhs
-    else:
-        return overlap_int / (SNRhs[0] * SNRhs[1])
+        if return_separate:
+            return overlap_int, *SNRhs
+        else:
+            return overlap_int / (SNRhs[0] * SNRhs[1])
