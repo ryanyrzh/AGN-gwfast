@@ -2,7 +2,6 @@ from pathlib import Path
 
 from jax import config
 import jax.numpy as np
-from jax.scipy.interpolate import RegularGridInterpolator as RGInterp
 from scipy.interpolate import interp1d
 
 # Enable 64bit on JAX, fundamental

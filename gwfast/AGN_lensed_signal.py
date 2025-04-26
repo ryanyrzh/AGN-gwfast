@@ -11,12 +11,10 @@ import jax.numpy as np
 
 # Enable 64bit on JAX, fundamental
 config.update("jax_enable_x64", True)
-# config.update("TF_CPP_MIN_LOG_LEVEL", 0)
 
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform"
 
-# We use both the original numpy, denoted as onp, and the JAX implementation of numpy, denoted as np
 import numpy as onp
 import copy
 from collections import OrderedDict
@@ -228,14 +226,10 @@ class AGNLensedGWSignal(GWSignal):
 
             hpc_12.append((hp, hc))
 
-        hp = (
-            np.sqrt(np.abs(mag_1)) * hpc_12[0][0]
-            + np.sqrt(np.abs(mag_2)) * time_delay_phase_shift * hpc_12[1][0]
-        )
-        hc = (
-            np.sqrt(np.abs(mag_1)) * hpc_12[0][1]
-            + np.sqrt(np.abs(mag_2)) * time_delay_phase_shift * hpc_12[1][1]
-        )
+        hp = np.sqrt(np.abs(mag_1)) * hpc_12[0][0] + \
+            np.sqrt(np.abs(mag_2)) * time_delay_phase_shift * hpc_12[1][0]
+        hc = np.sqrt(np.abs(mag_1)) * hpc_12[0][1] + \
+            np.sqrt(np.abs(mag_2)) * time_delay_phase_shift * hpc_12[1][1]
 
         if return_single_comp is not None:
             if return_single_comp == "Ap":
@@ -298,12 +292,10 @@ class AGNLensedGWSignal(GWSignal):
         elif self.detector.shape == "T":
             if not self.compute2arms:
                 for i in range(3):
-                    Atot = (
-                        self.GWstrain(
-                            fgrids, parameters, return_single_comp="At", rot=i * 60.0
-                        )
-                        ** 2
-                    )
+                    Atot = self.GWstrain(
+                        fgrids, parameters, rot=i * 60.0,
+                        return_single_comp="At",
+                    ) ** 2
                     tmpSNRsq = np.trapezoid(Atot / psd_strain_grids, fgrids, axis=0)
                     if self.detector.duty_cycle is not None:
                         tmpSNRsq = tmpSNRsq * self.duty_cycle_mask(params_shape)
@@ -453,6 +445,7 @@ class AGNLensedGWSignal(GWSignal):
 
         Assuming shape of freq_grid is (N_freq, N_params).
         """
+        print(parameters.keys())
         if self.wf_model.is_holomorphic:
             return OrderedDict(
                 vmap(jacrev(self.GWstrain, argnums=1, holomorphic=True))(
@@ -477,7 +470,7 @@ class AGNLensedGWSignal(GWSignal):
         jacobian_mat = np.array(tree.leaves(jacobian_dict))
 
         pre_fisher_mat = jacobian_mat[:, :, None, :].conj() * \
-                jacobian_mat.transpose(1, 0, 2)
+            jacobian_mat.transpose(1, 0, 2)
         pre_fisher_mat = np.swapaxes(pre_fisher_mat, 1, 2)
         fisher_shape = pre_fisher_mat.shape[:-1]
 
@@ -486,12 +479,10 @@ class AGNLensedGWSignal(GWSignal):
         freqs_grid_T = freqs_grid.T
         psd_grids = self.detector.psd_interp(freqs_grid_T)
         for row, col in zip(*np.triu_indices(fisher_shape[0])):
-            fisher_mat[row, col] = (
-                4
-                * np.trapezoid(
-                    pre_fisher_mat[row, col] / psd_grids, freqs_grid_T, axis=1
-                ).real
-            )
+            fisher_mat[row, col] = \
+                4 * np.trapezoid(
+                    pre_fisher_mat[row, col] / psd_grids,
+                    freqs_grid_T, axis=1).real
 
             if row != col:
                 fisher_mat[col, row] = fisher_mat[row, col]
