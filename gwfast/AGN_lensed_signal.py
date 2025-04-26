@@ -384,6 +384,9 @@ class AGNLensedGWSignal(GWSignal):
 
         allFishers = []
 
+        # Convert to OrderDict to preserve order
+        evParams = OrderedDict(evParams)
+
         if self.detector.shape == "L":
             # Compute derivatives
             jacobian_dict = self._jax_derivative(fgrids, evParams)
@@ -447,11 +450,8 @@ class AGNLensedGWSignal(GWSignal):
         """
         print(parameters.keys())
         if self.wf_model.is_holomorphic:
-            return OrderedDict(
-                vmap(jacrev(self.GWstrain, argnums=1, holomorphic=True))(
-                    freq_grid.T, parameters, rot
-                )
-            )
+            return vmap(jacrev(self.GWstrain, argnums=1, holomorphic=True))(
+                    freq_grid.T, parameters, rot)
 
         def real_strain(freqs, params):
             return self.GWstrain(freqs, params, rot).real
@@ -462,7 +462,7 @@ class AGNLensedGWSignal(GWSignal):
         real_deriv = vmap(jacrev(real_strain, argnums=1))(freq_grid.T, parameters)
         imag_deriv = vmap(jacrev(imag_strain, argnums=1))(freq_grid.T, parameters)
         return OrderedDict(
-            {key: real_deriv[key] + 1j * imag_deriv[key] for key in real_deriv.keys()}
+            {key: real_deriv[key] + 1j * imag_deriv[key] for key in parameters.keys()}
         )
 
     def convert_Jacobian_to_Fisher(self, jacobian_dict, freqs_grid):
@@ -472,8 +472,8 @@ class AGNLensedGWSignal(GWSignal):
         pre_fisher_mat = jacobian_mat[:, :, None, :].conj() * \
             jacobian_mat.transpose(1, 0, 2)
         pre_fisher_mat = np.swapaxes(pre_fisher_mat, 1, 2)
-        fisher_shape = pre_fisher_mat.shape[:-1]
 
+        fisher_shape = pre_fisher_mat.shape[:-1]
         fisher_mat = onp.zeros(fisher_shape)
 
         freqs_grid_T = freqs_grid.T
