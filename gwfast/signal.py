@@ -286,16 +286,19 @@ class GWSignal(object):
                     "eta": np.array([eta]),
                 }
                 fcut = self.wf_model.fcut(**tmpev)
-                mask = (self.strainFreq >= self.fmin) & (self.strainFreq <= fcut)
+                mask = self.detector.psd_frequencies >= self.fmin
+                mask *= self.detector.psd_frequencies <= fcut
+                masked_freqs = self.detector.psd_frequencies[mask]
+                masked_psd = self.detector.psd_array[mask]
                 # for k,tc in enumerate(tcgrid):
                 # TODO: Use some kind of expand axis
                 fgrids = (
-                    np.ones((res, len(self.strainFreq[mask]))) * self.strainFreq[mask]
+                    np.ones((res, len(masked_freqs))) * masked_freqs
                 )
                 noisegrids = (
-                    np.ones((res, len(self.noiseCurve[mask]))) * self.noiseCurve[mask]
+                    np.ones((res, len(masked_psd))) * masked_psd
                 )
-                masked_freqs = self.strainFreq[mask][:, onp.newaxis]
+                masked_freqs = masked_freqs[:, onp.newaxis]
                 for m in range(4):
                     tmpIntegrandC = CosineIntegrand(masked_freqs, Mc, tcgrid, m + 1.0)
                     tmpIntegrandS = SineIntegrand(masked_freqs, Mc, tcgrid, m + 1.0)
@@ -876,10 +879,7 @@ class GWSignal(object):
 
         fminarr = np.full(fcut.shape, self.fmin)
         fgrids = np.geomspace(fminarr, fcut, num=int(res))
-        # Out of the provided PSD range, we use a constant value of 1, which results in completely negligible conntributions
-        strainGrids = np.interp(
-            fgrids, self.strainFreq, self.noiseCurve, left=1.0, right=1.0
-        )
+        strainGrids = self.detector.psd_interp(fgrids)
 
         if self.detector.shape == "L":
             if not use_lensing:
@@ -1420,9 +1420,7 @@ class GWSignal(object):
             fgrids = np.geomspace(fminarr, fcut, num=int(res))
 
         # Out of the provided PSD range, we use a constant value of 1, which results in completely negligible conntributions
-        strainGrids = np.interp(
-            fgrids, self.strainFreq, self.noiseCurve, left=1.0, right=1.0
-        )
+        strainGrids = self.detector.psd_interp(fgrids)
 
         nParams = self.wf_model.nParams
         if use_lensing:
@@ -3924,7 +3922,8 @@ class GWSignal(object):
         fcut = self.wf_model.fcut(**evParams)
         if self.fmax is not None:
             fcut = np.where(fcut > self.fmax, self.fmax, fcut)
-        mask = self.strainFreq >= self.fmin
+        mask = self.detector.psd_frequencies >= self.fmin
+        masked_freqs = self.detector.psd_frequencies[mask]
 
         if not self.useEarthMotion:
             t = tcoal - self.wf_model.tau_star(self.fmin, **evParams) / DAY_TO_SEC
@@ -3939,7 +3938,7 @@ class GWSignal(object):
                     Qsq
                     * onp.interp(
                         fcut,
-                        self.strainFreq[mask],
+                        masked_freqs,
                         self.strainInteg,
                         left=1.0,
                         right=1.0,
@@ -3957,7 +3956,7 @@ class GWSignal(object):
                         Qsq
                         * onp.interp(
                             fcut,
-                            self.strainFreq[mask],
+                            masked_freqs,
                             self.strainInteg,
                             left=1.0,
                             right=1.0,
@@ -3976,9 +3975,7 @@ class GWSignal(object):
         else:
             fminarr = np.full(fcut.shape, self.fmin)
             fgrids = np.geomspace(fminarr, fcut, num=int(5000))
-            strainGrids = np.interp(
-                fgrids, self.strainFreq, self.noiseCurve, left=1.0, right=1.0
-            )
+            strainGrids = self.detector.psd_interp(fgrids)
 
             for m in range(4):
                 tmpIntegrandC = CosineIntegrand(fgrids, Mc, tcoal, m + 1.0)
@@ -4198,10 +4195,7 @@ class GWSignal(object):
         fminarr = np.full(fcutUse.shape, self.fmin)
 
         fgrids = np.geomspace(fminarr, fcutUse, num=int(res))
-        # Out of the provided PSD range, we use a constant value of 1, which results in completely negligible conntributions
-        psd_strain_grids = np.interp(
-            fgrids, self.strainFreq, self.noiseCurve, left=1.0, right=1.0
-        )
+        psd_strain_grids = self.detector.psd_interp(fgrids)
 
         # This is a horrible way of changing the waveform, but the fastest to implement
         WFor = copy.deepcopy(self.wf_model)
