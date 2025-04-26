@@ -448,7 +448,6 @@ class AGNLensedGWSignal(GWSignal):
 
         Assuming shape of freq_grid is (N_freq, N_params).
         """
-        print(parameters.keys())
         if self.wf_model.is_holomorphic:
             return vmap(jacrev(self.GWstrain, argnums=1, holomorphic=True))(
                     freq_grid.T, parameters, rot)
