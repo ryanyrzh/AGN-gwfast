@@ -76,13 +76,7 @@ class NewGWSignal(GWSignal):
     def GWPhase(self, evParams, f):
         raise NotImplementedError("Yeah, someone should work on this.")
 
-    def GWstrain(
-        self,
-        f,
-        parameters,
-        rot=0.0,
-        return_single_comp=None,
-    ):
+    def GWstrain(self, f, parameters, rot=0.0, return_single_comp=None):
         """
         Compute the full GW strain (complex) as a function of the parameters, at given frequencies.
 
@@ -251,10 +245,15 @@ class NewGWSignal(GWSignal):
         elif self.detector.shape == "T":
             if not self.compute2arms:
                 for i in range(3):
-                    Atot = self.GWstrain(
-                        fgrids, parameters, rot=i * 60.0,
-                        return_single_comp="At",
-                    ) ** 2
+                    Atot = (
+                        self.GWstrain(
+                            fgrids,
+                            parameters,
+                            rot=i * 60.0,
+                            return_single_comp="At",
+                        )
+                        ** 2
+                    )
                     tmpSNRsq = np.trapezoid(Atot / psd_strain_grids, fgrids, axis=0)
                     if self.detector.duty_cycle is not None:
                         tmpSNRsq = tmpSNRsq * self.duty_cycle_mask(params_shape)
@@ -283,6 +282,28 @@ class NewGWSignal(GWSignal):
                 else 2 * np.sqrt(allSNRsq.sum(axis=0))
             )
         return np.squeeze(2 * np.sqrt(allSNRsq), axis=0)
+
+    def signal_derivatives(
+        self,
+        freq_grid,
+        parameters,
+        rot,
+        computeDerivFinDiff=False,
+        computeAnalyticalDeriv=False,
+    ):
+        if not computeDerivFinDiff:
+            return self._jax_derivative(freq_grid, parameters)
+
+        finite_diff_jacobian = self._finite_difference(freq_grid, parameters, rot=rot)
+
+        if computeAnalyticalDeriv:
+            analytic_jacobian = self._analytical_derivatives(freq_grid, parameters, rot)
+            if analytic_jacobian["iota"] is None:
+                # This is when the waveform has HM (or precessing)
+                analytic_jacobian.pop("iota")
+            finite_diff_jacobian.update(analytic_jacobian)
+
+        return finite_diff_jacobian
 
     def FisherMatr(
         self,
@@ -343,12 +364,16 @@ class NewGWSignal(GWSignal):
 
         allFishers = []
 
-        # Convert to OrderDict to preserve order
-        evParams = OrderedDict(evParams)
+        deriv_kwargs = dict(
+            freq_grid=fgrids,
+            parameters=OrderedDict(evParams),  # Convert to OrderDict to preserve order
+            computeDerivFinDiff=computeDerivFinDiff,
+            computeAnalyticalDeriv=computeAnalyticalDeriv,
+        )
 
         if self.detector.shape == "L":
             # Compute derivatives
-            jacobian_dict = self._jax_derivative(fgrids, evParams)
+            jacobian_dict = self.signal_derivatives(**deriv_kwargs)
             # Change the units of the tcoal derivative from days to seconds (this improves conditioning)
             jacobian_dict["tcoal"] /= DAY_TO_SEC
             fisher_mat = self.convert_Jacobian_to_Fisher(jacobian_dict, fgrids)
@@ -361,7 +386,9 @@ class NewGWSignal(GWSignal):
             if not self.compute2arms:
                 for i in range(3):
                     # Change rot and compute derivatives
-                    jacobian_dict = self._jax_derivative(fgrids, evParams, rot=i * 60.0)
+                    jacobian_dict = self.signal_derivatives(
+                        **deriv_kwargs, rot=i * 60.0
+                    )
                     # Change the units of the tcoal derivative from days to seconds (this improves conditioning)
                     jacobian_dict["tcoal"] /= DAY_TO_SEC
                     fisher_mat = self.convert_Jacobian_to_Fisher(jacobian_dict, fgrids)
@@ -370,15 +397,16 @@ class NewGWSignal(GWSignal):
                     allFishers.append(fisher_mat)
                     # Fisher += tmpFisher
             else:
-                # The signal in 3 arms sums to zero for geometrical reasons, so we can use this to skip some calculations
-                jacobian_dict_1 = self._jax_derivative(fgrids, evParams, rot=0.0)
+                # The signal in 3 arms sums to zero for geometrical reasons,
+                # so we can use this to skip some calculations
+                jacobian_dict_1 = self.signal_derivatives(**deriv_kwargs, rot=0.0)
                 jacobian_dict_1["tcoal"] /= DAY_TO_SEC
                 fisher_mat_1 = self.convert_Jacobian_to_Fisher(jacobian_dict_1, fgrids)
                 if self.detector.duty_cycle is not None:
                     fisher_mat_1 *= self.duty_cycle_mask(fisher_mat_1.shape[2])
                 allFishers.append(fisher_mat_1)
 
-                jacobian_dict_2 = self._jax_derivative(fgrids, evParams, rot=60.0)
+                jacobian_dict_2 = self.signal_derivatives(**deriv_kwargs, rot=60.0)
                 jacobian_dict_2["tcoal"] /= DAY_TO_SEC
                 fisher_mat_2 = self.convert_Jacobian_to_Fisher(jacobian_dict_2, fgrids)
                 if self.detector.duty_cycle is not None:
@@ -410,8 +438,8 @@ class NewGWSignal(GWSignal):
         print(parameters.keys())
         if self.wf_model.is_holomorphic:
             return vmap(jacrev(self.GWstrain, argnums=1, holomorphic=True))(
-                    freq_grid.T, parameters, rot
-                )
+                freq_grid.T, parameters, rot
+            )
 
         def real_strain(freqs, params):
             return self.GWstrain(freqs, params, rot).real
@@ -456,8 +484,9 @@ class NewGWSignal(GWSignal):
         # The matrix has shape: (N_params, param_len, N_freq)
         jacobian_mat = np.array(tree.leaves(jacobian_dict))
 
-        pre_fisher_mat = jacobian_mat[:, :, None, :].conj() * \
-            jacobian_mat.transpose(1, 0, 2)
+        pre_fisher_mat = jacobian_mat[:, :, None, :].conj() * jacobian_mat.transpose(
+            1, 0, 2
+        )
         pre_fisher_mat = np.swapaxes(pre_fisher_mat, 1, 2)
         fisher_shape = pre_fisher_mat.shape[:-1]
 
@@ -466,10 +495,12 @@ class NewGWSignal(GWSignal):
         freqs_grid_T = freqs_grid.T
         psd_grids = self.detector.psd_interp(freqs_grid_T)
         for row, col in zip(*np.triu_indices(fisher_shape[0])):
-            fisher_mat[row, col] = \
-                4 * np.trapezoid(
-                    pre_fisher_mat[row, col] / psd_grids,
-                    freqs_grid_T, axis=1).real
+            fisher_mat[row, col] = (
+                4
+                * np.trapezoid(
+                    pre_fisher_mat[row, col] / psd_grids, freqs_grid_T, axis=1
+                ).real
+            )
 
             if row != col:
                 fisher_mat[col, row] = fisher_mat[row, col]
