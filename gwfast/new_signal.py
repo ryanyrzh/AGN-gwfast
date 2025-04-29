@@ -451,7 +451,7 @@ class NewGWSignal(GWSignal):
         real_deriv = vmap(jacrev(real_strain, argnums=1))(freq_grid.T, parameters)
         imag_deriv = vmap(jacrev(imag_strain, argnums=1))(freq_grid.T, parameters)
         return OrderedDict(
-            {key: real_deriv[key] + 1j * imag_deriv[key] for key in real_deriv.keys()}
+            {key: real_deriv[key] + 1j * imag_deriv[key] for key in parameters.keys()}
         )
 
     def _GWstrain_wrapper(self, param_values, param_keys, freqs, rot=0.0):
@@ -489,8 +489,8 @@ class NewGWSignal(GWSignal):
             1, 0, 2
         )
         pre_fisher_mat = np.swapaxes(pre_fisher_mat, 1, 2)
-        fisher_shape = pre_fisher_mat.shape[:-1]
 
+        fisher_shape = pre_fisher_mat.shape[:-1]
         fisher_mat = onp.zeros(fisher_shape)
 
         freqs_grid_T = freqs_grid.T
