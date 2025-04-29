@@ -425,6 +425,33 @@ class NewGWSignal(GWSignal):
             {key: real_deriv[key] + 1j * imag_deriv[key] for key in real_deriv.keys()}
         )
 
+    def _GWstrain_wrapper(self, param_values, param_keys, freqs, rot=0.0):
+        parameters = dict(zip(param_keys, param_values))
+        return self.GWstrain(freqs, parameters, rot)
+
+    def _finite_difference(
+        self,
+        freq_grid,
+        parameters,
+        rot=0.0,
+        step=MaxStepGenerator(base_step=1e-5),
+        method="central",
+    ):
+
+        jacobian_obj = ndt.Jacobian(
+            self._GWstrain_wrapper, step=step, method=method, order=2, n=1
+        )
+        jacobian = np.asarray(
+            jacobian_obj(
+                list(parameters.values()), list(parameters.keys()), freq_grid, rot
+            )
+        )
+        if len(jacobian.shape) == 2:  # len(Mc) == 1:
+            jacobian = jacobian[:, :, None]
+        jacobian = jacobian.transpose(1, 2, 0)
+
+        return OrderedDict(dict(zip(parameters.keys(), jacobian)))
+
     def convert_Jacobian_to_Fisher(self, jacobian_dict, freqs_grid):
         # The matrix has shape: (N_params, param_len, N_freq)
         jacobian_mat = np.array(tree.leaves(jacobian_dict))
