@@ -293,12 +293,14 @@ class NewGWSignal(GWSignal):
         computeAnalyticalDeriv=False,
     ):
         if not computeDerivFinDiff:
-            return self._jax_derivative(freq_grid, parameters)
+            return self._jax_derivative(freq_grid, parameters, rot=rot)
 
         finite_diff_jacobian = self._finite_difference(freq_grid, parameters, rot=rot)
 
         if computeAnalyticalDeriv:
-            analytic_jacobian = self._analytical_derivatives(freq_grid, parameters, rot)
+            analytic_jacobian = self._analytical_derivatives(
+                freq_grid, parameters, rot=rot
+            )
             if analytic_jacobian["iota"] is None:
                 # This is when the waveform has HM (or precessing)
                 analytic_jacobian.pop("iota")
