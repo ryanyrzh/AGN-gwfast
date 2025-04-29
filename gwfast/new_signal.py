@@ -22,13 +22,17 @@ os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform"
 import numpy as onp
 import copy
 from collections import OrderedDict
+import numdifftools as ndt
+from numdifftools.step_generators import MaxStepGenerator
 
-from gwfast.gwfastGlobals import TWOPI, DAY_TO_SEC
+from gwfast.gwfastGlobals import TWOPI, DAY_TO_SEC, DEG_TO_RAD
 from gwfast.gwfastUtils import (
     noise_weighted_inner_product,
     optimal_snr,
     get_model_parameters,
     check_evparams,
+    apply_psi_rotation,
+    ra_dec_from_th_phi_rad,
 )
 from gwfast.signal import GWSignal
 
@@ -247,10 +251,7 @@ class NewGWSignal(GWSignal):
                 for i in range(3):
                     Atot = (
                         self.GWstrain(
-                            fgrids,
-                            parameters,
-                            rot=i * 60.0,
-                            return_single_comp="At",
+                            fgrids, parameters, rot=i * 60.0, return_single_comp="At"
                         )
                         ** 2
                     )
@@ -604,25 +605,24 @@ class NewGWSignal(GWSignal):
         :rtype: tuple(array, array, array, array, array, array, array)
 
         """
-        omega = TWOPI * f * DAY_TO_SEC
-        ZEROS = np.zeros_like(parameters["Mc"])
+        omega = TWOPI * freqs * DAY_TO_SEC
 
         check_evparams(parameters)
         model_params = get_model_parameters(parameters, self.strain_model_keys)
 
         if (not self.wf_model.is_HigherModes) and (not self.wf_model.is_Precessing):
-            wfPhiGw = self.wf_model.Phi(f, **evParams)
-            wfAmpl = self.wf_model.Ampl(f, **evParams)
+            wfPhiGw = self.wf_model.Phi(freqs, **model_params)
+            wfAmpl = self.wf_model.Ampl(freqs, **model_params)
             wfhpc = wfAmpl * np.exp(-1j * wfPhiGw)
             wfhp = wfhpc * 0.5 * (1.0 + np.cos(iota) ** 2)
             wfhc = 1j * wfhpc * np.cos(iota)
         else:
             # If the waveform includes higher modes, it is not possible to compute amplitude and phase separately, make all together
-            wfhp, wfhc = self.wf_model.hphc(f, **evParams)
+            wfhp, wfhc = self.wf_model.hphc(freqs, **model_params)
 
-        phiD = np.zeros_like(Mc)
-        t, tmpDeltLoc = self.shifted_time(evParams, f)
-        phiL = (TWOPI * f) * tmpDeltLoc
+        phiD = np.zeros_like(parameters["Mc"])
+        t, tmpDeltLoc = self.shifted_time(model_params, freqs)
+        phiL = (TWOPI * freqs) * tmpDeltLoc
 
         rot_rad = rot * DEG_TO_RAD
         sin_angbtwArms = np.sin(self.angbtwArms)
