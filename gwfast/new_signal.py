@@ -562,3 +562,133 @@ class NewGWSignal(GWSignal):
             return overlap_int, *SNRhs
         else:
             return overlap_int / (SNRhs[0] * SNRhs[1])
+
+    def _analytical_derivatives(self, freqs, parameters, rot=0.0):
+        """
+        Compute analytical derivatives with respect to ``dL``, ``theta``, ``phi``, ``psi``, ``tcoal``, ``Phicoal`` and ``iota`` (the latter only for the fundamental mode in the non-precessing case).
+
+        :param array or float freqs: The frequency(ies) at which to perform the calculation, in :math:`\\rm Hz`.
+        :param float rot: Further rotation of the interferometer with respect to the :py:data:`self.xax` orientation, in degrees, needed for the triangular geometry.
+        :return: Analytical derivatives with respect to ``dL``, ``theta``, ``phi``, ``iota``, ``psi``, ``tcoal`` and ``Phicoal``. If the :py:class:`self.wf_model` is precessing or includes higher order modes the derivative with respect to ``iota`` will be ``None``
+        :rtype: tuple(array, array, array, array, array, array, array)
+
+        """
+        omega = TWOPI * f * DAY_TO_SEC
+        ZEROS = np.zeros_like(parameters["Mc"])
+
+        check_evparams(parameters)
+        model_params = get_model_parameters(parameters, self.strain_model_keys)
+
+        if (not self.wf_model.is_HigherModes) and (not self.wf_model.is_Precessing):
+            wfPhiGw = self.wf_model.Phi(f, **evParams)
+            wfAmpl = self.wf_model.Ampl(f, **evParams)
+            wfhpc = wfAmpl * np.exp(-1j * wfPhiGw)
+            wfhp = wfhpc * 0.5 * (1.0 + np.cos(iota) ** 2)
+            wfhc = 1j * wfhpc * np.cos(iota)
+        else:
+            # If the waveform includes higher modes, it is not possible to compute amplitude and phase separately, make all together
+            wfhp, wfhc = self.wf_model.hphc(f, **evParams)
+
+        phiD = np.zeros_like(Mc)
+        t, tmpDeltLoc = self.shifted_time(evParams, f)
+        phiL = (TWOPI * f) * tmpDeltLoc
+
+        rot_rad = rot * DEG_TO_RAD
+        sin_angbtwArms = np.sin(self.angbtwArms)
+
+        ras, decs = ra_dec_from_th_phi_rad(theta, phi)
+        Fpc = self.detector.compute_antenna_pattern(theta, phi, t, psi, rot)
+
+        phase = 1j * (omega * tcoal - Phicoal + phiD + phiL)
+        _hp = wfhp * np.exp(phase)
+        _hc = wfhc * np.exp(phase)
+
+        hp, hc = Fpc[0] * _hp, Fpc[1] * _hc
+
+        def psi_par_deriv():
+            cos_2psi = np.cos(2 * psi)
+            sin_2psi = np.sin(2 * psi)
+            dpsi_rotation = -2 * np.array([[sin_2psi, -cos_2psi], [cos_2psi, sin_2psi]])
+            ab_factors, _ = self.detector._compute_ab_factors(ras, decs, t, rot_rad)
+            Fpc_dpsi = (
+                np.einsum("ij...,j...->i...", dpsi_rotation, ab_factors)
+                * sin_angbtwArms
+            )
+            return Fpc_dpsi[0] * _hp, Fpc_dpsi[1] * _hc
+
+        def phi_par_deriv():
+            afac_dphi, bfac_dphi, deltat_dphi = self.detector._compute_ab_factors(
+                ras, decs, t, rot_rad, dphi=True
+            )
+
+            Fpc = apply_psi_rotation(psi, afac_dphi, bfac_dphi) * sin_angbtwArms
+            Ap_dphi = Fpc[0] * _hp
+            Ac_dphi = Fpc[1] * _hc
+
+            phiD_dphi = 0.0
+            phiL_dphi = omega * deltat_dphi
+
+            return (
+                Ap_dphi
+                + 1j * (phiD_dphi + phiL_dphi) * hp
+                + Ac_dphi
+                + 1j * (phiD_dphi + phiL_dphi) * hc
+            )
+
+        def theta_par_deriv():
+            afac_dtheta, bfac_dtheta, deltat_dtheta = self.detector._compute_ab_factors(
+                ras, decs, t, rot_rad, dtheta=True
+            )
+
+            Fpc = apply_psi_rotation(psi, afac_dtheta, bfac_dtheta) * sin_angbtwArms
+            Ap_dtheta = Fpc[0] * _hp
+            Ac_dtheta = Fpc[1] * _hc
+
+            phiD_dtheta = 0.0
+            phiL_dtheta = omega * deltat_dtheta
+
+            return (
+                Ap_dtheta
+                + 1j * (phiD_dtheta + phiL_dtheta) * hp
+                + Ac_dtheta
+                + 1j * (phiD_dtheta + phiL_dtheta) * hc
+            )
+
+        def tcoal_par_deriv():
+            afac_dtime, bfac_dtime, deltat_dtime = self.detector._compute_ab_factors(
+                ras, decs, t, rot_rad, dtheta=True
+            )
+
+            Fpc = apply_psi_rotation(psi, afac_dtime, bfac_dtime) * sin_angbtwArms
+            Ap_dtime = Fpc[0] * _hp
+            Ac_dtime = Fpc[1] * _hc
+
+            phiD_dtime = 0.0
+            phiL_dtime = omega * deltat_dtime
+
+            return (
+                Ap_dtime
+                + 1j * (phiD_dtime + phiL_dtime + omega) * hp
+                + Ac_dtime
+                + 1j * (phiD_dtime + phiL_dtime + omega) * hc
+            )
+
+        def iota_par_deriv():
+
+            if (not self.wf_model.is_HigherModes) and (not self.wf_model.is_Precessing):
+                wfhp_diota = wfhpc * (-0.5 * np.sin(2 * iota))
+                wfhc_diota = -1j * wfhpc * np.sin(iota)
+                return (Fpc[0] * wfhp_diota + Fpc[1] * wfhc_diota) * np.exp(phase)
+            else:
+                # This derivative is computed numerically if the waveform contains higher modes
+                return None
+
+        return {
+            "dL": -(hp + hc) / dL,
+            "theta": theta_par_deriv(),
+            "phi": phi_par_deriv(),
+            "iota": iota_par_deriv(),
+            "psi": psi_par_deriv(),
+            "tcoal": tcoal_par_deriv(),
+            "Phicoal": -1j * (hp + hc),
+        }
