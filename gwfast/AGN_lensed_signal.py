@@ -148,12 +148,15 @@ class AGNLensedGWSignal(NewGWSignal):
             t2, deltaT_2 = self.shifted_time(eval_params_2, f)
             phiL2 = omega * deltaT_2
             # Return with the simplest things
-            Ap1, Ac1 = super().GWAmplitudes(eval_params_1, f, rot=rot)
-            Psi1 = super().GWPhase(eval_params_1, f)
+            # A hacky way to access the old GWSignal Amplitude method
+            # One should just implement it in the NewSignal class
+            old_GWSignal = super(NewGWSignal, self)
+            Ap1, Ac1 = old_GWSignal.GWAmplitudes(eval_params_1, f, rot=rot)
+            Psi1 = old_GWSignal.GWPhase(eval_params_1, f)
             Psi1 += phiD + phiL1
 
-            Ap2, Ac2 = super().GWAmplitudes(eval_params_2, f, rot=rot)
-            Psi2 = super().GWPhase(eval_params_2, f)
+            Ap2, Ac2 = old_GWSignal.GWAmplitudes(eval_params_2, f, rot=rot)
+            Psi2 = old_GWSignal.GWPhase(eval_params_2, f)
             Psi2 += phiD + phiL2
 
             # TODO: Check whether h = hp - i hc.
