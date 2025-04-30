@@ -174,85 +174,15 @@ def load_population(name, nEventsUse=None, calculate_params=[], keys_skip=[]):
     return events
 
 
-def expand_params(parameters):
-    all_keys = list(parameters.keys())
-    output = parameters.copy()
-
-    if ("m1" not in all_keys) or ("m2" not in all_keys):
-        if ("Mc" in all_keys) or ("eta" in all_keys):
-            m1, m2 = m1m2_from_Mceta(parameters["Mc"], parameters["eta"])
-            output["m1"] = m1
-            output["m2"] = m2
-        elif ("Mtot" in all_keys) or ("q" in all_keys):
-            total_mass = parameters["Mtot"]
-            mass_ratio = parameters["q"]
-            output["m1"] = total_mass / (1 + mass_ratio)
-            output["m2"] = total_mass - output["m1"]
-        else:
-            raise ValueError(
-                "Either 'Mc' and 'eta' or 'Mtot' and 'q' must be provided to calculate m1 and m2."
-            )
-
-    ZEROS = np.zeros_like(output["m1"])
-    if ("Mc" not in all_keys) or ("eta" not in all_keys):
-        Mc, eta = Mceta_from_m1m2(output["m1"], output["m2"])
-        output["Mc"] = Mc
-        output["eta"] = eta
-
-    if ("Mtot" not in all_keys) or ("q" not in all_keys):
-        output["Mtot"] = output["m1"] + output["m2"]
-        output["q"] = output["m1"] / output["m2"]
-
-    if all(
-        [(key in all_keys) for key in ("chiA", "chiS")]
-        + [(key not in all_keys) for key in ("chi1z", "chi2z")]
-    ):
-        output["chi1z"] = parameters["chiS"] + parameters["chiA"]
-        output["chi2z"] = parameters["chiS"] - parameters["chiA"]
-
-    if any([(key not in all_keys) for key in spin_comps_keys]):
-        spin_comps = TransformPrecessing_angles2comp(
-            parameters["thetaJN"],
-            parameters["phiJL"],
-            parameters["tilt1"],
-            parameters["tilt2"],
-            parameters["phi12"],
-            parameters["chi1"],
-            parameters["chi2"],
-            parameters["Mc"],
-            parameters["eta"],
-            parameters["fRef"],
-            parameters["Phicoal"],
-        )
-        output.update({key: value for key, value in zip(spin_comps_keys, spin_comps)})
-    elif any([(key not in all_keys) for key in spin_angle_keys]):
-        spin_angles = TransformPrecessing_comp2angles(
-            parameters["iota"],
-            parameters["chi1x"],
-            parameters["chi1y"],
-            parameters["chi1z"],
-            parameters["chi2x"],
-            parameters["chi2y"],
-            parameters["chi2z"],
-            parameters["Mc"],
-            parameters["eta"],
-            parameters["fRef"],
-            parameters["Phicoal"],
-        )
-        output.update({key: value for key, value in zip(spin_angle_keys, spin_angles)})
-
-    LambdaTilde = output.get("LambdaTilde", ZEROS)
-    deltaLambda = output.get("deltaLambda", ZEROS)
-    output["Lambda1"], output["Lambda2"] = Lam12_from_Lamt_delLam(
-        LambdaTilde, deltaLambda, output["eta"]
-    )
-
-
 def get_model_parameters(input_params, model_param_keys, use_jit=True):
     input_keys = set(input_params.keys())
     common_keys = input_keys.intersection(model_param_keys)
     missing_keys = set(model_param_keys) - common_keys
 
+    for key, val in input_params.items():
+        # This is for some transform that requires strictly real inputs
+        # (e.g. tGPS -> tcoal, need jnp.mod)
+        input_params[key] = val.astype('float64')
     converted_params = input_params.copy()
 
     ## Masses
