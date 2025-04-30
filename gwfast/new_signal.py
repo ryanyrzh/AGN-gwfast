@@ -52,7 +52,7 @@ class NewGWSignal(object):
     :param Detector optional detector: A detector object, once specified, it overrides the specified lat, long, and xax above.
     :param float detector.duty_cycle: Duty factor of the detector, between 0 and 1, representing the percentage of time the detector (each detector independently in the case of a triangular detector) is supposed to be operational.
     :param bool, optional compute2arms: Boolean specifying if, in the case of a triangular detector, the computation can be performed only in two of the instruments, using the null-stream to get the signal in the third instrument, speeding up the computation by 1/3.
-    :param bool, optional jitCompileDerivs: Boolean specifying if the derivatives function has to be jit compiled.
+    :param bool, optional jitCompileDerivs: Boolean specifying if the derivatives function has to be jit compiled. NOTE: This only works with JAX derivatives.
 
     """
 
@@ -136,7 +136,7 @@ class NewGWSignal(object):
         )
 
         onp.random.seed(None)
-        self.seedUse = onp.random.randint(2**32 - 1, size=1)
+        self.seedUse = onp.random.randint(2 ** 32 - 1, size=1)
         self.jitCompileDerivs = jitCompileDerivs
 
         if self.wf_model.is_LAL:
@@ -444,7 +444,7 @@ class NewGWSignal(object):
                     Atot = self.GWstrain(
                         fgrids, parameters, rot=i * 60.0, return_single_comp="At"
                     )
-                    Atot = Atot**2
+                    Atot = Atot ** 2
                     tmpSNRsq = np.trapezoid(Atot / psd_strain_grids, fgrids, axis=0)
                     if self.detector.duty_cycle is not None:
                         tmpSNRsq = tmpSNRsq * self.duty_cycle_mask(params_shape)
