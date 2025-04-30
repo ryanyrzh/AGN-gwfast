@@ -210,7 +210,6 @@ class NewGWSignal(object):
         self.detector.shape = _detector_shape
         self.strain_model_keys = _strain_model_keys
 
-
     @property
     def need_HM(self):
         """

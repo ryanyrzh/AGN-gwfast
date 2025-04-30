@@ -253,13 +253,14 @@ def get_model_parameters(input_params, model_param_keys):
     missing_keys = set(model_param_keys) - common_keys
 
     converted_params = input_params.copy()
-    ZEROS = np.zeros_like(input_params[input_keys[0]])
 
     ## Masses
     if any([key in missing_keys for key in masses_keys]):
         converted_params = get_mass_parameters(converted_params)
         for key in masses_keys:
             missing_keys.discard(key)
+
+    ZEROS = np.zeros_like(converted_params["Mc"])
 
     ## Spins
     if ("chiS" in missing_keys) or ("chiA" in missing_keys):
@@ -310,14 +311,14 @@ def get_model_parameters(input_params, model_param_keys):
     if any([key in missing_keys for key in ("Lambda1", "Lambda2")]):
         LambdaTilde = input_params.get("LambdaTilde", ZEROS)
         deltaLambda = input_params.get("deltaLambda", ZEROS)
-        converted_params["Lambda1"], converted_params["Lambda2"] = Lam12_from_Lamt_delLam(
-            LambdaTilde, deltaLambda, input_params["eta"]
+        converted_params["Lambda1"], converted_params["Lambda2"] = (
+            Lam12_from_Lamt_delLam(LambdaTilde, deltaLambda, input_params["eta"])
         )
     elif any([key in missing_keys for key in ("LambdaTilde", "deltaLambda")]):
         pass
 
-    if 'ecc' in missing_keys:
-        converted_params['ecc'] = ZEROS
+    if "ecc" in missing_keys:
+        converted_params["ecc"] = ZEROS
 
     return {key: converted_params.get(key, None) for key in model_param_keys}
 
