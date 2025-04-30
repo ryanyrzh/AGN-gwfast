@@ -40,20 +40,20 @@ class AGNLensedGWSignal(NewGWSignal):
 
     :param WaveFormModel wf_model: Object containing the waveform model.
     :param str psd_path: Full path to the file containing the detector's *Power Spectral Density*, PSD, or *Amplitude Spectral Density*, ASD, including the file extension. The file is assumed to have two columns, the first containing the frequencies (in :math:`\\rm Hz`) and the second containing the detector's PSD/ASD at each frequency.
-    :param str detector_shape: The shape of the detector, to be chosen among ``'L'`` for an L-shaped detector (90°-arms) and ``'T'`` for a triangular detector (3 nested detectors with 60°-arms).
-    :param float det_lat: Latitude of the detector, in degrees.
-    :param float det_long: Longitude of the detector, in degrees.
-    :param float det_xax: Angle between the bisector of the detector's arms (the first detector in the case of a triangle) and local East, in degrees.
+    :param str optional detector_shape: The shape of the detector, to be chosen among ``'L'`` for an L-shaped detector (90°-arms) and ``'T'`` for a triangular detector (3 nested detectors with 60°-arms).
+    :param float optional det_lat: Latitude of the detector, in degrees.
+    :param float optional det_long: Longitude of the detector, in degrees.
+    :param float optional det_xax: Angle between the bisector of the detector's arms (the first detector in the case of a triangle) and local East, in degrees.
     :param bool, optional verbose: Boolean specifying if the code has to print additional details during execution.
     :param bool, optional is_ASD: Boolean specifying if the provided file is a PSD or an ASD.
     :param bool, optional useEarthMotion: Boolean specifying if the effect of the Earth rotation has to be included in the analysis.
     :param bool, optional noMotion: Boolean specifying if the Earth should be considered fixed at ``tcoal=0``. In the case ``useEarthMotion=False`` the system is rotated depending on ``tcoal`` and then left fixed. This was needed for checks and is not to be used.
     :param float fmin: Minimum frequency to use for the grid in the analysis, in :math:`\\rm Hz`.
     :param float fmax: Maximum frequency to use for the grid in the analysis, in :math:`\\rm Hz`. The cut frequency of the waveform (which depends on the events parameters) will be used as maximum frequency if ``fmax=None`` or if it is smaller than ``fmax``.
-    :param str IntTablePath: Deprecated, not used.
+    :param Detector optional detector: A detector object, once specified, it overrides the specified lat, long, and xax above.
     :param float detector.duty_cycle: Duty factor of the detector, between 0 and 1, representing the percentage of time the detector (each detector independently in the case of a triangular detector) is supposed to be operational.
     :param bool, optional compute2arms: Boolean specifying if, in the case of a triangular detector, the computation can be performed only in two of the instruments, using the null-stream to get the signal in the third instrument, speeding up the computation by 1/3.
-    :param bool, optional jitCompileDerivs: Boolean specifying if the derivatives function has to be jit compiled.
+    :param bool, optional jitCompileDerivs: Boolean specifying if the derivatives function has to be jit compiled. NOTE: This only works with JAX derivatives.
 
     """
 

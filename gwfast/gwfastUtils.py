@@ -248,7 +248,7 @@ def expand_params(parameters):
     )
 
 
-def get_model_parameters(input_params, model_param_keys):
+def get_model_parameters(input_params, model_param_keys, use_jit=True):
     input_keys = set(input_params.keys())
     common_keys = input_keys.intersection(model_param_keys)
     missing_keys = set(model_param_keys) - common_keys
@@ -320,6 +320,20 @@ def get_model_parameters(input_params, model_param_keys):
 
     if "ecc" in missing_keys:
         converted_params["ecc"] = ZEROS
+        missing_keys.discard('ecc')
+
+    if "tcoal" in missing_keys:
+        if use_jit:
+            converted_params["tcoal"] = GPSt_to_GMST_alt(input_params['tGPS'])
+        else:
+            converted_params["tcoal"] = GPSt_to_LMST(input_params['tGPS'], 0.0, 0.0)
+        missing_keys.discard('tcoal')
+
+    if ('theta' in missing_keys) or ('phi' in missing_keys):
+        converted_params['theta'] = np.pi / 2 - input_params["dec"]
+        converted_params['phi'] = input_params["ra"]
+        missing_keys.discard('theta')
+        missing_keys.discard('phi')
 
     return {key: converted_params.get(key, None) for key in model_param_keys}
 
@@ -1082,6 +1096,23 @@ def GPSt_to_LMST(t_GPS, lat, long):
     t = aspyt.Time(t_GPS, format="gps", location=(loc))
     LMST = t.sidereal_time("mean").value
     return jnp.array(LMST / 24.0)
+
+
+def GPSt_to_GMST_alt(t_GPS):
+    """
+    Compute the Greenwich Mean Sidereal Time (GMST) in units of fraction of day, from GPS time. This function does not rely on external libraries but is **approximate**.
+    The implementation is taken from `GWFish <https://github.com/janosch314/GWFish/tree/main>`_.
+
+    The input t_GPS needs to be sufficiently large for the finite_difference to keep track of f.p.
+
+    :param array or float t_GPS: GPS time(s) to convert, in seconds.
+
+    :return: Greenwich Mean Sidereal Time(s).
+    :rtype: array or float
+
+    """
+
+    return jnp.mod(9.533088395981618 + (t_GPS - 1126260000.) / 3600. * 24. / glob.siderealDay, 24.) / 24.
 
 
 ##############################################################################

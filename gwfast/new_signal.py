@@ -24,7 +24,6 @@ from gwfast.gwfastUtils import (
     noise_weighted_inner_product,
     optimal_snr,
     get_model_parameters,
-    check_evparams,
     apply_psi_rotation,
     ra_dec_from_th_phi_rad,
 )
@@ -52,7 +51,7 @@ class NewGWSignal(object):
     :param Detector optional detector: A detector object, once specified, it overrides the specified lat, long, and xax above.
     :param float detector.duty_cycle: Duty factor of the detector, between 0 and 1, representing the percentage of time the detector (each detector independently in the case of a triangular detector) is supposed to be operational.
     :param bool, optional compute2arms: Boolean specifying if, in the case of a triangular detector, the computation can be performed only in two of the instruments, using the null-stream to get the signal in the third instrument, speeding up the computation by 1/3.
-    :param bool, optional jitCompileDerivs: Boolean specifying if the derivatives function has to be jit compiled.
+    :param bool, optional jitCompileDerivs: Boolean specifying if the derivatives function has to be jit compiled. NOTE: This only works with JAX derivatives.
 
     """
 
@@ -136,7 +135,7 @@ class NewGWSignal(object):
         )
 
         onp.random.seed(None)
-        self.seedUse = onp.random.randint(2**32 - 1, size=1)
+        self.seedUse = onp.random.randint(2 ** 32 - 1, size=1)
         self.jitCompileDerivs = jitCompileDerivs
 
         if self.wf_model.is_LAL:
@@ -312,8 +311,9 @@ class NewGWSignal(object):
 
         omega = TWOPI * f * DAY_TO_SEC
 
-        check_evparams(parameters)
         model_params = get_model_parameters(parameters, self.strain_model_keys)
+        time, deltaT = self.shifted_time(model_params, f)
+        phiL = omega * deltaT
 
         # Not sure what does this do, but it was set to zero in both cases
         # (with or without useEarthMotion)
@@ -323,8 +323,6 @@ class NewGWSignal(object):
         is_lal = self.wf_model.is_LAL
 
         if not (self.need_HM or is_lal):
-            time, deltaT = self.shifted_time(model_params, f)
-            phiL = omega * deltaT
             # Return with the simplest things
             Ap, Ac = self.GWAmplitudes(model_params, f, rot=rot)
             Psi = self.GWPhase(model_params, f)
@@ -352,22 +350,17 @@ class NewGWSignal(object):
                     )
             else:
                 return (Ap + 1j * Ac) * np.exp(Psi * 1j)
-            # return np.sqrt(Ap*Ap + Ac*Ac)*np.exp((Psi+phiP)*1j)
 
         phase_shift_factor = np.exp(1j * (phiD + omega * model_params["tcoal"]))
 
-        params = model_params
-        iota = params["iota"]
-        psi = params["psi"]
-        phase = params["phase"]
-        theta = params["theta"]
-        phi = params["phi"]
-
-        time, deltaT = self.shifted_time(params, f)
-        phiL = omega * deltaT
+        iota = model_params["iota"]
+        psi = model_params["psi"]
+        phase = model_params["phase"]
+        theta = model_params["theta"]
+        phi = model_params["phi"]
 
         Fpc = self.detector.compute_antenna_pattern(theta, phi, time, psi, rot=rot)
-        hpc = self.wf_model.hphc(f, **params)
+        hpc = self.wf_model.hphc(f, **model_params)
         phase_factor = phase_shift_factor * np.exp(1j * (phiL - phase))
         hp = hpc[0] * Fpc[0] * phase_factor
         hc = hpc[1] * Fpc[1] * phase_factor
@@ -413,8 +406,6 @@ class NewGWSignal(object):
         if self.detector.duty_cycle is not None:
             onp.random.seed(self.seedUse)
 
-        # TODO: Deprecate check_evaparams
-        check_evparams(parameters)
         model_params = get_model_parameters(parameters, self.strain_model_keys)
         params_shape = model_params["Mc"].shape
 
@@ -440,7 +431,7 @@ class NewGWSignal(object):
                     Atot = self.GWstrain(
                         fgrids, parameters, rot=i * 60.0, return_single_comp="At"
                     )
-                    Atot = Atot**2
+                    Atot = Atot ** 2
                     tmpSNRsq = np.trapezoid(Atot / psd_strain_grids, fgrids, axis=0)
                     if self.detector.duty_cycle is not None:
                         tmpSNRsq = tmpSNRsq * self.duty_cycle_mask(params_shape)
@@ -479,20 +470,28 @@ class NewGWSignal(object):
         computeAnalyticalDeriv=False,
     ):
         if not computeDerivFinDiff:
-            return self._jax_derivative(freq_grid, parameters, rot=rot)
+            jacobian_dict = self._jax_derivative(freq_grid, parameters, rot=rot)
 
-        finite_diff_jacobian = self._finite_difference(freq_grid, parameters, rot=rot)
+        else:
+            finite_diff_jacobian = self._finite_difference(freq_grid, parameters, rot=rot)
 
-        if computeAnalyticalDeriv:
-            analytic_jacobian = self._analytical_derivatives(
-                freq_grid, parameters, rot=rot
-            )
-            if analytic_jacobian["iota"] is None:
-                # This is when the waveform has HM (or precessing)
-                analytic_jacobian.pop("iota")
-            finite_diff_jacobian.update(analytic_jacobian)
+            if computeAnalyticalDeriv:
+                analytic_jacobian = self._analytical_derivatives(
+                    freq_grid, parameters, rot=rot
+                )
+                if analytic_jacobian["iota"] is None:
+                    # This is when the waveform has HM (or precessing)
+                    analytic_jacobian.pop("iota")
+                finite_diff_jacobian.update(analytic_jacobian)
 
-        return finite_diff_jacobian
+            jacobian_dict = finite_diff_jacobian
+
+        if 'tcoal' in jacobian_dict.keys():
+            # Change the units of the tcoal derivative from days to seconds (this improves conditioning)
+            # Not sure if this matches with description tho.
+            jacobian_dict['tcoal'] /= DAY_TO_SEC
+
+        return jacobian_dict
 
     def FisherMatr(
         self,
@@ -563,8 +562,6 @@ class NewGWSignal(object):
         if self.detector.shape == "L":
             # Compute derivatives
             jacobian_dict = self.signal_derivatives(**deriv_kwargs)
-            # Change the units of the tcoal derivative from days to seconds (this improves conditioning)
-            jacobian_dict["tcoal"] /= DAY_TO_SEC
             fisher_mat = self.convert_Jacobian_to_Fisher(jacobian_dict, fgrids)
 
             if self.detector.duty_cycle is not None:
@@ -578,8 +575,6 @@ class NewGWSignal(object):
                     jacobian_dict = self.signal_derivatives(
                         **deriv_kwargs, rot=i * 60.0
                     )
-                    # Change the units of the tcoal derivative from days to seconds (this improves conditioning)
-                    jacobian_dict["tcoal"] /= DAY_TO_SEC
                     fisher_mat = self.convert_Jacobian_to_Fisher(jacobian_dict, fgrids)
                     if self.detector.duty_cycle is not None:
                         fisher_mat *= self.duty_cycle_mask(fisher_mat.shape[2])
@@ -589,14 +584,12 @@ class NewGWSignal(object):
                 # The signal in 3 arms sums to zero for geometrical reasons,
                 # so we can use this to skip some calculations
                 jacobian_dict_1 = self.signal_derivatives(**deriv_kwargs, rot=0.0)
-                jacobian_dict_1["tcoal"] /= DAY_TO_SEC
                 fisher_mat_1 = self.convert_Jacobian_to_Fisher(jacobian_dict_1, fgrids)
                 if self.detector.duty_cycle is not None:
                     fisher_mat_1 *= self.duty_cycle_mask(fisher_mat_1.shape[2])
                 allFishers.append(fisher_mat_1)
 
                 jacobian_dict_2 = self.signal_derivatives(**deriv_kwargs, rot=60.0)
-                jacobian_dict_2["tcoal"] /= DAY_TO_SEC
                 fisher_mat_2 = self.convert_Jacobian_to_Fisher(jacobian_dict_2, fgrids)
                 if self.detector.duty_cycle is not None:
                     fisher_mat_1 *= self.duty_cycle_mask(fisher_mat_2.shape[2])
@@ -655,7 +648,7 @@ class NewGWSignal(object):
     ):
 
         jacobian_obj = ndt.Jacobian(
-            self._GWstrain_wrapper, step=step, method=method, order=2, n=1
+            self._GWstrain_wrapper, step=step, method=method, order=4, n=1
         )
         jacobian = np.asarray(
             jacobian_obj(
@@ -711,10 +704,6 @@ class NewGWSignal(object):
         :rtype: 1-D array
 
         """
-        # Checks on imput parameters for waveforms
-        check_evparams(evParams1)
-        check_evparams(evParams2)
-
         wfm_1_keys = list(WF1.ParNums.keys())
         wfm_2_keys = list(WF2.ParNums.keys())
 
@@ -792,7 +781,6 @@ class NewGWSignal(object):
         """
         omega = TWOPI * freqs * DAY_TO_SEC
 
-        check_evparams(parameters)
         model_params = get_model_parameters(parameters, self.strain_model_keys)
 
         iota = parameters.get("iota", None)
