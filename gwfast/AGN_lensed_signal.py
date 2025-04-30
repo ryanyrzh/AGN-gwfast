@@ -6,7 +6,7 @@
 
 import os
 
-from jax import config, vmap, jacrev, tree
+from jax import config
 import jax.numpy as np
 
 # Enable 64bit on JAX, fundamental
@@ -15,9 +15,7 @@ config.update("jax_enable_x64", True)
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform"
 
-import numpy as onp
 import copy
-from collections import OrderedDict
 
 from gwfast.gwfastGlobals import TWOPI, DAY_TO_SEC
 from gwfast.gwfastUtils import (
@@ -31,10 +29,10 @@ from gwfast.lensing_utils import (
     get_lensing_time_delay,
     get_mag_factors,
 )
-from gwfast.signal import GWSignal
+from gwfast.new_signal import NewGWSignal
 
 
-class AGNLensedGWSignal(GWSignal):
+class AGNLensedGWSignal(NewGWSignal):
     """
     Class to compute the GW signal emitted by a coalescing binary system as seen by a detector on Earth.
 
@@ -70,7 +68,6 @@ class AGNLensedGWSignal(GWSignal):
     def __init__(self, **kwargs):
 
         super().__init__(**kwargs)
-
         self.strain_model_keys = list(self.wf_model.ParNums.keys()) + [
             "R_orbit",
             "M_lz",
@@ -83,13 +80,7 @@ class AGNLensedGWSignal(GWSignal):
     def GWPhase(self, evParams, f):
         raise NotImplementedError("Yeah, someone should work on this.")
 
-    def GWstrain(
-        self,
-        f,
-        parameters,
-        rot=0.0,
-        return_single_comp=None,
-    ):
+    def GWstrain(self, f, parameters, rot=0.0, return_single_comp=None):
         """
         Compute the full GW strain (complex) as a function of the parameters, at given frequencies.
 
@@ -156,6 +147,8 @@ class AGNLensedGWSignal(GWSignal):
             t2, deltaT_2 = self.shifted_time(eval_params_2, f)
             phiL2 = omega * deltaT_2
             # Return with the simplest things
+            # A hacky way to access the old GWSignal Amplitude method
+            # One should just implement it in the NewSignal class
             Ap1, Ac1 = super().GWAmplitudes(eval_params_1, f, rot=rot)
             Psi1 = super().GWPhase(eval_params_1, f)
             Psi1 += phiD + phiL1
@@ -226,10 +219,14 @@ class AGNLensedGWSignal(GWSignal):
 
             hpc_12.append((hp, hc))
 
-        hp = np.sqrt(np.abs(mag_1)) * hpc_12[0][0] + \
-            np.sqrt(np.abs(mag_2)) * time_delay_phase_shift * hpc_12[1][0]
-        hc = np.sqrt(np.abs(mag_1)) * hpc_12[0][1] + \
-            np.sqrt(np.abs(mag_2)) * time_delay_phase_shift * hpc_12[1][1]
+        hp = (
+            np.sqrt(np.abs(mag_1)) * hpc_12[0][0]
+            + np.sqrt(np.abs(mag_2)) * time_delay_phase_shift * hpc_12[1][0]
+        )
+        hc = (
+            np.sqrt(np.abs(mag_1)) * hpc_12[0][1]
+            + np.sqrt(np.abs(mag_2)) * time_delay_phase_shift * hpc_12[1][1]
+        )
 
         if return_single_comp is not None:
             if return_single_comp == "Ap":
@@ -250,243 +247,6 @@ class AGNLensedGWSignal(GWSignal):
                 )
         else:
             return hp + hc
-
-    def SNRInteg(self, parameters, res=1000, return_all=False):
-        """
-        Compute the *signal-to-noise-ratio*, SNR, as a function of the parameters of the event(s).
-
-        :param dict(array, array, ...) evParams: Dictionary containing the parameters of the event(s), as in :py:data:`events`.
-        :param int res: The resolution of the frequency grid to use.
-        :param bool, optional return_all: Boolean specifying if, in the case of a triangular detector, the SNRs of the individual instruments have to be returned separately. In this case the return type is *list(array, array, array)*.
-
-        :return: SNR(s) as a function of the parameters of the event(s). The shape is :math:`(N_{\\rm events})`.
-        :rtype: 1-D array
-
-        """
-        # SNR calculation performing the frequency integral for each signal
-        # This is computationally more expensive, but needed for complex waveform models
-        if self.detector.duty_cycle is not None:
-            onp.random.seed(self.seedUse)
-
-        # TODO: Deprecate check_evaparams
-        check_evparams(parameters)
-        model_params = get_model_parameters(parameters, self.strain_model_keys)
-        params_shape = model_params["Mc"].shape
-
-        fcut = self.wf_model.fcut(**model_params)
-        if self.fmax is not None:
-            fcut = np.where(fcut > self.fmax, self.fmax, fcut)
-        fminarr = np.full(fcut.shape, self.fmin)
-        fgrids = np.geomspace(fminarr, fcut, num=int(res))
-
-        allSNRsq = []
-        # Out of the provided PSD range, we use a constant value of 1, which results in completely negligible conntributions
-        psd_strain_grids = self.detector.psd_interp(fgrids)
-
-        if self.detector.shape == "L":
-            Atot = self.GWstrain(fgrids, parameters, return_single_comp="At") ** 2
-            SNRsq = np.trapezoid(Atot / psd_strain_grids, fgrids, axis=0)
-            if self.detector.duty_cycle is not None:
-                SNRsq *= self.duty_cycle_mask(params_shape)
-            allSNRsq.append(SNRsq)
-        elif self.detector.shape == "T":
-            if not self.compute2arms:
-                for i in range(3):
-                    Atot = self.GWstrain(
-                        fgrids, parameters, rot=i * 60.0,
-                        return_single_comp="At",
-                    ) ** 2
-                    tmpSNRsq = np.trapezoid(Atot / psd_strain_grids, fgrids, axis=0)
-                    if self.detector.duty_cycle is not None:
-                        tmpSNRsq = tmpSNRsq * self.duty_cycle_mask(params_shape)
-                    allSNRsq.append(tmpSNRsq)
-            else:
-                # The signal in 3 arms sums to zero for geometrical reasons, so we can use this to skip some calculations
-                h1 = self.GWstrain(fgrids, parameters)
-                h2 = self.GWstrain(fgrids, parameters, rot=60.0)
-                Atot1 = abs(h1) ** 2
-                Atot2 = abs(h2) ** 2
-                Atot3 = abs(h1 + h2) ** 2
-
-                for amplitude in (Atot1, Atot2, Atot3):
-                    snr_sq = np.trapezoid(amplitude / psd_strain_grids, fgrids, axis=0)
-                    if self.detector.duty_cycle is not None:
-                        snr_sq *= self.duty_cycle_mask(params_shape)
-                    allSNRsq.append(snr_sq)
-
-        allSNRsq = np.array(allSNRsq)
-
-        # The factor of two arises by cutting the integral from 0 to infinity
-        if self.detector.shape == "T":
-            return (
-                2 * np.sqrt(allSNRsq)
-                if return_all
-                else 2 * np.sqrt(allSNRsq.sum(axis=0))
-            )
-        return np.squeeze(2 * np.sqrt(allSNRsq), axis=0)
-
-    def FisherMatr(
-        self,
-        evParams,
-        res=1000,
-        df=None,
-        spacing="geom",
-        computeDerivFinDiff=False,
-        computeAnalyticalDeriv=False,
-        return_all=False,
-        **kwargs,
-    ):
-        """
-        Compute the *Fisher information matrix*, FIM, as a function of the parameters of the event(s).
-
-        :param dict(array, array, ...) evParams: Dictionary containing the parameters of the event(s), as in :py:data:`events`.
-        :param int res: The resolution of the frequency grid to use.
-        :param float df: The spacing of the frequency grid to use, in :math:`\\rm Hz`. Alternative to ``res``.
-        :param str spacing: The kind of spacing of the frequency grid to use. If ``'geom'`` the grid will be spaced evenly on a log scale (geometric progression), if ``'lin'`` it will be spaced evenly on a linear scale.
-        :param bool, optional use_m1m2: Boolean specifying if the FIM has to be computed with respect to the individual masses ``m1`` and ``m2`` rather than ``Mc`` and ``eta``.
-        :param bool, optional use_chi1chi2: Boolean specifying if, in the non-precessing case, the FIM has to be computed with respect to the individual spins ``chi1z`` and ``chi2z`` rather than ``chiS`` and ``chiA``.
-        :param bool, optional use_prec_ang: Boolean specifying if, in the precessing case, the FIM has to be computed with respect to the spin angular variables rather than the spin cartesian components.
-        :param bool, optional computeDerivFinDiff: Boolean specifying if the derivatives have to be computed using numerical differentiation (finite differences) through the `numdifftools <https://github.com/pbrod/numdifftools>`_ package.
-        :param bool, optional computeAnalyticalDeriv: Boolean specifying if the derivatives with respect to ``dL``, ``theta``, ``phi``, ``psi``, ``tcoal``, ``Phicoal`` and ``iota`` (the latter only for the fundamental mode in the non-precessing case) have to be computed analytically. This considerably speeds up the calculation and provides better accuracy.
-        :param bool, optional return_all: Boolean specifying if, in the case of a triangular detector, the FIMs of the individual instruments have to be returned separately. In this case the return type is *list(array, array, array)*.
-        :param kwargs: Optional arguments to be passed to :py:class:`gwfast.signal.GWSignal._SignalDerivatives`, such as ``methodNDT``.
-        :return: FIM(s) as a function of the parameters of the event(s). The shape is :math:`(N_{\\rm parameters}`, :math:`N_{\\rm parameters}`, :math:`N_{\\rm events})`.
-        :rtype: 3-D array
-
-        """
-        # If use_m1m2=True the Fisher is computed w.r.t. m1 and m2, not Mc and eta
-        # If use_chi1chi2=True the Fisher is computed w.r.t. chi1z and chi2z, not chiS and chiA
-        if self.detector.duty_cycle is not None:
-            onp.random.seed(self.seedUse)
-
-        fcut = self.wf_model.fcut(**evParams)
-
-        if self.fmax is not None:
-            fcut = np.where(fcut > self.fmax, self.fmax, fcut)
-
-        fminarr = np.full(fcut.shape, self.fmin)
-        if res is None and df is not None:
-            res = np.floor(np.real((1 + (fcut - fminarr) / df)))
-            res = np.amax(res)
-        elif res is None and df is None:
-            raise ValueError("Provide either resolution in frequency or step size.")
-        if spacing == "lin":
-            fgrids = np.linspace(fminarr, fcut, num=int(res))
-        elif spacing == "geom":
-            fgrids = np.geomspace(fminarr, fcut, num=int(res))
-
-        if (self.wf_model.is_LAL) and (not computeDerivFinDiff):
-            computeDerivFinDiff = True
-            if self.verbose:
-                print(
-                    "Using LAL or TEOBResumS waveforms it is not possible to compute the derivatives using JAX automatic differentiation routines, being the functions written in C. Proceeding using numdifftools for numerical differentiation (finite differences)"
-                )
-
-        allFishers = []
-
-        # Convert to OrderDict to preserve order
-        evParams = OrderedDict(evParams)
-
-        if self.detector.shape == "L":
-            # Compute derivatives
-            jacobian_dict = self._jax_derivative(fgrids, evParams)
-            # Change the units of the tcoal derivative from days to seconds (this improves conditioning)
-            jacobian_dict["tcoal"] /= DAY_TO_SEC
-            fisher_mat = self.convert_Jacobian_to_Fisher(jacobian_dict, fgrids)
-
-            if self.detector.duty_cycle is not None:
-                fisher_mat *= self.duty_cycle_mask(fisher_mat.shape[2])
-            allFishers.append(fisher_mat)
-        else:
-            # Fisher = onp.zeros((nParams,nParams,len(Mc)))
-            if not self.compute2arms:
-                for i in range(3):
-                    # Change rot and compute derivatives
-                    jacobian_dict = self._jax_derivative(fgrids, evParams, rot=i * 60.0)
-                    # Change the units of the tcoal derivative from days to seconds (this improves conditioning)
-                    jacobian_dict["tcoal"] /= DAY_TO_SEC
-                    fisher_mat = self.convert_Jacobian_to_Fisher(jacobian_dict, fgrids)
-                    if self.detector.duty_cycle is not None:
-                        fisher_mat *= self.duty_cycle_mask(fisher_mat.shape[2])
-                    allFishers.append(fisher_mat)
-                    # Fisher += tmpFisher
-            else:
-                # The signal in 3 arms sums to zero for geometrical reasons, so we can use this to skip some calculations
-                jacobian_dict_1 = self._jax_derivative(fgrids, evParams, rot=0.0)
-                jacobian_dict_1["tcoal"] /= DAY_TO_SEC
-                fisher_mat_1 = self.convert_Jacobian_to_Fisher(jacobian_dict_1, fgrids)
-                if self.detector.duty_cycle is not None:
-                    fisher_mat_1 *= self.duty_cycle_mask(fisher_mat_1.shape[2])
-                allFishers.append(fisher_mat_1)
-
-                jacobian_dict_2 = self._jax_derivative(fgrids, evParams, rot=60.0)
-                jacobian_dict_2["tcoal"] /= DAY_TO_SEC
-                fisher_mat_2 = self.convert_Jacobian_to_Fisher(jacobian_dict_2, fgrids)
-                if self.detector.duty_cycle is not None:
-                    fisher_mat_1 *= self.duty_cycle_mask(fisher_mat_2.shape[2])
-                allFishers.append(fisher_mat_2)
-
-                jacobian_dict_3 = {
-                    key: -(jacobian_dict_1[key] + jacobian_dict_2[key])
-                    for key in jacobian_dict_1.keys()
-                }
-                fisher_mat_3 = self.convert_Jacobian_to_Fisher(jacobian_dict_3, fgrids)
-                if self.detector.duty_cycle is not None:
-                    fisher_mat_3 *= self.duty_cycle_mask(fisher_mat_3.shape[2])
-                allFishers.append(fisher_mat_3)
-
-        if return_all:
-            return allFishers
-        elif self.detector.shape == "T":
-            return onp.array(allFishers).sum(axis=0)
-        else:
-            return allFishers[0]
-
-    def _jax_derivative(self, freq_grid, parameters, rot=0.0):
-        """
-        Forget about analytic derivatives or finite differencing, just use JAX.
-
-        Assuming shape of freq_grid is (N_freq, N_params).
-        """
-        if self.wf_model.is_holomorphic:
-            return vmap(jacrev(self.GWstrain, argnums=1, holomorphic=True))(
-                    freq_grid.T, parameters, rot)
-
-        def real_strain(freqs, params):
-            return self.GWstrain(freqs, params, rot).real
-
-        def imag_strain(freqs, params):
-            return self.GWstrain(freqs, params, rot).imag
-
-        real_deriv = vmap(jacrev(real_strain, argnums=1))(freq_grid.T, parameters)
-        imag_deriv = vmap(jacrev(imag_strain, argnums=1))(freq_grid.T, parameters)
-        return OrderedDict(
-            {key: real_deriv[key] + 1j * imag_deriv[key] for key in parameters.keys()}
-        )
-
-    def convert_Jacobian_to_Fisher(self, jacobian_dict, freqs_grid):
-        # The matrix has shape: (N_params, param_len, N_freq)
-        jacobian_mat = np.array(tree.leaves(jacobian_dict))
-
-        pre_fisher_mat = jacobian_mat[:, :, None, :].conj() * \
-            jacobian_mat.transpose(1, 0, 2)
-        pre_fisher_mat = np.swapaxes(pre_fisher_mat, 1, 2)
-
-        fisher_shape = pre_fisher_mat.shape[:-1]
-        fisher_mat = onp.zeros(fisher_shape)
-
-        freqs_grid_T = freqs_grid.T
-        psd_grids = self.detector.psd_interp(freqs_grid_T)
-        for row, col in zip(*np.triu_indices(fisher_shape[0])):
-            fisher_mat[row, col] = \
-                4 * np.trapezoid(
-                    pre_fisher_mat[row, col] / psd_grids,
-                    freqs_grid_T, axis=1).real
-
-            if row != col:
-                fisher_mat[col, row] = fisher_mat[row, col]
-
-        return fisher_mat
 
     def WFOverlap(
         self, WF1, WF2, evParams1, evParams2, res=1000, return_separate=False, **kwargs

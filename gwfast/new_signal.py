@@ -4,36 +4,34 @@
 #    All rights reserved. Use of this source code is governed by the
 #    license that can be found in the LICENSE file.
 
-#    This new_signal is a clone of AGN_lensed_Signal,
-#    but without the lensing modifications.
-#    The purpose is solely to test when things go wrong in the AGN_lensed_Signal
-
 import os
 
-from jax import config, vmap, jacrev, tree
+from jax import config, vmap, jacrev, tree, jit, device_count, local_device_count
 import jax.numpy as np
 
 # Enable 64bit on JAX, fundamental
 config.update("jax_enable_x64", True)
 
-os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
-os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform"
-
-import numpy as onp
 import copy
 from collections import OrderedDict
+import numpy as onp
+from scipy.integrate import cumulative_trapezoid
+import numdifftools as ndt
+from numdifftools.step_generators import MaxStepGenerator
 
-from gwfast.gwfastGlobals import TWOPI, DAY_TO_SEC
+from gwfast.gwfastGlobals import TWOPI, DAY_TO_SEC, DEG_TO_RAD
 from gwfast.gwfastUtils import (
     noise_weighted_inner_product,
     optimal_snr,
     get_model_parameters,
     check_evparams,
+    apply_psi_rotation,
+    ra_dec_from_th_phi_rad,
 )
-from gwfast.signal import GWSignal
+from gwfast.detector import Detector
 
 
-class NewGWSignal(GWSignal):
+class NewGWSignal(object):
     """
     Class to compute the GW signal emitted by a coalescing binary system as seen by a detector on Earth.
 
@@ -41,17 +39,17 @@ class NewGWSignal(GWSignal):
 
     :param WaveFormModel wf_model: Object containing the waveform model.
     :param str psd_path: Full path to the file containing the detector's *Power Spectral Density*, PSD, or *Amplitude Spectral Density*, ASD, including the file extension. The file is assumed to have two columns, the first containing the frequencies (in :math:`\\rm Hz`) and the second containing the detector's PSD/ASD at each frequency.
-    :param str detector_shape: The shape of the detector, to be chosen among ``'L'`` for an L-shaped detector (90°-arms) and ``'T'`` for a triangular detector (3 nested detectors with 60°-arms).
-    :param float det_lat: Latitude of the detector, in degrees.
-    :param float det_long: Longitude of the detector, in degrees.
-    :param float det_xax: Angle between the bisector of the detector's arms (the first detector in the case of a triangle) and local East, in degrees.
+    :param str optional detector_shape: The shape of the detector, to be chosen among ``'L'`` for an L-shaped detector (90°-arms) and ``'T'`` for a triangular detector (3 nested detectors with 60°-arms).
+    :param float optional det_lat: Latitude of the detector, in degrees.
+    :param float optional det_long: Longitude of the detector, in degrees.
+    :param float optional det_xax: Angle between the bisector of the detector's arms (the first detector in the case of a triangle) and local East, in degrees.
     :param bool, optional verbose: Boolean specifying if the code has to print additional details during execution.
     :param bool, optional is_ASD: Boolean specifying if the provided file is a PSD or an ASD.
     :param bool, optional useEarthMotion: Boolean specifying if the effect of the Earth rotation has to be included in the analysis.
     :param bool, optional noMotion: Boolean specifying if the Earth should be considered fixed at ``tcoal=0``. In the case ``useEarthMotion=False`` the system is rotated depending on ``tcoal`` and then left fixed. This was needed for checks and is not to be used.
     :param float fmin: Minimum frequency to use for the grid in the analysis, in :math:`\\rm Hz`.
     :param float fmax: Maximum frequency to use for the grid in the analysis, in :math:`\\rm Hz`. The cut frequency of the waveform (which depends on the events parameters) will be used as maximum frequency if ``fmax=None`` or if it is smaller than ``fmax``.
-    :param str IntTablePath: Deprecated, not used.
+    :param Detector optional detector: A detector object, once specified, it overrides the specified lat, long, and xax above.
     :param float detector.duty_cycle: Duty factor of the detector, between 0 and 1, representing the percentage of time the detector (each detector independently in the case of a triangular detector) is supposed to be operational.
     :param bool, optional compute2arms: Boolean specifying if, in the case of a triangular detector, the computation can be performed only in two of the instruments, using the null-stream to get the signal in the third instrument, speeding up the computation by 1/3.
     :param bool, optional jitCompileDerivs: Boolean specifying if the derivatives function has to be jit compiled.
@@ -66,48 +64,242 @@ class NewGWSignal(GWSignal):
 
     """
 
-    def __init__(self, **kwargs):
-
-        super().__init__(**kwargs)
-
-    def GWAmplitudes(self, evParams, f, rot=0.0):
-        raise NotImplementedError("Yeah, someone should work on this.")
-
-    def GWPhase(self, evParams, f):
-        raise NotImplementedError("Yeah, someone should work on this.")
-
-    def GWstrain(
+    def __init__(
         self,
-        f,
-        parameters,
-        rot=0.0,
-        return_single_comp=None,
+        wf_model,
+        psd_path=None,
+        detector_shape="T",
+        det_lat=40.44,
+        det_long=9.45,
+        det_xax=0.0,
+        verbose=True,
+        useEarthMotion=False,
+        noMotion=False,  # use only for checks
+        fmin=2.0,
+        fmax=None,
+        detector=None,
+        DutyFactor=None,
+        compute2arms=True,
+        jitCompileDerivs=False,
     ):
+
+        if (useEarthMotion) and (wf_model.objType == "BBH") and (verbose):
+            print(
+                "WARNING: the Earth's motion gives a negligible contribution for BBH signals, consider switching it off to make the code run faster"
+            )
+        if (not useEarthMotion) and (wf_model.objType == "BNS") and (verbose):
+            print(
+                "WARNING: the motion of Earth gives a relevant contribution for BNS signals, consider switching it on"
+            )
+        if (not useEarthMotion) and (wf_model.objType == "NSBH") and (verbose):
+            print(
+                "WARNING: the motion of Earth gives a relevant contribution for NSBH signals, consider switching it on"
+            )
+
+        self.verbose = verbose
+        self.wf_model = wf_model
+        self.strain_model_keys = list(self.wf_model.ParNums.keys())
+        self.fmin = fmin  # Hz
+        self.fmax = fmax  # Hz or None
+
+        self.useEarthMotion = useEarthMotion
+        self.noMotion = noMotion
+        if self.noMotion and self.useEarthMotion:
+            print("noMotion and useEarthMotion are True. switching off useEarthMotion ")
+            self.useEarthMotion = False
+
+        self.compute2arms = compute2arms
+
+        if detector is None:
+            self.detector = Detector(
+                "ifo",
+                det_lat,
+                det_long,
+                det_xax,
+                detector_shape,
+                DutyFactor,
+                psd_path,
+                verbose=verbose,
+            )
+        else:
+            self.detector = detector
+
+        mask = self.detector.psd_frequencies >= self.fmin
+        if self.fmax is not None:
+            mask *= self.detector.psd_frequencies <= self.fmax
+
+        masked_freqs = self.detector.psd_frequencies[mask]
+        self.strainInteg = cumulative_trapezoid(
+            masked_freqs ** (-7.0 / 3.0) / self.detector.psd_array[mask],
+            masked_freqs,
+            initial=0,
+        )
+
+        onp.random.seed(None)
+        self.seedUse = onp.random.randint(2**32 - 1, size=1)
+        self.jitCompileDerivs = jitCompileDerivs
+
+        if self.wf_model.is_LAL:
+            self.signal_derivatives = self._signal_derivatives
+        else:
+            self._init_jax()
+
+    def _init_jax(self):
+        """
+        JAX initialisation method
+        """
+        if self.verbose:
+            print("Initializing jax...")
+        os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+        os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform"
+        os.environ["TF_CPP_MIN_LOG_LEVEL"] = "0"
+        # os.environ['XLA_FLAGS'] = f'--xla_force_host_platform_device_count=8'
+        if self.verbose:
+            print(f"Jax local device count: {local_device_count():d}")
+            print(f"Jax device count: {device_count():d}")
+
+        if self.jitCompileDerivs:
+            self.signal_derivatives = jit(
+                self._signal_derivatives,
+                static_argnames=[
+                    "computeAnalyticalDeriv",
+                    "computeDerivFinDiff",
+                ],
+            )
+        else:
+            self.signal_derivatives = self._signal_derivatives
+
+        inj_params_init = {
+            "Mc": 77.23905294,
+            "eta": 0.20586622,
+            "chi1x": 0.1,
+            "chi2x": 0.05,
+            "chi1y": 0.1,
+            "chi2y": -0.01,
+            "chi1z": 0.2018924,
+            "chi2z": -0.68859213,
+            "chis": 0.2018924,
+            "chia": -0.68859213,
+            "dL": 22.68426174,
+            "psi": 3.11843169,
+            "iota": 4.48411048,
+            "Phicoal": 3.28297867,
+            "theta": 3.00702251,
+            "phi": 0.90252645,
+            "Lambda1": 300.0,
+            "Lambda2": 300.0,
+            "tcoal": 0.0,
+            "ecc": 0.0,
+            "R_orbit": 100.0,
+            "M_lz": 1e6,
+            "src_pos": 0.1,
+        }
+        inj_params_init = {key: np.array([val]) for key, val in inj_params_init.items()}
+
+        _verbose = self.verbose
+        self.verbose = False
+        _detector_shape = self.detector.shape
+        self.detector.shape = "L"  # Get a faster Initialization with an L
+        _strain_model_keys = self.strain_model_keys
+        self.strain_model_keys = list(inj_params_init.keys())
+        _ = self.SNRInteg(inj_params_init, res=10)
+        _ = self.FisherMatr(inj_params_init, res=10)
+
+        # Restore the original values
+        self.verbose = _verbose
+        self.detector.shape = _detector_shape
+        self.strain_model_keys = _strain_model_keys
+
+    @property
+    def need_HM(self):
+        """
+        Dynamically evaluate whether the waveform model needs
+        higher harmonics
+        """
+        return (self.wf_model.is_HigherModes) or (self.wf_model.is_Precessing)
+
+    def shifted_time(self, parameters, frequencies):
+        theta = parameters["theta"]
+        phi = parameters["phi"]
+        tcoal = parameters["tcoal"]
+
+        if self.noMotion:
+            time = 0.0
+        elif self.useEarthMotion:
+            time = (
+                tcoal - self.wf_model.tau_star(frequencies, **parameters) / DAY_TO_SEC
+            )
+        else:
+            time = tcoal
+        delta_t = self.detector.compute_geocent_deltat(theta, phi, time)
+        return time + delta_t, delta_t
+
+    def duty_cycle_mask(self, shape):
+        """
+        Generate a (new) duty-cycle mask for the given shape.
+        """
+        return onp.random.random(shape) > self.detector.duty_cycle
+
+    def GWAmplitudes(self, parameters, freqs, rot=0.0):
+        """
+        Compute the amplitude of the signal(s) as seen by the detector, as a function of the parameters, at given frequencies.
+
+        :param dict(array, array, ...) parameters: Dictionary containing the parameters of the event(s), as in :py:data:`events`.
+        :param array or float freqs: The frequency(ies) at which to perform the calculation, in :math:`\\rm Hz`.
+        :param float rot: Further rotation of the interferometer with respect to the :py:data:`self.xax` orientation, in degrees, needed for the triangular geometry.
+        :return: Plus and cross amplitudes at the detector, evaluated at the given parameters and frequency(ies).
+        :rtype: tuple(array, array) or tuple(float, float)
+
+        """
+        # evParams are all the parameters characterizing the event(s) under exam. It has to be a dictionary containing the entries:
+        # Mc -> chirp mass (Msun), dL -> luminosity distance (Gpc), theta & phi -> sky position (rad), iota -> inclination angle of orbital angular momentum to l.o.s toward the detector,
+        # psi -> polarisation angle, tcoal -> time of coalescence as GMST (fraction of days), eta -> symmetric mass ratio, Phicoal -> GW frequency at coalescence.
+        # chi1z, chi2z -> dimensionless spin components aligned to orbital angular momentum [-1;1], Lambda1,2 -> tidal parameters of the objects,
+        # f is the frequency (Hz)
+
+        theta = parameters["theta"]
+        phi = parameters["phi"]
+        iota = parameters["iota"]
+        psi = parameters["psi"]
+
+        time, _ = self.shifted_time(parameters, freqs)
+        Fp, Fc = self.detector.compute_antenna_pattern(theta, phi, time, psi, rot=rot)
+
+        if self.need_HM:
+            # If the waveform includes higher modes or precessing spins,
+            # it is not possible to compute amplitude and phase separately, make all together
+            hp, hc = self.wf_model.hphc(freqs, **parameters)
+            Ap, Ac = abs(hp) * Fp, abs(hc) * Fc
+        else:
+            wfAmpl = self.wf_model.Ampl(freqs, **parameters)
+            Ap = wfAmpl * Fp * 0.5 * (1.0 + (np.cos(iota)) ** 2)
+            Ac = wfAmpl * Fc * np.cos(iota)
+
+        return Ap, Ac
+
+    def GWPhase(self, parameters, freqs):
+        """
+        Compute the complete phase of the signal(s), as a function of the parameters, at given frequencies.
+
+        :param dict(array, array, ...) parameters: Dictionary containing the parameters of the event(s), as in :py:data:`events`.
+        :param array or float freqs: The frequency(ies) at which to perform the calculation, in :math:`\\rm Hz`.
+
+        :return: Complete signal phase, evaluated at the given parameters and frequency(ies).
+        :rtype: array or float
+
+        """
+        # Phase of the GW signal
+        tcoal, Phicoal = parameters["tcoal"], parameters["Phicoal"]
+        PhiGw = self.wf_model.Phi(freqs, **parameters)
+
+        return TWOPI * freqs * (tcoal * DAY_TO_SEC) - Phicoal - PhiGw
+
+    def GWstrain(self, f, parameters, rot=0.0, return_single_comp=None):
         """
         Compute the full GW strain (complex) as a function of the parameters, at given frequencies.
 
         :param array or float f: The frequency(ies) at which to perform the calculation, in :math:`\\rm Hz`.
-        :param array or float Mc: The chirp mass(es), :math:`{\cal M}_c`, in units of :math:`\\rm M_{\odot}`. If ``is_m1m2=True`` this is interpreted as the primary mass, :math:`m_1`, in units of :math:`\\rm M_{\odot}`.
-        :param array or float eta:  The symmetric mass ratio(s), :math:`\eta`. If ``is_m1m2=True`` this is interpreted as the secondary mass, :math:`m_2`, in units of :math:`\\rm M_{\odot}`.
-        :param array or float dL: The luminosity distance(s), :math:`d_L`, in :math:`\\rm Gpc`.
-        :param array or float theta: The :math:`\\theta` sky position angle(s), in :math:`\\rm rad`.
-        :param array or float phi: The :math:`\phi` sky position angle(s), in :math:`\\rm rad`.
-        :param array or float iota: The inclination angle(s), with respect to orbital angular momentum, :math:`\iota`, in :math:`\\rm rad`. If ``is_prec_ang=True`` this is interpreted as the inclination angle(s) with respect to total angular momentum, :math:`\\theta_{JN}`, in :math:`\\rm rad`.
-        :param array or float psi: The polarisation angle(s), :math:`\psi`, in :math:`\\rm rad`.
-        :param array or float tcoal: The time(s) of coalescence, :math:`t_{\\rm coal}`, as a GMST.
-        :param array or float Phicoal: The phase(s) at coalescence, :math:`\Phi_{\\rm coal}`, in :math:`\\rm rad`.
-        :param array or float chiS: The symmetric spin component(s), :math:`\chi_s`. If :py:class:`self.wf_model` is precessing or ``is_chi1chi2=True`` this is interpreted as the spin component(s) of the primary object(s) along the axis :math:`z`, :math:`\chi_{1,z}`. If ``is_prec_ang=True`` this is interpreted as the spin magnitude(s) of the primary object(s), :math:`\chi_1`.
-        :param array or float chiA: The antisymmetric spin component(s) :math:`\chi_a`. If :py:class:`self.wf_model` is precessing or ``is_chi1chi2=True`` this is interpreted as the spin component(s) of the secondary object(s) along the axis :math:`z`, :math:`\chi_{2,z}`. If ``is_prec_ang=True`` this is interpreted as the spin magnitude(s) of the secondary object(s), :math:`\chi_2`.
-        :param array or float chi1x: The spin component(s) of the primary object(s) along the axis :math:`x`, :math:`\chi_{1,x}`. If ``is_prec_ang=True`` this is interpreted as the spin tilt angle(s) of the primary object(s), :math:`\\theta_{s,1}`, in :math:`\\rm rad`.
-        :param array or float chi2x: The spin component(s) of the secondary object(s) along the axis :math:`x`, :math:`\chi_{2,x}`. If ``is_prec_ang=True`` this is interpreted as the spin tilt angle(s) of the secondary object(s), :math:`\\theta_{s,2}`, in :math:`\\rm rad`.
-        :param array or float chi1y: spin component(s) of the primary object(s) along the axis :math:`y`, :math:`\chi_{1,y}`. If ``is_prec_ang=True`` this is interpreted as the azimuthal angle(s) of orbital angular momentum relative to total angular momentum, :math:`\phi_{JL}`, in :math:`\\rm rad`.
-        :param array or float chi2y: spin component(s) of the secondary object(s) along the axis :math:`y`, :math:`\chi_{2,y}`. If ``is_prec_ang=True`` this is interpreted as the difference(s) in azimuthal angle between spin vectors, :math:`\phi_{1,2}`, in :math:`\\rm rad`.
-        :param array or float LambdaTilde: The adimensional tidal deformability(ies) of combination :math:`\\tilde{\Lambda}`.
-        :param array or float deltaLambda: The adimensional tidal deformability(ies) of combination :math:`\delta\\tilde{\Lambda}`.
-        :param array or float ecc: The orbital eccentricity(ies), :math:`e_0`.
-        :param array or float R_orbit: The orbital radius of the BBH about the AGN lens, in Schwarszchild radii.
-        :param array or float M_lz: The redshifted lens mass, in solar masses.
-        :param array or float src_pos: The dimensionless source position, in Einstein radii.
+        :param dict parameters: The parameters dictionary to evaluate the strain at, could be dict of array or float.
         :param float rot: Further rotation of the interferometer with respect to the :py:data:`self.xax` orientation, in degrees, needed for the triangular geometry.
         :param bool, optional is_m1m2: Boolean specifying if the ``Mc`` and ``eta`` inputs should be interpreted as the primary and secondary mass(es).
         :param bool, optional is_chi1chi2: Boolean specifying if the ``chiS`` and ``chiA`` inputs should be interpreted as the primary and secondary spin components along the axis :math:`z`.
@@ -123,25 +315,23 @@ class NewGWSignal(GWSignal):
         # implementation of the JAX module for derivatives
 
         omega = TWOPI * f * DAY_TO_SEC
-        ZEROS = np.zeros_like(parameters["Mc"])
 
         check_evparams(parameters)
         model_params = get_model_parameters(parameters, self.strain_model_keys)
 
         # Not sure what does this do, but it was set to zero in both cases
         # (with or without useEarthMotion)
-        phiD = ZEROS
+        phiD = np.zeros_like(parameters["Mc"])
 
         # Moving on to combining the strain with the antenna patterns
-        need_HM = (self.wf_model.is_HigherModes) or (self.wf_model.is_Precessing)
         is_lal = self.wf_model.is_LAL
 
-        if not (need_HM or is_lal):
+        if not (self.need_HM or is_lal):
             time, deltaT = self.shifted_time(model_params, f)
             phiL = omega * deltaT
             # Return with the simplest things
-            Ap, Ac = super().GWAmplitudes(model_params, f, rot=rot)
-            Psi = super().GWPhase(model_params, f)
+            Ap, Ac = self.GWAmplitudes(model_params, f, rot=rot)
+            Psi = self.GWPhase(model_params, f)
             Psi += phiD + phiL
 
             # TODO: Check whether h = hp - i hc.
@@ -214,7 +404,7 @@ class NewGWSignal(GWSignal):
         """
         Compute the *signal-to-noise-ratio*, SNR, as a function of the parameters of the event(s).
 
-        :param dict(array, array, ...) evParams: Dictionary containing the parameters of the event(s), as in :py:data:`events`.
+        :param dict(array, array, ...) parameters: Dictionary containing the parameters of the event(s), as in :py:data:`events`.
         :param int res: The resolution of the frequency grid to use.
         :param bool, optional return_all: Boolean specifying if, in the case of a triangular detector, the SNRs of the individual instruments have to be returned separately. In this case the return type is *list(array, array, array)*.
 
@@ -252,9 +442,9 @@ class NewGWSignal(GWSignal):
             if not self.compute2arms:
                 for i in range(3):
                     Atot = self.GWstrain(
-                        fgrids, parameters, rot=i * 60.0,
-                        return_single_comp="At",
-                    ) ** 2
+                        fgrids, parameters, rot=i * 60.0, return_single_comp="At"
+                    )
+                    Atot = Atot**2
                     tmpSNRsq = np.trapezoid(Atot / psd_strain_grids, fgrids, axis=0)
                     if self.detector.duty_cycle is not None:
                         tmpSNRsq = tmpSNRsq * self.duty_cycle_mask(params_shape)
@@ -283,6 +473,30 @@ class NewGWSignal(GWSignal):
                 else 2 * np.sqrt(allSNRsq.sum(axis=0))
             )
         return np.squeeze(2 * np.sqrt(allSNRsq), axis=0)
+
+    def _signal_derivatives(
+        self,
+        freq_grid,
+        parameters,
+        rot=0.0,
+        computeDerivFinDiff=False,
+        computeAnalyticalDeriv=False,
+    ):
+        if not computeDerivFinDiff:
+            return self._jax_derivative(freq_grid, parameters, rot=rot)
+
+        finite_diff_jacobian = self._finite_difference(freq_grid, parameters, rot=rot)
+
+        if computeAnalyticalDeriv:
+            analytic_jacobian = self._analytical_derivatives(
+                freq_grid, parameters, rot=rot
+            )
+            if analytic_jacobian["iota"] is None:
+                # This is when the waveform has HM (or precessing)
+                analytic_jacobian.pop("iota")
+            finite_diff_jacobian.update(analytic_jacobian)
+
+        return finite_diff_jacobian
 
     def FisherMatr(
         self,
@@ -343,12 +557,16 @@ class NewGWSignal(GWSignal):
 
         allFishers = []
 
-        # Convert to OrderDict to preserve order
-        evParams = OrderedDict(evParams)
+        deriv_kwargs = dict(
+            freq_grid=fgrids,
+            parameters=OrderedDict(evParams),  # Convert to OrderDict to preserve order
+            computeDerivFinDiff=computeDerivFinDiff,
+            computeAnalyticalDeriv=computeAnalyticalDeriv,
+        )
 
         if self.detector.shape == "L":
             # Compute derivatives
-            jacobian_dict = self._jax_derivative(fgrids, evParams)
+            jacobian_dict = self.signal_derivatives(**deriv_kwargs)
             # Change the units of the tcoal derivative from days to seconds (this improves conditioning)
             jacobian_dict["tcoal"] /= DAY_TO_SEC
             fisher_mat = self.convert_Jacobian_to_Fisher(jacobian_dict, fgrids)
@@ -361,7 +579,9 @@ class NewGWSignal(GWSignal):
             if not self.compute2arms:
                 for i in range(3):
                     # Change rot and compute derivatives
-                    jacobian_dict = self._jax_derivative(fgrids, evParams, rot=i * 60.0)
+                    jacobian_dict = self.signal_derivatives(
+                        **deriv_kwargs, rot=i * 60.0
+                    )
                     # Change the units of the tcoal derivative from days to seconds (this improves conditioning)
                     jacobian_dict["tcoal"] /= DAY_TO_SEC
                     fisher_mat = self.convert_Jacobian_to_Fisher(jacobian_dict, fgrids)
@@ -370,15 +590,16 @@ class NewGWSignal(GWSignal):
                     allFishers.append(fisher_mat)
                     # Fisher += tmpFisher
             else:
-                # The signal in 3 arms sums to zero for geometrical reasons, so we can use this to skip some calculations
-                jacobian_dict_1 = self._jax_derivative(fgrids, evParams, rot=0.0)
+                # The signal in 3 arms sums to zero for geometrical reasons,
+                # so we can use this to skip some calculations
+                jacobian_dict_1 = self.signal_derivatives(**deriv_kwargs, rot=0.0)
                 jacobian_dict_1["tcoal"] /= DAY_TO_SEC
                 fisher_mat_1 = self.convert_Jacobian_to_Fisher(jacobian_dict_1, fgrids)
                 if self.detector.duty_cycle is not None:
                     fisher_mat_1 *= self.duty_cycle_mask(fisher_mat_1.shape[2])
                 allFishers.append(fisher_mat_1)
 
-                jacobian_dict_2 = self._jax_derivative(fgrids, evParams, rot=60.0)
+                jacobian_dict_2 = self.signal_derivatives(**deriv_kwargs, rot=60.0)
                 jacobian_dict_2["tcoal"] /= DAY_TO_SEC
                 fisher_mat_2 = self.convert_Jacobian_to_Fisher(jacobian_dict_2, fgrids)
                 if self.detector.duty_cycle is not None:
@@ -407,11 +628,10 @@ class NewGWSignal(GWSignal):
 
         Assuming shape of freq_grid is (N_freq, N_params).
         """
-        print(parameters.keys())
         if self.wf_model.is_holomorphic:
             return vmap(jacrev(self.GWstrain, argnums=1, holomorphic=True))(
-                    freq_grid.T, parameters, rot
-                )
+                freq_grid.T, parameters, rot
+            )
 
         def real_strain(freqs, params):
             return self.GWstrain(freqs, params, rot).real
@@ -422,27 +642,55 @@ class NewGWSignal(GWSignal):
         real_deriv = vmap(jacrev(real_strain, argnums=1))(freq_grid.T, parameters)
         imag_deriv = vmap(jacrev(imag_strain, argnums=1))(freq_grid.T, parameters)
         return OrderedDict(
-            {key: real_deriv[key] + 1j * imag_deriv[key] for key in real_deriv.keys()}
+            {key: real_deriv[key] + 1j * imag_deriv[key] for key in parameters.keys()}
         )
+
+    def _GWstrain_wrapper(self, param_values, param_keys, freqs, rot=0.0):
+        parameters = dict(zip(param_keys, param_values))
+        return self.GWstrain(freqs, parameters, rot)
+
+    def _finite_difference(
+        self,
+        freq_grid,
+        parameters,
+        rot=0.0,
+        step=MaxStepGenerator(base_step=1e-5),
+        method="central",
+    ):
+
+        jacobian_obj = ndt.Jacobian(
+            self._GWstrain_wrapper, step=step, method=method, order=2, n=1
+        )
+        jacobian = np.asarray(
+            jacobian_obj(
+                list(parameters.values()), list(parameters.keys()), freq_grid, rot
+            )
+        )
+        if len(jacobian.shape) == 2:  # len(Mc) == 1:
+            jacobian = jacobian[:, :, None]
+        jacobian = jacobian.transpose(1, 2, 0)
+
+        return OrderedDict(dict(zip(parameters.keys(), jacobian)))
 
     def convert_Jacobian_to_Fisher(self, jacobian_dict, freqs_grid):
         # The matrix has shape: (N_params, param_len, N_freq)
         jacobian_mat = np.array(tree.leaves(jacobian_dict))
 
-        pre_fisher_mat = jacobian_mat[:, :, None, :].conj() * \
-            jacobian_mat.transpose(1, 0, 2)
+        pre_fisher_mat = jacobian_mat[:, :, None, :].conj() * jacobian_mat.transpose(
+            1, 0, 2
+        )
         pre_fisher_mat = np.swapaxes(pre_fisher_mat, 1, 2)
-        fisher_shape = pre_fisher_mat.shape[:-1]
 
+        fisher_shape = pre_fisher_mat.shape[:-1]
         fisher_mat = onp.zeros(fisher_shape)
 
         freqs_grid_T = freqs_grid.T
         psd_grids = self.detector.psd_interp(freqs_grid_T)
         for row, col in zip(*np.triu_indices(fisher_shape[0])):
-            fisher_mat[row, col] = \
-                4 * np.trapezoid(
-                    pre_fisher_mat[row, col] / psd_grids,
-                    freqs_grid_T, axis=1).real
+            fisher_mat[row, col] = np.trapezoid(
+                pre_fisher_mat[row, col] / psd_grids, freqs_grid_T, axis=1
+            ).real
+            fisher_mat[row, col] *= 4.0
 
             if row != col:
                 fisher_mat[col, row] = fisher_mat[row, col]
@@ -535,3 +783,140 @@ class NewGWSignal(GWSignal):
             return overlap_int, *SNRhs
         else:
             return overlap_int / (SNRhs[0] * SNRhs[1])
+
+    def _analytical_derivatives(self, freqs, parameters, rot=0.0):
+        """
+        Compute analytical derivatives with respect to ``dL``, ``theta``, ``phi``, ``psi``, ``tcoal``, ``Phicoal`` and ``iota`` (the latter only for the fundamental mode in the non-precessing case).
+
+        :param array or float freqs: The frequency(ies) at which to perform the calculation, in :math:`\\rm Hz`.
+        :param float rot: Further rotation of the interferometer with respect to the :py:data:`self.xax` orientation, in degrees, needed for the triangular geometry.
+        :return: Analytical derivatives with respect to ``dL``, ``theta``, ``phi``, ``iota``, ``psi``, ``tcoal`` and ``Phicoal``. If the :py:class:`self.wf_model` is precessing or includes higher order modes the derivative with respect to ``iota`` will be ``None``
+        :rtype: tuple(array, array, array, array, array, array, array)
+
+        """
+        omega = TWOPI * freqs * DAY_TO_SEC
+
+        check_evparams(parameters)
+        model_params = get_model_parameters(parameters, self.strain_model_keys)
+
+        iota = parameters.get("iota", None)
+        theta = parameters.get("theta", None)
+        phi = parameters.get("phi", None)
+        psi = parameters.get("psi", None)
+        tcoal = parameters.get("tcoal", None)
+        Phicoal = parameters.get("Phicoal", None)
+        dL = parameters.get("dL", None)
+
+        if (not self.wf_model.is_HigherModes) and (not self.wf_model.is_Precessing):
+            wfPhiGw = self.wf_model.Phi(freqs, **model_params)
+            wfAmpl = self.wf_model.Ampl(freqs, **model_params)
+            wfhpc = wfAmpl * np.exp(-1j * wfPhiGw)
+            wfhp = wfhpc * 0.5 * (1.0 + np.cos(iota) ** 2)
+            wfhc = 1j * wfhpc * np.cos(iota)
+        else:
+            # If the waveform includes higher modes, it is not possible to compute amplitude and phase separately, make all together
+            wfhp, wfhc = self.wf_model.hphc(freqs, **model_params)
+
+        phiD = np.zeros_like(parameters["Mc"])
+        t, tmpDeltLoc = self.shifted_time(model_params, freqs)
+        phiL = (TWOPI * freqs) * tmpDeltLoc
+
+        rot_rad = rot * DEG_TO_RAD
+        sin_angbtwArms = np.sin(self.angbtwArms)
+
+        ras, decs = ra_dec_from_th_phi_rad(theta, phi)
+        Fpc = self.detector.compute_antenna_pattern(theta, phi, t, psi, rot)
+
+        phase = 1j * (omega * tcoal - Phicoal + phiD + phiL)
+        _hp = wfhp * np.exp(phase)
+        _hc = wfhc * np.exp(phase)
+
+        hp, hc = Fpc[0] * _hp, Fpc[1] * _hc
+
+        def psi_par_deriv():
+            cos_2psi = np.cos(2 * psi)
+            sin_2psi = np.sin(2 * psi)
+            dpsi_rotation = -2 * np.array([[sin_2psi, -cos_2psi], [cos_2psi, sin_2psi]])
+            ab_factors, _ = self.detector._compute_ab_factors(ras, decs, t, rot_rad)
+            Fpc_dpsi = (
+                np.einsum("ij...,j...->i...", dpsi_rotation, ab_factors)
+                * sin_angbtwArms
+            )
+            return Fpc_dpsi[0] * _hp, Fpc_dpsi[1] * _hc
+
+        def phi_par_deriv():
+            afac_dphi, bfac_dphi, deltat_dphi = self.detector._compute_ab_factors(
+                ras, decs, t, rot_rad, dphi=True
+            )
+
+            Fpc = apply_psi_rotation(psi, afac_dphi, bfac_dphi) * sin_angbtwArms
+            Ap_dphi = Fpc[0] * _hp
+            Ac_dphi = Fpc[1] * _hc
+
+            phiD_dphi = 0.0
+            phiL_dphi = omega * deltat_dphi
+
+            return (
+                Ap_dphi
+                + 1j * (phiD_dphi + phiL_dphi) * hp
+                + Ac_dphi
+                + 1j * (phiD_dphi + phiL_dphi) * hc
+            )
+
+        def theta_par_deriv():
+            afac_dtheta, bfac_dtheta, deltat_dtheta = self.detector._compute_ab_factors(
+                ras, decs, t, rot_rad, dtheta=True
+            )
+
+            Fpc = apply_psi_rotation(psi, afac_dtheta, bfac_dtheta) * sin_angbtwArms
+            Ap_dtheta = Fpc[0] * _hp
+            Ac_dtheta = Fpc[1] * _hc
+
+            phiD_dtheta = 0.0
+            phiL_dtheta = omega * deltat_dtheta
+
+            return (
+                Ap_dtheta
+                + 1j * (phiD_dtheta + phiL_dtheta) * hp
+                + Ac_dtheta
+                + 1j * (phiD_dtheta + phiL_dtheta) * hc
+            )
+
+        def tcoal_par_deriv():
+            afac_dtime, bfac_dtime, deltat_dtime = self.detector._compute_ab_factors(
+                ras, decs, t, rot_rad, dtheta=True
+            )
+
+            Fpc = apply_psi_rotation(psi, afac_dtime, bfac_dtime) * sin_angbtwArms
+            Ap_dtime = Fpc[0] * _hp
+            Ac_dtime = Fpc[1] * _hc
+
+            phiD_dtime = 0.0
+            phiL_dtime = omega * deltat_dtime
+
+            return (
+                Ap_dtime
+                + 1j * (phiD_dtime + phiL_dtime + omega) * hp
+                + Ac_dtime
+                + 1j * (phiD_dtime + phiL_dtime + omega) * hc
+            )
+
+        def iota_par_deriv():
+
+            if (not self.wf_model.is_HigherModes) and (not self.wf_model.is_Precessing):
+                wfhp_diota = wfhpc * (-0.5 * np.sin(2 * iota))
+                wfhc_diota = -1j * wfhpc * np.sin(iota)
+                return (Fpc[0] * wfhp_diota + Fpc[1] * wfhc_diota) * np.exp(phase)
+            else:
+                # This derivative is computed numerically if the waveform contains higher modes
+                return None
+
+        return {
+            "dL": -(hp + hc) / dL,
+            "theta": theta_par_deriv(),
+            "phi": phi_par_deriv(),
+            "iota": iota_par_deriv(),
+            "psi": psi_par_deriv(),
+            "tcoal": tcoal_par_deriv(),
+            "Phicoal": -1j * (hp + hc),
+        }

@@ -339,6 +339,16 @@ class Detector(object):
 
         return sum_comp * earth_traverse_time
 
+    def _phiPhase(self, iota, theta, phi, t, psi, Fp=None, Fc=None):
+        # The polarization phase contribution (the change in F+ and Fx with time influences also the phase)
+        if (Fp is None) or (Fc is None):
+            Fp, Fc = self.compute_antenna_pattern(theta, phi, t, psi)
+
+        phiP = -np.arctan2(np.cos(iota) * Fc, 0.5 * (1.0 + np.cos(iota) ** 2) * Fp)
+
+        # The contriution to the amplitude is negligible, so we do not compute it
+        return phiP
+
 
 def FpFcsqInt(C2s, S2s, C1s, S1s, C0s, Igs, iota):
     # Is he out of his mind??

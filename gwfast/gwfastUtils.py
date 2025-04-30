@@ -49,7 +49,8 @@ def get_event(evs, idx):
     }
     try:
         len(res["Mc"])
-    except:
+    # I guess he is trying to catch the case of a single number.
+    except TypeError:
         res = {
             k: np.array(
                 [
@@ -260,6 +261,8 @@ def get_model_parameters(input_params, model_param_keys):
         for key in masses_keys:
             missing_keys.discard(key)
 
+    ZEROS = 0.0 * converted_params["Mc"]
+
     ## Spins
     if ("chiS" in missing_keys) or ("chiA" in missing_keys):
         converted_params["chiS"] = 0.5 * (input_params["chi1z"] + input_params["chi2z"])
@@ -271,15 +274,52 @@ def get_model_parameters(input_params, model_param_keys):
         converted_params["chi2z"] = converted_params["chiS"] - converted_params["chiA"]
 
     if any([key in missing_keys for key in spin_comps_keys]):
-        pass
+        spin_comps = TransformPrecessing_angles2comp(
+            input_params["thetaJN"],
+            input_params["phiJL"],
+            input_params["tilt1"],
+            input_params["tilt2"],
+            input_params["phi12"],
+            input_params["chi1"],
+            input_params["chi2"],
+            input_params["Mc"],
+            input_params["eta"],
+            input_params["fRef"],
+            input_params["Phicoal"],
+        )
+        for key, value in zip(spin_angle_keys, spin_comps):
+            converted_params[key] = value
+            missing_keys.discard(key)
     elif any([key in missing_keys for key in spin_angle_keys]):
-        pass
+        spin_angles = TransformPrecessing_comp2angles(
+            input_params["iota"],
+            input_params["chi1x"],
+            input_params["chi1y"],
+            input_params["chi1z"],
+            input_params["chi2x"],
+            input_params["chi2y"],
+            input_params["chi2z"],
+            input_params["Mc"],
+            input_params["eta"],
+            input_params["fRef"],
+            input_params["Phicoal"],
+        )
+        for key, value in zip(spin_angle_keys, spin_angles):
+            converted_params[key] = value
+            missing_keys.discard(key)
 
     ## Tidal
     if any([key in missing_keys for key in ("Lambda1", "Lambda2")]):
-        pass
+        LambdaTilde = input_params.get("LambdaTilde", ZEROS)
+        deltaLambda = input_params.get("deltaLambda", ZEROS)
+        converted_params["Lambda1"], converted_params["Lambda2"] = (
+            Lam12_from_Lamt_delLam(LambdaTilde, deltaLambda, input_params["eta"])
+        )
     elif any([key in missing_keys for key in ("LambdaTilde", "deltaLambda")]):
         pass
+
+    if "ecc" in missing_keys:
+        converted_params["ecc"] = ZEROS
 
     return {key: converted_params.get(key, None) for key in model_param_keys}
 
