@@ -1103,6 +1103,8 @@ def GPSt_to_GMST_alt(t_GPS):
     Compute the Greenwich Mean Sidereal Time (GMST) in units of fraction of day, from GPS time. This function does not rely on external libraries but is **approximate**.
     The implementation is taken from `GWFish <https://github.com/janosch314/GWFish/tree/main>`_.
 
+    The input t_GPS needs to be sufficiently large for the finite_difference to keep track of f.p.
+
     :param array or float t_GPS: GPS time(s) to convert, in seconds.
 
     :return: Greenwich Mean Sidereal Time(s).

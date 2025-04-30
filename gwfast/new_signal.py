@@ -24,7 +24,6 @@ from gwfast.gwfastUtils import (
     noise_weighted_inner_product,
     optimal_snr,
     get_model_parameters,
-    check_evparams,
     apply_psi_rotation,
     ra_dec_from_th_phi_rad,
 )
@@ -316,8 +315,9 @@ class NewGWSignal(object):
 
         omega = TWOPI * f * DAY_TO_SEC
 
-        # check_evparams(parameters)
         model_params = get_model_parameters(parameters, self.strain_model_keys)
+        time, deltaT = self.shifted_time(model_params, f)
+        phiL = omega * deltaT
 
         # Not sure what does this do, but it was set to zero in both cases
         # (with or without useEarthMotion)
@@ -327,8 +327,6 @@ class NewGWSignal(object):
         is_lal = self.wf_model.is_LAL
 
         if not (self.need_HM or is_lal):
-            time, deltaT = self.shifted_time(model_params, f)
-            phiL = omega * deltaT
             # Return with the simplest things
             Ap, Ac = self.GWAmplitudes(model_params, f, rot=rot)
             Psi = self.GWPhase(model_params, f)
@@ -359,18 +357,14 @@ class NewGWSignal(object):
 
         phase_shift_factor = np.exp(1j * (phiD + omega * model_params["tcoal"]))
 
-        params = model_params
-        iota = params["iota"]
-        psi = params["psi"]
-        phase = params["phase"]
-        theta = params["theta"]
-        phi = params["phi"]
-
-        time, deltaT = self.shifted_time(params, f)
-        phiL = omega * deltaT
+        iota = model_params["iota"]
+        psi = model_params["psi"]
+        phase = model_params["phase"]
+        theta = model_params["theta"]
+        phi = model_params["phi"]
 
         Fpc = self.detector.compute_antenna_pattern(theta, phi, time, psi, rot=rot)
-        hpc = self.wf_model.hphc(f, **params)
+        hpc = self.wf_model.hphc(f, **model_params)
         phase_factor = phase_shift_factor * np.exp(1j * (phiL - phase))
         hp = hpc[0] * Fpc[0] * phase_factor
         hc = hpc[1] * Fpc[1] * phase_factor
@@ -416,8 +410,6 @@ class NewGWSignal(object):
         if self.detector.duty_cycle is not None:
             onp.random.seed(self.seedUse)
 
-        # TODO: Deprecate check_evaparams
-        check_evparams(parameters)
         model_params = get_model_parameters(parameters, self.strain_model_keys)
         params_shape = model_params["Mc"].shape
 
@@ -660,7 +652,7 @@ class NewGWSignal(object):
     ):
 
         jacobian_obj = ndt.Jacobian(
-            self._GWstrain_wrapper, step=step, method=method, order=2, n=1
+            self._GWstrain_wrapper, step=step, method=method, order=4, n=1
         )
         jacobian = np.asarray(
             jacobian_obj(
@@ -716,10 +708,6 @@ class NewGWSignal(object):
         :rtype: 1-D array
 
         """
-        # Checks on imput parameters for waveforms
-        check_evparams(evParams1)
-        check_evparams(evParams2)
-
         wfm_1_keys = list(WF1.ParNums.keys())
         wfm_2_keys = list(WF2.ParNums.keys())
 
@@ -797,7 +785,6 @@ class NewGWSignal(object):
         """
         omega = TWOPI * freqs * DAY_TO_SEC
 
-        check_evparams(parameters)
         model_params = get_model_parameters(parameters, self.strain_model_keys)
 
         iota = parameters.get("iota", None)
