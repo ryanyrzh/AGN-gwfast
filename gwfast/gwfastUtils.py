@@ -49,7 +49,8 @@ def get_event(evs, idx):
     }
     try:
         len(res["Mc"])
-    except:
+    # I guess he is trying to catch the case of a single number.
+    except TypeError:
         res = {
             k: np.array(
                 [
@@ -260,7 +261,7 @@ def get_model_parameters(input_params, model_param_keys):
         for key in masses_keys:
             missing_keys.discard(key)
 
-    ZEROS = np.zeros_like(converted_params["Mc"])
+    ZEROS = 0.0 * converted_params["Mc"]
 
     ## Spins
     if ("chiS" in missing_keys) or ("chiA" in missing_keys):
