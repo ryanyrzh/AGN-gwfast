@@ -1084,6 +1084,21 @@ def GPSt_to_LMST(t_GPS, lat, long):
     return jnp.array(LMST / 24.0)
 
 
+def GPSt_to_GMST_alt(t_GPS):
+    """
+    Compute the Greenwich Mean Sidereal Time (GMST) in units of fraction of day, from GPS time. This function does not rely on external libraries but is **approximate**.
+    The implementation is taken from `GWFish <https://github.com/janosch314/GWFish/tree/main>`_.
+
+    :param array or float t_GPS: GPS time(s) to convert, in seconds.
+
+    :return: Greenwich Mean Sidereal Time(s).
+    :rtype: array or float
+
+    """
+
+    return jnp.mod(9.533088395981618 + (t_GPS - 1126260000.) / 3600. * 24. / glob.siderealDay, 24.) / 24.
+
+
 ##############################################################################
 # SPHERICAL HARMONICS
 ##############################################################################
