@@ -497,12 +497,10 @@ class NewGWSignal(GWSignal):
         freqs_grid_T = freqs_grid.T
         psd_grids = self.detector.psd_interp(freqs_grid_T)
         for row, col in zip(*np.triu_indices(fisher_shape[0])):
-            fisher_mat[row, col] = (
-                4
-                * np.trapezoid(
-                    pre_fisher_mat[row, col] / psd_grids, freqs_grid_T, axis=1
-                ).real
-            )
+            fisher_mat[row, col] = np.trapezoid(
+                pre_fisher_mat[row, col] / psd_grids, freqs_grid_T, axis=1
+            ).real
+            fisher_mat[row, col] *= 4.0
 
             if row != col:
                 fisher_mat[col, row] = fisher_mat[row, col]
@@ -610,6 +608,14 @@ class NewGWSignal(GWSignal):
 
         check_evparams(parameters)
         model_params = get_model_parameters(parameters, self.strain_model_keys)
+
+        iota = parameters.get('iota', None)
+        theta = parameters.get('theta', None)
+        phi = parameters.get('phi', None)
+        psi = parameters.get('psi', None)
+        tcoal = parameters.get('tcoal', None)
+        Phicoal = parameters.get('Phicoal', None)
+        dL = parameters.get('dL', None)
 
         if (not self.wf_model.is_HigherModes) and (not self.wf_model.is_Precessing):
             wfPhiGw = self.wf_model.Phi(freqs, **model_params)
