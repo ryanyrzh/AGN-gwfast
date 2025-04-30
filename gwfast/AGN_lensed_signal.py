@@ -22,7 +22,6 @@ from gwfast.gwfastUtils import (
     noise_weighted_inner_product,
     optimal_snr,
     get_model_parameters,
-    check_evparams,
 )
 from gwfast.lensing_utils import (
     get_lensed_parameter_sets,
@@ -97,11 +96,8 @@ class AGNLensedGWSignal(NewGWSignal):
         # implementation of the JAX module for derivatives
 
         omega = TWOPI * f * DAY_TO_SEC
-        ZEROS = np.zeros_like(parameters["Mc"])
 
-        check_evparams(parameters)
         model_params = get_model_parameters(parameters, self.strain_model_keys)
-        # Modifications from lensing goes the end
         eval_params_1, eval_params_2 = get_lensed_parameter_sets(model_params)
         # Time delay and magnification
         # TODO: Check ordering of 1, 2.
@@ -111,13 +107,12 @@ class AGNLensedGWSignal(NewGWSignal):
 
         # Not sure what does this do, but it was set to zero in both cases
         # (with or without useEarthMotion)
-        phiD = ZEROS
+        phiD = np.zeros_like(parameters["Mc"])
 
         # Moving on to combining the strain with the antenna patterns
-        need_HM = (self.wf_model.is_HigherModes) or (self.wf_model.is_Precessing)
         is_lal = self.wf_model.is_LAL
 
-        if not (need_HM or is_lal):
+        if not (self.need_HM or is_lal):
             t1, deltaT_1 = self.shifted_time(eval_params_1, f)
             phiL1 = omega * deltaT_1
             t2, deltaT_2 = self.shifted_time(eval_params_2, f)
@@ -242,10 +237,6 @@ class AGNLensedGWSignal(NewGWSignal):
         :rtype: 1-D array
 
         """
-        # Checks on imput parameters for waveforms
-        check_evparams(evParams1)
-        check_evparams(evParams2)
-
         wfm_1_keys = list(WF1.ParNums.keys()) + ["R_orbit", "M_lz", "src_pos"]
         wfm_2_keys = list(WF2.ParNums.keys()) + ["R_orbit", "M_lz", "src_pos"]
 
