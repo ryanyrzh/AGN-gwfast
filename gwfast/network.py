@@ -62,7 +62,6 @@ class DetNet(object):
 
         """
         snrs = {}
-        utils.check_evparams(evParams)
         for d in self.signals.keys():
             snr_ = self.signals[d].SNRInteg(
                 evParams, res=res, return_all=return_all
@@ -93,7 +92,6 @@ class DetNet(object):
 
         """
         allF = {}
-        utils.check_evparams(evParams)
         for d in self.signals.keys():
             if self.verbose:
                 print("Computing Fisher for %s..." % d)
@@ -187,9 +185,6 @@ class DetNet(object):
         :rtype: 1-D array
 
         """
-        utils.check_evparams(evParams1)
-        utils.check_evparams(evParams2)
-
         overlap_all = onp.zeros_like(evParams1["Mc"])
         SNR1_all = onp.zeros_like(evParams1["Mc"])
         SNR2_all = onp.zeros_like(evParams1["Mc"])

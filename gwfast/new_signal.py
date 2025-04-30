@@ -317,7 +317,7 @@ class NewGWSignal(object):
 
         # Not sure what does this do, but it was set to zero in both cases
         # (with or without useEarthMotion)
-        phiD = np.zeros_like(parameters["Mc"])
+        phiD = np.zeros_like(model_params["Mc"])
 
         # Moving on to combining the strain with the antenna patterns
         is_lal = self.wf_model.is_LAL
@@ -527,7 +527,9 @@ class NewGWSignal(object):
         if self.detector.duty_cycle is not None:
             onp.random.seed(self.seedUse)
 
-        fcut = self.wf_model.fcut(**evParams)
+        # Need to compute the model_params once first
+        model_params = get_model_parameters(evParams, self.strain_model_keys)
+        fcut = self.wf_model.fcut(**model_params)
 
         if self.fmax is not None:
             fcut = np.where(fcut > self.fmax, self.fmax, fcut)
@@ -579,7 +581,6 @@ class NewGWSignal(object):
                     if self.detector.duty_cycle is not None:
                         fisher_mat *= self.duty_cycle_mask(fisher_mat.shape[2])
                     allFishers.append(fisher_mat)
-                    # Fisher += tmpFisher
             else:
                 # The signal in 3 arms sums to zero for geometrical reasons,
                 # so we can use this to skip some calculations

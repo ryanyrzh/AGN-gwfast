@@ -6,37 +6,41 @@
 
 
 import os
-os.environ['XLA_FLAGS'] = '--xla_force_host_platform_device_count=8'
+
+os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=8"
 import jax
-jax.devices('cpu')
+jax.devices("cpu")
 from jax import config
-# from jax.config import config
 config.update("jax_enable_x64", True)
 
-# We use both the original numpy, denoted as onp, and the JAX implementation of numpy, denoted as np
-import numpy as onp
+import numpy as np
 import copy
 import mpmath
 from scipy.stats import norm
 from scipy.linalg import eigh
 
 try:
-    onp.float128(1.)
-    typeuse='float128'
+    np.float128(1.0)
+    typeuse = "float128"
 except AttributeError:
-    print('WARNING: numpy float128 type not supported on this machine, resorting to float64, precision might be lower.')
-    typeuse='float64'
+    print(
+        "WARNING: numpy float128 type not supported on this machine, resorting to float64, precision might be lower."
+    )
+    typeuse = "float64"
+
 
 ##############################################################################
 # INVERSION AND SANITY CHECKS
 ##############################################################################
-def CovMatr(FisherMatrix,
-            invMethodIn='cho',
-            condNumbMax=1e50,
-            truncate=False, svals_thresh=1e-15,
-            verbose=False,
-            alt_method = 'svd'
-            ):
+def CovMatr(
+    FisherMatrix,
+    invMethodIn="cho",
+    condNumbMax=1e50,
+    truncate=False,
+    svals_thresh=1e-15,
+    verbose=False,
+    alt_method="svd",
+):
     """
     Invert the Fisher matrix(ces), obtaining the covariance matrix(ces).
 
@@ -53,148 +57,189 @@ def CovMatr(FisherMatrix,
     """
     FisherMatrixOr = copy.deepcopy(FisherMatrix)
 
-    reweighted=False
+    reweighted = False
     FisherM = FisherMatrix.astype(typeuse)
-    CovMatr = onp.zeros(FisherMatrix.shape).astype(typeuse)
+    CovMatr = np.zeros(FisherMatrix.shape).astype(typeuse)
 
     cho_failed = 0
     for k in range(FisherM.shape[-1]):
-
-
-        if onp.all(onp.isnan(FisherM[:, :, k])):
+        if np.all(np.isnan(FisherM[:, :, k])):
             if verbose:
-                print('Fisher is nan at position %s. ' %k)
-            CovMatr[:, :, k] = onp.full( FisherM[:, :, k].shape , onp.nan)
+                print("Fisher is nan at position %s. " % k)
+            CovMatr[:, :, k] = np.full(FisherM[:, :, k].shape, np.nan)
         else:
             # go to mpmath
-            ff = mpmath.matrix( FisherM[:, :, k].astype(typeuse))
+            ff = mpmath.matrix(FisherM[:, :, k].astype(typeuse))
             try:
                 # Conditioning of the original Fisher
                 E, _ = mpmath.eigh(ff)
-                E = onp.array(E.tolist(), dtype=typeuse)
-                if onp.any(E<0) and verbose:
-                    print('Matrix is not positive definite!')
+                E = np.array(E.tolist(), dtype=typeuse)
+                if np.any(E < 0) and verbose:
+                    print("Matrix is not positive definite!")
 
-                cond = onp.max(onp.abs(E))/onp.min(onp.abs(E))
+                cond = np.max(np.abs(E)) / np.min(np.abs(E))
                 if verbose:
-                    print('Condition of original matrix: %s' %cond)
+                    print("Condition of original matrix: %s" % cond)
 
                 try:
                     # Normalize by the diagonal
-                    ws =  mpmath.diag([ 1/mpmath.sqrt(ff[i, i]) for i in range(FisherM.shape[-2]) ])
-                    FisherM_ = ws*ff*ws
+                    ws = mpmath.diag(
+                        [1 / mpmath.sqrt(ff[i, i]) for i in range(FisherM.shape[-2])]
+                    )
+                    FisherM_ = ws * ff * ws
                     # Conditioning of the new Fisher
                     EE, _ = mpmath.eigh(FisherM_)
-                    E = onp.array(EE.tolist(), dtype=typeuse)
-                    cond = onp.max(onp.abs(E))/onp.min(onp.abs(E))
+                    E = np.array(EE.tolist(), dtype=typeuse)
+                    cond = np.max(np.abs(E)) / np.min(np.abs(E))
                     if verbose:
-                        print('Condition of the new matrix: %s' %cond)
-                    reweighted=True
+                        print("Condition of the new matrix: %s" % cond)
+                    reweighted = True
                 except ZeroDivisionError:
-                    print('The Fisher matrix has a zero element on the diagonal at position %s. The normalization procedure will not be applied. Consider using a prior.' %k)
+                    print(
+                        "The Fisher matrix has a zero element on the diagonal at position %s. The normalization procedure will not be applied. Consider using a prior."
+                        % k
+                    )
                     FisherM_ = ff
 
-
                 invMethod = invMethodIn
-                if onp.any(E<0):
+                if np.any(E < 0):
                     if verbose:
-                        print('Matrix is not positive definite at position %s!' %k)
-                    if invMethodIn=='cho':
-                        cho_failed+=1
-                        invMethod=alt_method
+                        print("Matrix is not positive definite at position %s!" % k)
+                    if invMethodIn == "cho":
+                        cho_failed += 1
+                        invMethod = alt_method
                         if verbose:
-                            print('Cholesky decomposition not usable. Using method %s' %invMethod)
-                elif invMethod=='cho':
+                            print(
+                                "Cholesky decomposition not usable. Using method %s"
+                                % invMethod
+                            )
+                elif invMethod == "cho":
                     try:
                         # In rare cases, the choleski decomposition still fails even if the eigenvalues are positive...
                         # likely for very small eigenvalues
-                        c = (mpmath.cholesky(FisherM_))**-1
+                        c = (mpmath.cholesky(FisherM_)) ** -1
                     except Exception as e:
                         print(e)
-                        invMethod=alt_method
-                        print('Cholesky decomposition not usable. Eigenvalues seem ok but cholesky decomposition failed. Using method %s' %invMethod)
-                        #print('Eigenvalues: %s' %str(E))
-                        cho_failed+=1
+                        invMethod = alt_method
+                        print(
+                            "Cholesky decomposition not usable. Eigenvalues seem ok but cholesky decomposition failed. Using method %s"
+                            % invMethod
+                        )
+                        # print('Eigenvalues: %s' %str(E))
+                        cho_failed += 1
 
-                if invMethod=='inv':
-                        cc = FisherM_**-1
-                elif invMethod=='cho':
-                        #c = cF**-1
-                        cc = c.T*c
-                elif invMethod=='svd':
-                        U, Sm, V = mpmath.svd_r(FisherM_)
-                        S = onp.array(Sm.tolist(), dtype=typeuse)
-                        if ((truncate) and (onp.abs(cond)>condNumbMax)):
-                            if verbose:
-                                print('Truncating singular values below %s' %svals_thresh)
+                if invMethod == "inv":
+                    cc = FisherM_**-1
+                elif invMethod == "cho":
+                    # c = cF**-1
+                    cc = c.T * c
+                elif invMethod == "svd":
+                    U, Sm, V = mpmath.svd_r(FisherM_)
+                    S = np.array(Sm.tolist(), dtype=typeuse)
+                    if (truncate) and (np.abs(cond) > condNumbMax):
+                        if verbose:
+                            print("Truncating singular values below %s" % svals_thresh)
 
-                            maxev = onp.max(onp.abs(S))
-                            Sinv = mpmath.matrix(onp.array([1/s if onp.abs(s)/maxev>svals_thresh else 1/(maxev*svals_thresh) for s in S ]).astype(typeuse))
-                            St = mpmath.matrix(onp.array([s if onp.abs(s)/maxev>svals_thresh else maxev*svals_thresh for s in S ]).astype(typeuse))
+                        maxev = np.max(np.abs(S))
+                        Sinv = mpmath.matrix(
+                            np.array(
+                                [
+                                    (
+                                        1 / s
+                                        if np.abs(s) / maxev > svals_thresh
+                                        else 1 / (maxev * svals_thresh)
+                                    )
+                                    for s in S
+                                ]
+                            ).astype(typeuse)
+                        )
+                        St = mpmath.matrix(
+                            np.array(
+                                [
+                                    (
+                                        s
+                                        if np.abs(s) / maxev > svals_thresh
+                                        else maxev * svals_thresh
+                                    )
+                                    for s in S
+                                ]
+                            ).astype(typeuse)
+                        )
 
-                            # Also copute truncated Fisher to quantify inversion error consistently
-                            truncFisher = U*mpmath.diag([s for s in St])*V
-                            truncFisher = (truncFisher+truncFisher.T)/2
-                            FisherMatrixOr[:, :, k] = onp.array(truncFisher.tolist(), dtype=typeuse)
+                        # Also copute truncated Fisher to quantify inversion error consistently
+                        truncFisher = U * mpmath.diag([s for s in St]) * V
+                        truncFisher = (truncFisher + truncFisher.T) / 2
+                        FisherMatrixOr[:, :, k] = np.array(
+                            truncFisher.tolist(), dtype=typeuse
+                        )
 
-                            if verbose:
-                                truncated = onp.abs(S)/maxev<svals_thresh #onp.array([1 if onp.abs(s)/maxev>svals_thresh else 0 for s in S ]
-                                print('%s singular values truncated' %(truncated.sum()))
-                        else:
-                            Sinv = mpmath.matrix(onp.array([1/s for s in S ]).astype(typeuse))
-                            St = S
+                        if verbose:
+                            truncated = (
+                                np.abs(S) / maxev < svals_thresh
+                            )  # np.array([1 if np.abs(s)/maxev>svals_thresh else 0 for s in S ]
+                            print("%s singular values truncated" % (truncated.sum()))
+                    else:
+                        Sinv = mpmath.matrix(
+                            np.array([1 / s for s in S]).astype(typeuse)
+                        )
+                        St = S
 
-                        cc=V.T*mpmath.diag([s for s in Sinv])*U.T
+                    cc = V.T * mpmath.diag([s for s in Sinv]) * U.T
 
-                elif invMethod=='svd_reg':
+                elif invMethod == "svd_reg":
 
-                        U, Sm, V = mpmath.svd_r(FisherM_)
+                    U, Sm, V = mpmath.svd_r(FisherM_)
 
-                        S = onp.squeeze(onp.array(Sm.tolist(), dtype=typeuse))
-                        Um = onp.array(U.tolist(), dtype=typeuse)
-                        Vm = onp.array(V.tolist(), dtype=typeuse)
+                    S = np.squeeze(np.array(Sm.tolist(), dtype=typeuse))
+                    Um = np.array(U.tolist(), dtype=typeuse)
+                    Vm = np.array(V.tolist(), dtype=typeuse)
 
-                        kVal = sum(S > svals_thresh)
+                    kVal = sum(S > svals_thresh)
 
-                        Sinv = mpmath.matrix(onp.array([1/s  for s in S ]).astype(typeuse))
-                        cc = mpmath.matrix(Um[:, 0:kVal] @ onp.diag(1. / S[0:kVal]) @ Vm[0:kVal, :])
+                    Sinv = mpmath.matrix(np.array([1 / s for s in S]).astype(typeuse))
+                    cc = mpmath.matrix(
+                        Um[:, 0:kVal] @ np.diag(1.0 / S[0:kVal]) @ Vm[0:kVal, :]
+                    )
 
-
-                elif invMethod=='lu':
-                        P, L, U = mpmath.lu(FisherM_)
-                        ll = P*L
-                        llinv = ll**-1
-                        uinv=U**-1
-                        cc = uinv*llinv
-
+                elif invMethod == "lu":
+                    P, L, U = mpmath.lu(FisherM_)
+                    ll = P * L
+                    llinv = ll**-1
+                    uinv = U**-1
+                    cc = uinv * llinv
 
                 # Enforce symmetry.
-                cc = (cc+cc.T)/2
+                cc = (cc + cc.T) / 2
 
                 if reweighted:
                     # Undo the reweighting
-                    CovMatr_ = ws*cc*ws
+                    CovMatr_ = ws * cc * ws
                 else:
                     CovMatr_ = cc
 
-                CovMatr[:, :, k] =  onp.array(CovMatr_.tolist(), dtype=typeuse)
+                CovMatr[:, :, k] = np.array(CovMatr_.tolist(), dtype=typeuse)
                 if verbose:
                     print()
 
             except Exception as e:
                 # Eigenvalue decomposition failed
                 print(e)
-                print('Inversion failed!')
-                CovMatr[:, :, k] = onp.full( FisherM[:, :, k].shape , onp.nan)
-
+                print("Inversion failed!")
+                CovMatr[:, :, k] = np.full(FisherM[:, :, k].shape, np.nan)
 
     eps = compute_inversion_error(FisherMatrixOr, CovMatr)
 
     if verbose:
-            print('Error with %s: %s\n' %(invMethod, eps))
-            print(' Inversion error with method %s: min=%s, max=%s, mean=%s, std=%s ' %(invMethodIn, onp.min(eps), onp.max(eps), onp.mean(eps), onp.std(eps)) )
-            print('Method %s not possible on %s non-positive definite matrices, %s was used in those cases. ' %(invMethodIn, cho_failed, alt_method))
-    return CovMatr , eps
+        print("Error with %s: %s\n" % (invMethod, eps))
+        print(
+            " Inversion error with method %s: min=%s, max=%s, mean=%s, std=%s "
+            % (invMethodIn, np.min(eps), np.max(eps), np.mean(eps), np.std(eps))
+        )
+        print(
+            "Method %s not possible on %s non-positive definite matrices, %s was used in those cases. "
+            % (invMethodIn, cho_failed, alt_method)
+        )
+    return CovMatr, eps
 
 
 def compute_inversion_error(Fisher, Cov):
@@ -208,10 +253,42 @@ def compute_inversion_error(Fisher, Cov):
     :rtype: 1-D array
 
     """
-    return onp.array([ onp.max( onp.abs(Cov[:, :, i]@Fisher[:, :, i]-onp.eye(Fisher.shape[0]))) for i in range(Fisher.shape[-1]) ])
+    return np.array(
+        [
+            np.max(np.abs(Cov[:, :, i] @ Fisher[:, :, i] - np.eye(Fisher.shape[0])))
+            for i in range(Fisher.shape[-1])
+        ]
+    )
 
 
+def reduce_Fisher_matrix(fisher_matrix, keys=None):
+    """
+    **Please use this function with care, and only removes zeroes that are expected.**
 
+    This function remove the columns and rows of the Fisher matrix that gives identically zeroes.
+
+    It will also remove the corresponding keys if provided.
+    """
+    remove_indices = []
+    remove_keys = []
+    for idx, row in enumerate(fisher_matrix):
+        col = fisher_matrix[:, idx, :]
+        zero_row = np.all(row == 0.0)
+        zero_col = np.all(col == 0.0)
+
+        if zero_row and zero_col:
+            remove_indices.append(idx)
+
+    reduced_fisher_mats = np.copy(fisher_matrix)
+    for jdx in reversed(remove_indices):
+        reduced_fisher_mats = np.delete(reduced_fisher_mats, (jdx), axis=0)
+        reduced_fisher_mats = np.delete(reduced_fisher_mats, (jdx), axis=1)
+
+        if keys is not None:
+            rm_key = keys.pop(jdx)
+            remove_keys.append(rm_key)
+
+    return reduced_fisher_mats, remove_keys
 
 
 def CheckFisher(FisherM, condNumbMax=1.0e15, use_mpmath=True, verbose=False):
@@ -235,47 +312,57 @@ def CheckFisher(FisherM, condNumbMax=1.0e15, use_mpmath=True, verbose=False):
     # The input has size (Npar,Npar,Nev), so we have to swap
 
     if not use_mpmath:
-        evals, evecs = eigh(FisherM.transpose(2,0,1))
+        evals, evecs = eigh(FisherM.transpose(2, 0, 1))
     else:
-        evals = onp.zeros(FisherM.shape[1:][::-1])
-        evecs = onp.zeros(FisherM.shape[::-1])
+        evals = np.zeros(FisherM.shape[1:][::-1])
+        evecs = np.zeros(FisherM.shape[::-1])
         for k in range(FisherM.shape[-1]):
 
-            if onp.all(onp.isnan(FisherM[:, :, k])):
+            if np.all(np.isnan(FisherM[:, :, k])):
                 if verbose:
-                    print('Fisher is nan at position %s. ' %k)
-                evals[k, :]=onp.full( FisherM.shape[0] , onp.nan)
-                evecs[k, :, :]=onp.full( FisherM[:, :, k].shape , onp.nan)
+                    print("Fisher is nan at position %s. " % k)
+                evals[k, :] = np.full(FisherM.shape[0], np.nan)
+                evecs[k, :, :] = np.full(FisherM[:, :, k].shape, np.nan)
             else:
                 try:
-                    aam = mpmath.matrix(FisherM[:,:,k].astype(typeuse))
+                    aam = mpmath.matrix(FisherM[:, :, k].astype(typeuse))
                     E, ER = mpmath.eigh(aam)
-                    evals[k, :] = onp.array(E, dtype=typeuse)
-                    evecs[k, :, :] = onp.array(ER.tolist(), dtype=typeuse)
+                    evals[k, :] = np.array(E, dtype=typeuse)
+                    evecs[k, :, :] = np.array(ER.tolist(), dtype=typeuse)
                 except Exception as e:
                     print(e)
-                    print('Trying with scipy')
+                    print("Trying with scipy")
                     try:
-                        evals[k, :], evecs[k, :, :] = eigh(FisherM[:,:,k])
+                        evals[k, :], evecs[k, :, :] = eigh(FisherM[:, :, k])
                     except Exception as e:
                         print(e)
-                        print('Event is number %s' %k)
-                        evals[k, :], evecs[k, :, :] = onp.full(FisherM.shape[0], onp.nan, ), onp.full((FisherM.shape[0], FisherM.shape[0]), onp.nan, )
-                        #condNumber = None
-                        print(FisherM[:,:,k])
+                        print("Event is number %s" % k)
+                        evals[k, :], evecs[k, :, :] = np.full(
+                            FisherM.shape[0],
+                            np.nan,
+                        ), np.full(
+                            (FisherM.shape[0], FisherM.shape[0]),
+                            np.nan,
+                        )
+                        # condNumber = None
+                        print(FisherM[:, :, k])
 
+    if np.any(evals <= 0.0):
+        print(
+            "WARNING: one or more eigenvalues are negative at position(s) %s"
+            % str(np.unique(np.where(evals < 0)[0]))
+        )
 
-    if onp.any(evals <= 0.):
-        print('WARNING: one or more eigenvalues are negative at position(s) %s' %str( onp.unique(onp.where(evals<0)[0]) ))
+    condNumber = np.abs(evals).max(axis=1) / np.abs(evals).min(axis=1)
 
-
-    condNumber = onp.abs(evals).max(axis=1)/onp.abs(evals).min(axis=1)
-
-    if onp.any(condNumber>condNumbMax) and verbose:
-                    print('WARNING: the condition number is too large (%s>%s)'%(condNumber,condNumbMax) )
-                    print('Unreliable covariance at positions ' +str(condNumber>condNumbMax))
+    if np.any(condNumber > condNumbMax) and verbose:
+        print(
+            "WARNING: the condition number is too large (%s>%s)"
+            % (condNumber, condNumbMax)
+        )
+        print("Unreliable covariance at positions " + str(condNumber > condNumbMax))
     elif verbose:
-                    print('Condition number= %s . Ok. '%condNumber)
+        print("Condition number= %s . Ok. " % condNumber)
 
     return evals, evecs, condNumber
 
@@ -291,13 +378,14 @@ def perturb_Fisher(totF, eps=1e-10, **kwargs):
     """
     Cov_base, _ = CovMatr(totF, **kwargs)
 
-
-    totF_random = totF + onp.random.rand(*totF.shape)*eps
+    totF_random = totF + np.random.rand(*totF.shape) * eps
     Cov, _ = CovMatr(totF_random, **kwargs)
 
-
-    epsErr = [onp.linalg.norm( Cov_base[i]/Cov[i]-1, ord=onp.inf) for i in range(Cov.shape[-1])]
-    print('Relative errors when perturbing at the %s level: %s' %(eps, epsErr))
+    epsErr = [
+        np.linalg.norm(Cov_base[i] / Cov[i] - 1, ord=np.inf)
+        for i in range(Cov.shape[-1])
+    ]
+    print("Relative errors when perturbing at the %s level: %s" % (eps, epsErr))
 
 
 def check_covariance(FisherM, Cov, tol=1e-10):
@@ -312,30 +400,36 @@ def check_covariance(FisherM, Cov, tol=1e-10):
     :rtype: 3-D array
 
     """
-    recovered_Ids = [ Cov[:, :, i]@FisherM[:, :, i] for i in range(Cov.shape[-1])]
+    recovered_Ids = [Cov[:, :, i] @ FisherM[:, :, i] for i in range(Cov.shape[-1])]
 
     #
     epsErr = compute_inversion_error(FisherM, Cov)
-    print('Inversion errors: %s' %epsErr)
+    print("Inversion errors: %s" % epsErr)
 
     #
-    diag_diff = [recovered_Ids[i].diagonal()-1 for i in range(Cov.shape[-1])]
-    print('diagonal-1 = %s' %str(diag_diff) )
+    diag_diff = [recovered_Ids[i].diagonal() - 1 for i in range(Cov.shape[-1])]
+    print("diagonal-1 = %s" % str(diag_diff))
 
     #
-    offDiag = [ recovered_Ids[i][onp.matrix(~onp.eye(recovered_Ids[i].shape[0],dtype=bool))] for i in range(Cov.shape[-1])]
+    offDiag = [
+        recovered_Ids[i][np.matrix(~np.eye(recovered_Ids[i].shape[0], dtype=bool))]
+        for i in range(Cov.shape[-1])
+    ]
 
-    print('Max off diagonal: %s' % str([ max(offDiag[i]) for i in range(Cov.shape[-1])] ) )
+    print("Max off diagonal: %s" % str([max(offDiag[i]) for i in range(Cov.shape[-1])]))
 
-    print('\nmask: where F*S(off-diagonal)>%s (--> problematic if True off diagonal)' %tol)
-    print([recovered_Ids[i]>tol for i in range(Cov.shape[-1])])
+    print(
+        "\nmask: where F*S(off-diagonal)>%s (--> problematic if True off diagonal)"
+        % tol
+    )
+    print([recovered_Ids[i] > tol for i in range(Cov.shape[-1])])
 
     return recovered_Ids
+
 
 ##############################################################################
 # ADDING PRIOR, ELIMINATING ROWS
 ##############################################################################
-
 
 
 def fixParams(MatrIn, ParNums_inp, ParMarg):
@@ -351,17 +445,18 @@ def fixParams(MatrIn, ParNums_inp, ParMarg):
 
     """
     import copy
+
     ParNums = copy.deepcopy(ParNums_inp)
 
-    IdxMarg = onp.sort(onp.array([ParNums[par] for par in ParMarg]))
-    newdim = MatrIn.shape[0]-len(IdxMarg)
+    IdxMarg = np.sort(np.array([ParNums[par] for par in ParMarg]))
+    newdim = MatrIn.shape[0] - len(IdxMarg)
 
-    NewMatr = onp.full( (newdim, newdim, MatrIn.shape[-1]), onp.NaN )
+    NewMatr = np.full((newdim, newdim, MatrIn.shape[-1]), np.NaN)
 
     for k in range(MatrIn.shape[-1]):
 
-        Matr = onp.delete(MatrIn[:, :, k], IdxMarg, 0)
-        Matr = onp.delete(Matr[:, :], IdxMarg, 1)
+        Matr = np.delete(MatrIn[:, :, k], IdxMarg, 0)
+        Matr = np.delete(Matr[:, :], IdxMarg, 1)
         NewMatr[:, :, k] = Matr
 
     # Given that we deleted some rows and columns,
@@ -369,7 +464,7 @@ def fixParams(MatrIn, ParNums_inp, ParMarg):
 
     for pm in ParMarg:
         for k in ParNums.keys():
-            if ParNums[k]>ParNums[pm]:
+            if ParNums[k] > ParNums[pm]:
                 ParNums[k] -= 1
         ParNums.pop(pm, None)
 
@@ -389,24 +484,25 @@ def addPrior(Matr, vals, ParNums, ParAdd):
     :rtype: 3-D array
 
     """
-    IdxAdd = onp.sort(onp.array([ParNums[par] for par in ParAdd]))
+    IdxAdd = np.sort(np.array([ParNums[par] for par in ParAdd]))
 
-    pp = onp.zeros((Matr.shape[0], Matr.shape[1]))
+    pp = np.zeros((Matr.shape[0], Matr.shape[1]))
 
-    diag = onp.zeros(Matr.shape[0])
+    diag = np.zeros(Matr.shape[0])
     diag[IdxAdd] = vals
 
-    onp.fill_diagonal(pp, diag)
+    np.fill_diagonal(pp, diag)
 
-    if Matr.ndim==2:
-        return pp+Matr
+    if Matr.ndim == 2:
+        return pp + Matr
     else:
-        return pp[:,:,onp.newaxis]+Matr
+        return pp[:, :, np.newaxis] + Matr
 
 
 ##############################################################################
 # DERIVATIVES AND JACOBIANS
 ##############################################################################
+
 
 def log_dL_to_dL_derivative_cov(or_matrix, ParNums, evParams):
     """
@@ -421,15 +517,19 @@ def log_dL_to_dL_derivative_cov(or_matrix, ParNums, evParams):
 
     """
     matrix = copy.deepcopy(or_matrix)
-    #for i in range(matrix.shape[-1]):
-        # This has to be vectorised
+    # for i in range(matrix.shape[-1]):
+    # This has to be vectorised
     try:
-            matrix = matrix.at[:, ParNums['dL'], : ].set(matrix[:, ParNums['dL'], :]* evParams['dL'])
-            matrix = matrix.at[ ParNums['dL'], : , : ].set(matrix[ParNums['dL'], :, :]* evParams['dL'])
+        matrix = matrix.at[:, ParNums["dL"], :].set(
+            matrix[:, ParNums["dL"], :] * evParams["dL"]
+        )
+        matrix = matrix.at[ParNums["dL"], :, :].set(
+            matrix[ParNums["dL"], :, :] * evParams["dL"]
+        )
     except AttributeError:
-            matrix = matrix.astype(typeuse)
-            matrix[:, ParNums['dL'], :] *= evParams['dL'].astype(typeuse)
-            matrix[ ParNums['dL'], :, :] *= evParams['dL'].astype(typeuse)
+        matrix = matrix.astype(typeuse)
+        matrix[:, ParNums["dL"], :] *= evParams["dL"].astype(typeuse)
+        matrix[ParNums["dL"], :, :] *= evParams["dL"].astype(typeuse)
     return matrix
 
 
@@ -446,17 +546,20 @@ def log_dL_to_dL_derivative_fish(or_matrix, ParNums, evParams):
 
     """
     matrix = copy.deepcopy(or_matrix)
-    #for i in range(matrix.shape[-1]):
-        # This has to be vectorised
+    # for i in range(matrix.shape[-1]):
+    # This has to be vectorised
     try:
-            matrix = matrix.at[:, ParNums['dL'], : ].set(matrix[:, ParNums['dL'], :]/ evParams['dL'])
-            matrix = matrix.at[ ParNums['dL'], : , : ].set(matrix[ ParNums['dL'], :, :]/ evParams['dL'])
+        matrix = matrix.at[:, ParNums["dL"], :].set(
+            matrix[:, ParNums["dL"], :] / evParams["dL"]
+        )
+        matrix = matrix.at[ParNums["dL"], :, :].set(
+            matrix[ParNums["dL"], :, :] / evParams["dL"]
+        )
     except AttributeError:
-            matrix = matrix.astype(typeuse)
-            matrix[:, ParNums['dL'], :] /= evParams['dL'].astype(typeuse)
-            matrix[ ParNums['dL'], :, :] /= evParams['dL'].astype(typeuse)
+        matrix = matrix.astype(typeuse)
+        matrix[:, ParNums["dL"], :] /= evParams["dL"].astype(typeuse)
+        matrix[ParNums["dL"], :, :] /= evParams["dL"].astype(typeuse)
     return matrix
-
 
 
 def dm1_dMc(eta):
@@ -469,7 +572,8 @@ def dm1_dMc(eta):
     :rtype: 1-D array
 
     """
-    return (1+onp.sqrt(1-4*eta) )*eta**(-3./5.)/2
+    return (1 + np.sqrt(1 - 4 * eta)) * eta ** (-3.0 / 5.0) / 2
+
 
 def dm2_dMc(eta):
     """
@@ -481,7 +585,8 @@ def dm2_dMc(eta):
     :rtype: 1-D array
 
     """
-    return (1-onp.sqrt(1-4*eta) )*eta**(-3./5.)/2
+    return (1 - np.sqrt(1 - 4 * eta)) * eta ** (-3.0 / 5.0) / 2
+
 
 def dm1_deta(Mc, eta):
     """
@@ -494,8 +599,15 @@ def dm1_deta(Mc, eta):
     :rtype: 1-D array
 
     """
-    return -Mc*(3-2*eta+3*onp.sqrt(1-4*eta))/(10*onp.sqrt(1-4*eta)*eta**(8./5.))
-#(1-onp.sqrt(1-4*eta) )*eta**(-3./5.)/2
+    return (
+        -Mc
+        * (3 - 2 * eta + 3 * np.sqrt(1 - 4 * eta))
+        / (10 * np.sqrt(1 - 4 * eta) * eta ** (8.0 / 5.0))
+    )
+
+
+# (1-np.sqrt(1-4*eta) )*eta**(-3./5.)/2
+
 
 def dm2_deta(Mc, eta):
     """
@@ -508,7 +620,11 @@ def dm2_deta(Mc, eta):
     :rtype: 1-D array
 
     """
-    return -Mc*(-3+2*eta+3*onp.sqrt(1-4*eta))/(10*onp.sqrt(1-4*eta)*eta**(8./5.))
+    return (
+        -Mc
+        * (-3 + 2 * eta + 3 * np.sqrt(1 - 4 * eta))
+        / (10 * np.sqrt(1 - 4 * eta) * eta ** (8.0 / 5.0))
+    )
 
 
 def dMc_dm1(m1, m2):
@@ -522,7 +638,8 @@ def dMc_dm1(m1, m2):
     :rtype: 1-D array
 
     """
-    return m2*(2*m1+3*m2)/(5*(m1*m2)**(2/5)*(m1+m2)**(6/5))
+    return m2 * (2 * m1 + 3 * m2) / (5 * (m1 * m2) ** (2 / 5) * (m1 + m2) ** (6 / 5))
+
 
 def dMc_dm2(m1, m2):
     """
@@ -537,6 +654,7 @@ def dMc_dm2(m1, m2):
     """
     return dMc_dm1(m2, m1)
 
+
 def deta_dm1(m1, m2):
     """
     Compute the derivative of :math:`\eta` with respect to :math:`m_1`.
@@ -548,7 +666,8 @@ def deta_dm1(m1, m2):
     :rtype: 1-D array
 
     """
-    return m2*(m2-m1)/(m1+m2)**3
+    return m2 * (m2 - m1) / (m1 + m2) ** 3
+
 
 def deta_dm2(m1, m2):
     """
@@ -575,7 +694,10 @@ def J_m1m2_Mceta(Mc, eta):
     :rtype: 2-D array
 
     """
-    return onp.array( [[dm1_dMc(eta), dm1_deta(Mc, eta)],[dm2_dMc(eta), dm2_deta(Mc, eta)]] )
+    return np.array(
+        [[dm1_dMc(eta), dm1_deta(Mc, eta)], [dm2_dMc(eta), dm2_deta(Mc, eta)]]
+    )
+
 
 def J_Mceta_m1m2(m1, m2):
     """
@@ -588,7 +710,10 @@ def J_Mceta_m1m2(m1, m2):
     :rtype: 2-D array
 
     """
-    return onp.array( [[dMc_dm1(m1, m2), dMc_dm2( m1, m2)],[deta_dm1(m1, m2), deta_dm2(m1, m2)]] )
+    return np.array(
+        [[dMc_dm1(m1, m2), dMc_dm2(m1, m2)], [deta_dm1(m1, m2), deta_dm2(m1, m2)]]
+    )
+
 
 def m1m2_from_Mceta(Mc, eta):
     """
@@ -600,8 +725,10 @@ def m1m2_from_Mceta(Mc, eta):
     :rtype: tuple(array, array) or tuple(float, float)
 
     """
-    delta = 1-4*eta
-    return (1+onp.sqrt(delta))/2*Mc/eta**(3./5.), (1-onp.sqrt(delta))/2*Mc/eta**(3./5.)
+    delta = 1 - 4 * eta
+    return (1 + np.sqrt(delta)) / 2 * Mc / eta ** (3.0 / 5.0), (
+        1 - np.sqrt(delta)
+    ) / 2 * Mc / eta ** (3.0 / 5.0)
 
 
 def Mceta_from_m1m2(m1, m2):
@@ -614,9 +741,10 @@ def Mceta_from_m1m2(m1, m2):
     :rtype: tuple(array, array) or tuple(float, float)
 
     """
-    Mc = (m1*m2)**3/5/(m1+m2)**1/5
-    eta = (m1*m2)/(m1+m2)**2
+    Mc = (m1 * m2) ** 3 / 5 / (m1 + m2) ** 1 / 5
+    eta = (m1 * m2) / (m1 + m2) ** 2
     return Mc, eta
+
 
 def m1m2_to_Mceta_fish(or_matrix, ParNums, evParams):
     """
@@ -630,13 +758,15 @@ def m1m2_to_Mceta_fish(or_matrix, ParNums, evParams):
     :rtype: 2-D array
 
     """
-    nparams=len(list(ParNums.keys()))
+    nparams = len(list(ParNums.keys()))
 
-    rotMatrix = onp.identity(nparams)
+    rotMatrix = np.identity(nparams)
 
-    rotMatrix[onp.ix_([ParNums['Mc'],ParNums['eta']],[ParNums['Mc'],ParNums['eta']])] = J_m1m2_Mceta(evParams['Mc'], evParams['eta'])
+    rotMatrix[
+        np.ix_([ParNums["Mc"], ParNums["eta"]], [ParNums["Mc"], ParNums["eta"]])
+    ] = J_m1m2_Mceta(evParams["Mc"], evParams["eta"])
 
-    matrix = rotMatrix@or_matrix@rotMatrix
+    matrix = rotMatrix @ or_matrix @ rotMatrix
 
     return matrix
 
@@ -653,13 +783,15 @@ def m1m2_to_Mceta_cov(or_matrix, ParNums, evParams):
     :rtype: 2-D array
 
     """
-    nparams=len(list(ParNums.keys()))
+    nparams = len(list(ParNums.keys()))
 
-    rotMatrix = onp.identity(nparams)
+    rotMatrix = np.identity(nparams)
 
-    rotMatrix[onp.ix_([ParNums['Mc'],ParNums['eta']],[ParNums['Mc'],ParNums['eta']])] = J_Mceta_m1m2(*m1m2_from_Mceta(evParams['Mc'], evParams['eta']))
+    rotMatrix[
+        np.ix_([ParNums["Mc"], ParNums["eta"]], [ParNums["Mc"], ParNums["eta"]])
+    ] = J_Mceta_m1m2(*m1m2_from_Mceta(evParams["Mc"], evParams["eta"]))
 
-    matrix = rotMatrix@or_matrix@rotMatrix
+    matrix = rotMatrix @ or_matrix @ rotMatrix
 
     return matrix
 
@@ -676,17 +808,20 @@ def Mceta_to_m1m2_fish(or_matrix, ParNums, evParams):
     :rtype: 2-D array
 
     """
-    nparams=or_matrix.shape[0] #len(list(ParNums.keys()))
+    nparams = or_matrix.shape[0]  # len(list(ParNums.keys()))
 
-    rotMatrix = onp.identity(nparams)
+    rotMatrix = np.identity(nparams)
 
-    m1, m2 = m1m2_from_Mceta(evParams['Mc'], evParams['eta'])
+    m1, m2 = m1m2_from_Mceta(evParams["Mc"], evParams["eta"])
 
-    rotMatrix[onp.ix_([ParNums['Mc'],ParNums['eta']],[ParNums['Mc'],ParNums['eta']])] = J_Mceta_m1m2(m1, m2)
+    rotMatrix[
+        np.ix_([ParNums["Mc"], ParNums["eta"]], [ParNums["Mc"], ParNums["eta"]])
+    ] = J_Mceta_m1m2(m1, m2)
 
-    matrix = rotMatrix.T@or_matrix@rotMatrix
+    matrix = rotMatrix.T @ or_matrix @ rotMatrix
 
     return matrix
+
 
 def Mceta_to_m1m2_cov(or_matrix, ParNums, evParams):
     """
@@ -700,15 +835,18 @@ def Mceta_to_m1m2_cov(or_matrix, ParNums, evParams):
     :rtype: 2-D array
 
     """
-    nparams=or_matrix.shape[0] #len(list(ParNums.keys()))
+    nparams = or_matrix.shape[0]  # len(list(ParNums.keys()))
 
-    rotMatrix = onp.identity(nparams)
+    rotMatrix = np.identity(nparams)
 
-    rotMatrix[onp.ix_([ParNums['Mc'],ParNums['eta']],[ParNums['Mc'],ParNums['eta']])] = J_m1m2_Mceta(evParams['Mc'], evParams['eta'])
+    rotMatrix[
+        np.ix_([ParNums["Mc"], ParNums["eta"]], [ParNums["Mc"], ParNums["eta"]])
+    ] = J_m1m2_Mceta(evParams["Mc"], evParams["eta"])
 
-    matrix = rotMatrix.T@or_matrix@rotMatrix
+    matrix = rotMatrix.T @ or_matrix @ rotMatrix
 
     return matrix
+
 
 def dchi1_dchieff(m1, m2):
     """
@@ -721,7 +859,8 @@ def dchi1_dchieff(m1, m2):
     :rtype: 1-D array
 
     """
-    return 1.
+    return 1.0
+
 
 def dchi2_dchieff(m1, m2):
     """
@@ -734,7 +873,8 @@ def dchi2_dchieff(m1, m2):
     :rtype: 1-D array
 
     """
-    return 1.
+    return 1.0
+
 
 def dchi1_dDelchi(m1, m2):
     """
@@ -747,7 +887,8 @@ def dchi1_dDelchi(m1, m2):
     :rtype: 1-D array
 
     """
-    return m2/(m1+m2)
+    return m2 / (m1 + m2)
+
 
 def dchi2_dDelchi(m1, m2):
     """
@@ -760,7 +901,8 @@ def dchi2_dDelchi(m1, m2):
     :rtype: 1-D array
 
     """
-    return -m1/(m1+m2)
+    return -m1 / (m1 + m2)
+
 
 def J_chi1chi2_chieffDeltachi(m1, m2):
     """
@@ -773,7 +915,8 @@ def J_chi1chi2_chieffDeltachi(m1, m2):
     :rtype: 2-D array
 
     """
-    return onp.array( [[1., dchi1_dDelchi( m1, m2)],[1., dchi2_dDelchi(m1, m2)]] )
+    return np.array([[1.0, dchi1_dDelchi(m1, m2)], [1.0, dchi2_dDelchi(m1, m2)]])
+
 
 def chi1chi2_to_chieffDeltachi_fish(or_matrix, ParNums, evParams):
     """
@@ -787,13 +930,17 @@ def chi1chi2_to_chieffDeltachi_fish(or_matrix, ParNums, evParams):
     :rtype: 2-D array
 
     """
-    nparams=len(list(ParNums.keys()))
+    nparams = len(list(ParNums.keys()))
 
-    rotMatrix = onp.identity(nparams)
+    rotMatrix = np.identity(nparams)
 
-    rotMatrix[onp.ix_([ParNums['chi1z'],ParNums['chi2z']],[ParNums['chi1z'],ParNums['chi2z']])] = J_chi1chi2_chieffDeltachi(*m1m2_from_Mceta(evParams['Mc'], evParams['eta']))
+    rotMatrix[
+        np.ix_(
+            [ParNums["chi1z"], ParNums["chi2z"]], [ParNums["chi1z"], ParNums["chi2z"]]
+        )
+    ] = J_chi1chi2_chieffDeltachi(*m1m2_from_Mceta(evParams["Mc"], evParams["eta"]))
 
-    matrix = rotMatrix.T@or_matrix@rotMatrix
+    matrix = rotMatrix.T @ or_matrix @ rotMatrix
 
     return matrix
 
@@ -810,15 +957,17 @@ def chiSchiA_to_chi1chi2_fish(or_matrix, ParNums, evParams):
     :rtype: 2-D array
 
     """
-    nparams=len(list(ParNums.keys()))
+    nparams = len(list(ParNums.keys()))
 
-    rotMatrix = onp.identity(nparams)
+    rotMatrix = np.identity(nparams)
 
-    J_chiSchiA_chi1chi2 = onp.array([[.5, .5], [.5, -0.5]])
+    J_chiSchiA_chi1chi2 = np.array([[0.5, 0.5], [0.5, -0.5]])
 
-    rotMatrix[onp.ix_([ParNums['chiS'],ParNums['chiA']],[ParNums['chiS'],ParNums['chiA']])] = J_chiSchiA_chi1chi2
+    rotMatrix[
+        np.ix_([ParNums["chiS"], ParNums["chiA"]], [ParNums["chiS"], ParNums["chiA"]])
+    ] = J_chiSchiA_chi1chi2
 
-    matrix = rotMatrix@or_matrix@rotMatrix
+    matrix = rotMatrix @ or_matrix @ rotMatrix
 
     return matrix
 
@@ -828,7 +977,7 @@ def chiSchiA_to_chi1chi2_fish(or_matrix, ParNums, evParams):
 ##############################################################################
 
 
-def compute_localization_region(Cov, parNum, thFid, perc_level=90, units='SqDeg'):
+def compute_localization_region(Cov, parNum, thFid, perc_level=90, units="SqDeg"):
     """
     Compute the localisation region of one or multiple events.
 
@@ -841,22 +990,23 @@ def compute_localization_region(Cov, parNum, thFid, perc_level=90, units='SqDeg'
     :rtype: 1-D array
 
     """
-    #Cov_th_ph = Cov[ [parNum['theta'], parNum['phi']] ][:, [parNum['theta'], parNum['phi']] ]
+    # Cov_th_ph = Cov[ [parNum['theta'], parNum['phi']] ][:, [parNum['theta'], parNum['phi']] ]
 
-    DelThSq  = Cov[parNum['theta'], parNum['theta']]
-    DelPhiSq  = Cov[parNum['phi'], parNum['phi']]
-    DelThDelPhi  = Cov[parNum['phi'], parNum['theta']]
+    DelThSq = Cov[parNum["theta"], parNum["theta"]]
+    DelPhiSq = Cov[parNum["phi"], parNum["phi"]]
+    DelThDelPhi = Cov[parNum["phi"], parNum["theta"]]
 
     # From Barak, Cutler, PRD 69, 082005 (2004), gr-qc/0310125
-    DelOmegaSr_base = 2*onp.pi*onp.sqrt(DelThSq*DelPhiSq-DelThDelPhi**2)*onp.abs(onp.sin(thFid))
+    DelOmegaSr_base = (
+        2 * np.pi * np.sqrt(DelThSq * DelPhiSq - DelThDelPhi**2) * np.abs(np.sin(thFid))
+    )
 
+    DelOmegaSr = -DelOmegaSr_base * np.log(1 - perc_level / 100)
 
-    DelOmegaSr =  - DelOmegaSr_base*onp.log(1-perc_level/100)
-
-    if units=='Sterad':
+    if units == "Sterad":
         return DelOmegaSr
-    elif units=='SqDeg':
-        return (180/onp.pi)**2*DelOmegaSr
+    elif units == "SqDeg":
+        return (180 / np.pi) ** 2 * DelOmegaSr
 
 
 ##############################################################################
@@ -865,9 +1015,10 @@ def compute_localization_region(Cov, parNum, thFid, perc_level=90, units='SqDeg'
 import matplotlib.pyplot as plt
 
 
-def plot_corners(covariance, parameters:list, indices:list,
-                 event=None, labels={}, **kwargs):
-    '''
+def plot_corners(
+    covariance, parameters: list, indices: list, event=None, labels={}, **kwargs
+):
+    """
     covariance:  The covariance matrix
     parameters:  List of parameters to plot
     indices:     Indices of that list of parameters,
@@ -877,18 +1028,21 @@ def plot_corners(covariance, parameters:list, indices:list,
     labels:      Axis labels to use for each parameter,
                  should be a dictionary:
                  {parameters: the_labels}
-    '''
+    """
 
-    color = kwargs.get('color', 'C3')
+    color = kwargs.get("color", "C3")
 
     n_params = len(parameters)
     assert len(parameters) == len(indices), "Number of parameters and indices not match"
 
-    fig, axes = plt.subplots(n_params, n_params,
-                             figsize=(1.7*n_params, 1.7*n_params),
-                             gridspec_kw={'wspace': 0.01, 'hspace': 0.01},
-                             constrained_layout=True,
-                             sharex='col')
+    fig, axes = plt.subplots(
+        n_params,
+        n_params,
+        figsize=(1.7 * n_params, 1.7 * n_params),
+        gridspec_kw={"wspace": 0.01, "hspace": 0.01},
+        constrained_layout=True,
+        sharex="col",
+    )
 
     for col, (idx, key1) in enumerate(zip(indices, parameters)):
         for row, (jdx, key2) in enumerate(zip(indices, parameters)):
@@ -907,35 +1061,46 @@ def plot_corners(covariance, parameters:list, indices:list,
                 # For this part, we use float64 for plotting purpose
                 # as SciPy norm does not support float128
                 mu = float(event[key1])
-                std = onp.sqrt(covariance[idx, jdx]).astype('f8')
+                std = np.sqrt(covariance[idx, jdx]).astype("f8")
                 norm_rv = norm(mu, std)
-                x_range = onp.linspace(-2.5*std, 2.5*std, 500) + mu
+                x_range = np.linspace(-2.5 * std, 2.5 * std, 500) + mu
                 ax.plot(x_range, norm_rv.pdf(x_range), color=color)
 
                 # Get the 90% Credible intervals
                 # Make use of the symmetric property here
                 CI_90 = norm_rv.ppf([0.05, 0.5, 0.95])
-                interval = onp.diff(CI_90)[0]
-                ax.set_title(fr'${mu:.3f} \pm {interval:.3f}$')
+                interval = np.diff(CI_90)[0]
+                ax.set_title(rf"${mu:.3f} \pm {interval:.3f}$")
 
-                ax.axvline(CI_90[0], ls='--', color='grey')
-                ax.axvline(CI_90[2], ls='--', color='grey')
+                ax.axvline(CI_90[0], ls="--", color="grey")
+                ax.axvline(CI_90[2], ls="--", color="grey")
                 ax.set_yticks([])
                 continue
 
             confidence_ellipse(
-                    covariance[onp.ix_(idx_pair, idx_pair)], ax,
-                    event[key1], event[key2],
-                    edgecolor=color, n_std=2.0)
+                covariance[np.ix_(idx_pair, idx_pair)],
+                ax,
+                event[key1],
+                event[key2],
+                edgecolor=color,
+                n_std=2.0,
+            )
 
-            ax.scatter(event[key1], event[key2], c='red', s=3)
+            ax.scatter(event[key1], event[key2], c="red", s=3)
             if col == 0:
                 ax.set_ylabel(labels.get(key2, key2), fontsize=15)
             else:
                 ax.set_yticklabels([])
             if row != col:
-                ax.tick_params(axis='both', which='both', direction='in',
-                               left=True, right=True, top=True, bottom=True)
+                ax.tick_params(
+                    axis="both",
+                    which="both",
+                    direction="in",
+                    left=True,
+                    right=True,
+                    top=True,
+                    bottom=True,
+                )
 
     # Need to reset the share-y axes except the diagonal.
     for row, jdx in enumerate(indices):
@@ -957,59 +1122,84 @@ def plot_contours(Covariance, plot_vars, plot_idxs, event, my_scales, plt_labels
 
         print(plotvar)
         print(plot_idx)
-   # print(plotvar[1])
+        # print(plotvar[1])
 
-        confidence_ellipse(Covariance[onp.ix_(plot_idx, plot_idx)], ax,
-                       event[plotvar[0]], event[plotvar[1]],
-                       edgecolor='red',
-                      n_std=2.0)
+        confidence_ellipse(
+            Covariance[np.ix_(plot_idx, plot_idx)],
+            ax,
+            event[plotvar[0]],
+            event[plotvar[1]],
+            edgecolor="red",
+            n_std=2.0,
+        )
 
-        ax.scatter(event[plotvar[0]], event[plotvar[1]], c='red', s=3)
-    #ax.set_title(title)
+        ax.scatter(event[plotvar[0]], event[plotvar[1]], c="red", s=3)
+        # ax.set_title(title)
         ax.set_xlabel(plotvar[0], fontsize=15)
         ax.set_ylabel(plotvar[1], fontsize=15)
 
-        if plotvar[1]=='theta':
+        if plotvar[1] == "theta":
             ax.set_ylim(ax.get_ylim()[::-1])
-        if plotvar[0]=='phi':
+        if plotvar[0] == "phi":
             ax.set_xlim(ax.get_xlim()[::-1])
-
 
     plt.show()
 
     for ax, plotvar, plot_idx, plot_label in zip(axs, plot_vars, plot_idxs, plt_labels):
         if plotvar[0] in my_scales.keys():
-        # transform scale on x axis
-            old_labels= onp.array([ax.get_xticklabels()[k].get_position()[0] for k in  range(len(ax.get_xticklabels())) ])
+            # transform scale on x axis
+            old_labels = np.array(
+                [
+                    ax.get_xticklabels()[k].get_position()[0]
+                    for k in range(len(ax.get_xticklabels()))
+                ]
+            )
             print(old_labels)
 
-            labels = my_scales[plotvar[0]]( onp.array([ax.get_xticklabels()[k].get_position()[0] for k in  range(len(ax.get_xticklabels())) ])  )
+            labels = my_scales[plotvar[0]](
+                np.array(
+                    [
+                        ax.get_xticklabels()[k].get_position()[0]
+                        for k in range(len(ax.get_xticklabels()))
+                    ]
+                )
+            )
             print(labels)
 
             ax.set_xticklabels(labels)
 
         if plotvar[1] in my_scales.keys():
-        # transform scale on y axis
-            labels= onp.array([ax.get_yticklabels()[k].get_position()[1] for k in  range(len(ax.get_yticklabels())) ])
+            # transform scale on y axis
+            labels = np.array(
+                [
+                    ax.get_yticklabels()[k].get_position()[1]
+                    for k in range(len(ax.get_yticklabels()))
+                ]
+            )
             print(labels)
 
-            new_labels = my_scales[plotvar[1]]( onp.array([ax.get_yticklabels()[k].get_position()[1] for k in  range(len(ax.get_yticklabels())) ])  )
+            new_labels = my_scales[plotvar[1]](
+                np.array(
+                    [
+                        ax.get_yticklabels()[k].get_position()[1]
+                        for k in range(len(ax.get_yticklabels()))
+                    ]
+                )
+            )
             print(new_labels)
 
             ax.set_yticklabels(new_labels)
 
-
             ax.set_xlabel(plot_label[0], fontsize=15)
             ax.set_ylabel(plot_label[1], fontsize=15)
 
-#fig = plt.gcf()
+    # fig = plt.gcf()
 
     return fig
 
 
-
 # From https://matplotlib.org/devdocs/gallery/statistics/confidence_ellipse.html
-def confidence_ellipse(cov, ax, mean_x, mean_y, n_std=3.0, facecolor='none', **kwargs):
+def confidence_ellipse(cov, ax, mean_x, mean_y, n_std=3.0, facecolor="none", **kwargs):
     from matplotlib.patches import Ellipse
     import matplotlib.transforms as transforms
 
@@ -1034,32 +1224,39 @@ def confidence_ellipse(cov, ax, mean_x, mean_y, n_std=3.0, facecolor='none', **k
     -------
     matplotlib.patches.Ellipse
     """
-    #if x.size != y.size:
+    # if x.size != y.size:
     #    raise ValueError("x and y must be the same size")
 
-    #cov = np.cov(x, y)
-    pearson = cov[0, 1]/onp.sqrt(cov[0, 0] * cov[1, 1])
+    # cov = np.cov(x, y)
+    pearson = cov[0, 1] / np.sqrt(cov[0, 0] * cov[1, 1])
     # Using a special case to obtain the eigenvalues of this
     # two-dimensionl dataset.
-    ell_radius_x = onp.sqrt(1 + pearson)
-    ell_radius_y = onp.sqrt(1 - pearson)
-    ellipse = Ellipse((0, 0), width=ell_radius_x * 2, height=ell_radius_y * 2,
-                      facecolor=facecolor, **kwargs)
+    ell_radius_x = np.sqrt(1 + pearson)
+    ell_radius_y = np.sqrt(1 - pearson)
+    ellipse = Ellipse(
+        (0, 0),
+        width=ell_radius_x * 2,
+        height=ell_radius_y * 2,
+        facecolor=facecolor,
+        **kwargs,
+    )
 
     # Calculating the standard deviation of x from
     # the square root of the variance and multiplying
     # with the given number of standard deviations.
-    scale_x = onp.sqrt(cov[0, 0]) * n_std
-    #mean_x = np.mean(x)
+    scale_x = np.sqrt(cov[0, 0]) * n_std
+    # mean_x = np.mean(x)
 
     # calculating the standard deviation of y ...
-    scale_y = onp.sqrt(cov[1, 1]) * n_std
-    #mean_y = np.mean(y)
+    scale_y = np.sqrt(cov[1, 1]) * n_std
+    # mean_y = np.mean(y)
 
-    transf = transforms.Affine2D() \
-        .rotate_deg(45) \
-        .scale(scale_x, scale_y) \
+    transf = (
+        transforms.Affine2D()
+        .rotate_deg(45)
+        .scale(scale_x, scale_y)
         .translate(mean_x, mean_y)
+    )
 
     ellipse.set_transform(transf + ax.transData)
     return ax.add_patch(ellipse)

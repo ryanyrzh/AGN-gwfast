@@ -107,7 +107,7 @@ class AGNLensedGWSignal(NewGWSignal):
 
         # Not sure what does this do, but it was set to zero in both cases
         # (with or without useEarthMotion)
-        phiD = np.zeros_like(parameters["Mc"])
+        phiD = np.zeros_like(model_params["Mc"])
 
         # Moving on to combining the strain with the antenna patterns
         is_lal = self.wf_model.is_LAL
