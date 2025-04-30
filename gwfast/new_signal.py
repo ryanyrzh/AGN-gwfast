@@ -316,7 +316,7 @@ class NewGWSignal(object):
 
         omega = TWOPI * f * DAY_TO_SEC
 
-        check_evparams(parameters)
+        # check_evparams(parameters)
         model_params = get_model_parameters(parameters, self.strain_model_keys)
 
         # Not sure what does this do, but it was set to zero in both cases
@@ -356,7 +356,6 @@ class NewGWSignal(object):
                     )
             else:
                 return (Ap + 1j * Ac) * np.exp(Psi * 1j)
-            # return np.sqrt(Ap*Ap + Ac*Ac)*np.exp((Psi+phiP)*1j)
 
         phase_shift_factor = np.exp(1j * (phiD + omega * model_params["tcoal"]))
 
@@ -483,20 +482,28 @@ class NewGWSignal(object):
         computeAnalyticalDeriv=False,
     ):
         if not computeDerivFinDiff:
-            return self._jax_derivative(freq_grid, parameters, rot=rot)
+            jacobian_dict = self._jax_derivative(freq_grid, parameters, rot=rot)
 
-        finite_diff_jacobian = self._finite_difference(freq_grid, parameters, rot=rot)
+        else:
+            finite_diff_jacobian = self._finite_difference(freq_grid, parameters, rot=rot)
 
-        if computeAnalyticalDeriv:
-            analytic_jacobian = self._analytical_derivatives(
-                freq_grid, parameters, rot=rot
-            )
-            if analytic_jacobian["iota"] is None:
-                # This is when the waveform has HM (or precessing)
-                analytic_jacobian.pop("iota")
-            finite_diff_jacobian.update(analytic_jacobian)
+            if computeAnalyticalDeriv:
+                analytic_jacobian = self._analytical_derivatives(
+                    freq_grid, parameters, rot=rot
+                )
+                if analytic_jacobian["iota"] is None:
+                    # This is when the waveform has HM (or precessing)
+                    analytic_jacobian.pop("iota")
+                finite_diff_jacobian.update(analytic_jacobian)
 
-        return finite_diff_jacobian
+            jacobian_dict = finite_diff_jacobian
+
+        if 'tcoal' in jacobian_dict.keys():
+            # Change the units of the tcoal derivative from days to seconds (this improves conditioning)
+            # Not sure if this matches with description tho.
+            jacobian_dict['tcoal'] /= DAY_TO_SEC
+
+        return jacobian_dict
 
     def FisherMatr(
         self,
@@ -567,8 +574,6 @@ class NewGWSignal(object):
         if self.detector.shape == "L":
             # Compute derivatives
             jacobian_dict = self.signal_derivatives(**deriv_kwargs)
-            # Change the units of the tcoal derivative from days to seconds (this improves conditioning)
-            jacobian_dict["tcoal"] /= DAY_TO_SEC
             fisher_mat = self.convert_Jacobian_to_Fisher(jacobian_dict, fgrids)
 
             if self.detector.duty_cycle is not None:
@@ -582,8 +587,6 @@ class NewGWSignal(object):
                     jacobian_dict = self.signal_derivatives(
                         **deriv_kwargs, rot=i * 60.0
                     )
-                    # Change the units of the tcoal derivative from days to seconds (this improves conditioning)
-                    jacobian_dict["tcoal"] /= DAY_TO_SEC
                     fisher_mat = self.convert_Jacobian_to_Fisher(jacobian_dict, fgrids)
                     if self.detector.duty_cycle is not None:
                         fisher_mat *= self.duty_cycle_mask(fisher_mat.shape[2])
@@ -593,14 +596,12 @@ class NewGWSignal(object):
                 # The signal in 3 arms sums to zero for geometrical reasons,
                 # so we can use this to skip some calculations
                 jacobian_dict_1 = self.signal_derivatives(**deriv_kwargs, rot=0.0)
-                jacobian_dict_1["tcoal"] /= DAY_TO_SEC
                 fisher_mat_1 = self.convert_Jacobian_to_Fisher(jacobian_dict_1, fgrids)
                 if self.detector.duty_cycle is not None:
                     fisher_mat_1 *= self.duty_cycle_mask(fisher_mat_1.shape[2])
                 allFishers.append(fisher_mat_1)
 
                 jacobian_dict_2 = self.signal_derivatives(**deriv_kwargs, rot=60.0)
-                jacobian_dict_2["tcoal"] /= DAY_TO_SEC
                 fisher_mat_2 = self.convert_Jacobian_to_Fisher(jacobian_dict_2, fgrids)
                 if self.detector.duty_cycle is not None:
                     fisher_mat_1 *= self.duty_cycle_mask(fisher_mat_2.shape[2])
