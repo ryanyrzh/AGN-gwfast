@@ -98,6 +98,7 @@ class NewGWSignal(object):
 
         self.verbose = verbose
         self.wf_model = wf_model
+        self.strain_model_keys = list(self.wf_model.ParNums.keys())
         self.fmin = fmin  # Hz
         self.fmax = fmax  # Hz or None
 
@@ -209,9 +210,6 @@ class NewGWSignal(object):
         self.detector.shape = _detector_shape
         self.strain_model_keys = _strain_model_keys
 
-    @property
-    def strain_model_keys(self):
-        return list(self.wf_model.ParNums.keys())
 
     @property
     def need_HM(self):
