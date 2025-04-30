@@ -171,7 +171,7 @@ class AGNLensedGWSignal(NewGWSignal):
         for params in (eval_params_1, eval_params_2):
             iota = params["iota"]
             psi = params["psi"]
-            phase = params["phase"]
+            phase = params["Phicoal"]
             theta = params["theta"]
             phi = params["phi"]
 

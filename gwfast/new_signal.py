@@ -5,6 +5,7 @@
 #    license that can be found in the LICENSE file.
 
 import os
+from functools import partial
 
 from jax import config, vmap, jacrev, tree, jit, device_count, local_device_count
 import jax.numpy as np
@@ -135,7 +136,7 @@ class NewGWSignal(object):
         )
 
         onp.random.seed(None)
-        self.seedUse = onp.random.randint(2 ** 32 - 1, size=1)
+        self.seedUse = onp.random.randint(2**32 - 1, size=1)
         self.jitCompileDerivs = jitCompileDerivs
 
         if self.wf_model.is_LAL:
@@ -431,7 +432,7 @@ class NewGWSignal(object):
                     Atot = self.GWstrain(
                         fgrids, parameters, rot=i * 60.0, return_single_comp="At"
                     )
-                    Atot = Atot ** 2
+                    Atot = Atot**2
                     tmpSNRsq = np.trapezoid(Atot / psd_strain_grids, fgrids, axis=0)
                     if self.detector.duty_cycle is not None:
                         tmpSNRsq = tmpSNRsq * self.duty_cycle_mask(params_shape)
@@ -473,7 +474,9 @@ class NewGWSignal(object):
             jacobian_dict = self._jax_derivative(freq_grid, parameters, rot=rot)
 
         else:
-            finite_diff_jacobian = self._finite_difference(freq_grid, parameters, rot=rot)
+            finite_diff_jacobian = self._finite_difference(
+                freq_grid, parameters, rot=rot
+            )
 
             if computeAnalyticalDeriv:
                 analytic_jacobian = self._analytical_derivatives(
@@ -486,10 +489,10 @@ class NewGWSignal(object):
 
             jacobian_dict = finite_diff_jacobian
 
-        if 'tcoal' in jacobian_dict.keys():
+        if "tcoal" in jacobian_dict.keys():
             # Change the units of the tcoal derivative from days to seconds (this improves conditioning)
             # Not sure if this matches with description tho.
-            jacobian_dict['tcoal'] /= DAY_TO_SEC
+            jacobian_dict["tcoal"] /= DAY_TO_SEC
 
         return jacobian_dict
 
@@ -527,7 +530,7 @@ class NewGWSignal(object):
         if self.detector.duty_cycle is not None:
             onp.random.seed(self.seedUse)
 
-        # Need to compute the model_params once first
+        # Need to compute the model_params once first
         model_params = get_model_parameters(evParams, self.strain_model_keys)
         fcut = self.wf_model.fcut(**model_params)
 
@@ -619,9 +622,13 @@ class NewGWSignal(object):
         Assuming shape of freq_grid is (N_freq, N_params).
         """
         if self.wf_model.is_holomorphic:
-            return vmap(jacrev(self.GWstrain, argnums=1, holomorphic=True))(
-                freq_grid.T, parameters, rot
-            )
+            cplx_freq_grid = freq_grid.astype("complex128")
+            cplx_parameters = {
+                key: val.astype("complex128") for key, val in parameters.items()
+            }
+            return vmap(
+                jacrev(partial(self.GWstrain, rot=rot), argnums=1, holomorphic=True)
+            )(cplx_freq_grid.T, cplx_parameters)
 
         def real_strain(freqs, params):
             return self.GWstrain(freqs, params, rot).real
