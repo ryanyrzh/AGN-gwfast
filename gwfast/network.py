@@ -49,7 +49,7 @@ class DetNet(object):
             if verbose:
                 print("\nSeed for detector %s is %s" % (d, self.signals[d].seedUse))
 
-    def SNR(self, evParams, res=1000, return_all=False, use_lensing=False):
+    def SNR(self, evParams, res=1000, return_all=False):
         """
         Compute the *network signal-to-noise-ratio*, SNR, as a function of the parameters of the event(s).
 
@@ -65,7 +65,7 @@ class DetNet(object):
         utils.check_evparams(evParams)
         for d in self.signals.keys():
             snr_ = self.signals[d].SNRInteg(
-                evParams, res=res, return_all=return_all, use_lensing=use_lensing
+                evParams, res=res, return_all=return_all
             )
             if self.signals[d].detector.shape == "T" and return_all:
                 for i in range(3):
