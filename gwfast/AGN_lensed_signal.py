@@ -219,6 +219,9 @@ class AGNLensedGWSignal(NewGWSignal):
         else:
             return hp + hc
 
+    def _analytical_derivatives(self):
+        raise NotImplementedError('Lensed waveforms have no well-defined analytical derivatives (yet)')
+
     def WFOverlap(
         self, WF1, WF2, evParams1, evParams2, res=1000, return_separate=False, **kwargs
     ):
