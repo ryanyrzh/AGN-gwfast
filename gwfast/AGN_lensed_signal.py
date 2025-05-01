@@ -157,11 +157,16 @@ class AGNLensedGWSignal(NewGWSignal):
                     return np.abs(Ap + 1j * Ac)
                 elif return_single_comp == "Psit":
                     return Psi + np.arctan2(np.real(Ac), np.real(Ap))
+                elif return_single_comp == 'images':
+                    h1 = np.sqrt(np.abs(mag_1)) * (hp1 + 1j * hc1)
+                    h2 = np.sqrt(np.abs(mag_2)) * (hp2 + 1j * hc2) * time_delay_phase_shift
+                    return h1, h2
                 else:
                     raise ValueError(
                         "Single component to return has to be among Ap, Ac, Psip, Psic"
                     )
             else:
+                # TODO: How about simply return hp + hc?
                 return (Ap + 1j * Ac) * np.exp(Psi * 1j)
             # return np.sqrt(Ap*Ap + Ac*Ac)*np.exp((Psi+phiP)*1j)
 
@@ -212,6 +217,10 @@ class AGNLensedGWSignal(NewGWSignal):
                 return np.abs(hp + hc)
             elif return_single_comp == "Psit":
                 return np.unwrap(np.angle(hp + hc), axis=0)
+            elif return_single_comp == 'images':
+                h1 = np.sqrt(np.abs(mag_1)) * (hpc_12[0][0] + hpc_12[0][1])
+                h2 = np.sqrt(np.abs(mag_2)) * (hpc_12[1][0] + hpc_12[1][1]) * time_delay_phase_shift
+                return h1, h2
             else:
                 raise ValueError(
                     "Single component to return has to be among Ap, Ac, Psip, Psic"
