@@ -350,6 +350,7 @@ class NewGWSignal(object):
                         "Single component to return has to be among Ap, Ac, Psip, Psic"
                     )
             else:
+                # TODO: Check conventions
                 return (Ap + 1j * Ac) * np.exp(Psi * 1j)
 
         phase_shift_factor = np.exp(1j * (phiD + omega * model_params["tcoal"]))

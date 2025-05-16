@@ -167,7 +167,9 @@ class AGNLensedGWSignal(NewGWSignal):
                     )
             else:
                 # TODO: How about simply return hp + hc?
-                return (Ap + 1j * Ac) * np.exp(Psi * 1j)
+                # TODO: Check convention with i
+                return hp + hc
+                # return (Ap + 1j * Ac) * np.exp(Psi * 1j)
             # return np.sqrt(Ap*Ap + Ac*Ac)*np.exp((Psi+phiP)*1j)
 
         phase_shift_factor = np.exp(1j * (phiD + omega * model_params["tcoal"]))
