@@ -158,8 +158,8 @@ class AGNLensedGWSignal(NewGWSignal):
                 elif return_single_comp == "Psit":
                     return Psi + np.arctan2(np.real(Ac), np.real(Ap))
                 elif return_single_comp == 'images':
-                    h1 = np.sqrt(np.abs(mag_1)) * (hp1 + 1j * hc1)
-                    h2 = np.sqrt(np.abs(mag_2)) * (hp2 + 1j * hc2) * time_delay_phase_shift
+                    h1 = np.sqrt(np.abs(mag_1)) * (hp1 + hc1)
+                    h2 = np.sqrt(np.abs(mag_2)) * (hp2 + hc2) * time_delay_phase_shift
                     return h1, h2
                 else:
                     raise ValueError(
