@@ -104,6 +104,8 @@ class AGNLensedGWSignal(NewGWSignal):
         time_delay = get_lensing_time_delay(model_params)
         time_delay_phase_shift = np.exp(2j * np.pi * f * time_delay)
         mag_1, mag_2 = get_mag_factors(model_params)
+        sqrt_mu_1 = np.sqrt(np.abs(mag_1))
+        sqrt_mu_2 = np.sqrt(np.abs(mag_2))
 
         # Not sure what does this do, but it was set to zero in both cases
         # (with or without useEarthMotion)
@@ -112,10 +114,11 @@ class AGNLensedGWSignal(NewGWSignal):
         # Moving on to combining the strain with the antenna patterns
         is_lal = self.wf_model.is_LAL
 
+        # 22 mode waveforms
         if not (self.need_HM or is_lal):
-            t1, deltaT_1 = self.shifted_time(eval_params_1, f)
+            _, deltaT_1 = self.shifted_time(eval_params_1, f)
             phiL1 = omega * deltaT_1
-            t2, deltaT_2 = self.shifted_time(eval_params_2, f)
+            _, deltaT_2 = self.shifted_time(eval_params_2, f)
             phiL2 = omega * deltaT_2
             # Return with the simplest things
             # A hacky way to access the old GWSignal Amplitude method
@@ -132,79 +135,36 @@ class AGNLensedGWSignal(NewGWSignal):
             hp1, hc1 = Ap1 * np.exp(Psi1 * 1j), 1j * Ac1 * np.exp(Psi1 * 1j)
             hp2, hc2 = Ap2 * np.exp(Psi2 * 1j), 1j * Ac2 * np.exp(Psi2 * 1j)
 
-            hp = (
-                np.sqrt(np.abs(mag_1)) * hp1
-                + np.sqrt(np.abs(mag_2)) * time_delay_phase_shift * hp2
-            )
-            hc = (
-                np.sqrt(np.abs(mag_1)) * hc1
-                + np.sqrt(np.abs(mag_2)) * time_delay_phase_shift * hc2
-            )
-            Ap, Ac = np.abs(hp), np.abs(hc)
+        else:
+            phase_shift_factor = np.exp(1j * (phiD + omega * model_params["tcoal"]))
 
-            Psi = np.unwrap(np.angle(hp + hc), axis=0)
+            hpc_12 = []
+            for params in (eval_params_1, eval_params_2):
+                iota = params["iota"]
+                psi = params["psi"]
+                phase = params["Phicoal"]
+                theta = params["theta"]
+                phi = params["phi"]
 
-            if return_single_comp is not None:
-                if return_single_comp == "Ap":
-                    return Ap
-                elif return_single_comp == "Ac":
-                    return Ac
-                elif return_single_comp == "Psip":
-                    return Psi  # np.unwrap(Psi)
-                elif return_single_comp == "Psic":
-                    return Psi + np.pi * 0.5  # np.unwrap(Psi + np.pi*0.5)
-                elif return_single_comp == "At":
-                    return np.abs(Ap + 1j * Ac)
-                elif return_single_comp == "Psit":
-                    return Psi + np.arctan2(np.real(Ac), np.real(Ap))
-                elif return_single_comp == 'images':
-                    h1 = np.sqrt(np.abs(mag_1)) * (hp1 + hc1)
-                    h2 = np.sqrt(np.abs(mag_2)) * (hp2 + hc2) * time_delay_phase_shift
-                    return h1, h2
-                else:
-                    raise ValueError(
-                        "Single component to return has to be among Ap, Ac, Psip, Psic"
-                    )
-            else:
-                # TODO: How about simply return hp + hc?
-                # TODO: Check convention with i
-                return hp + hc
-                # return (Ap + 1j * Ac) * np.exp(Psi * 1j)
-            # return np.sqrt(Ap*Ap + Ac*Ac)*np.exp((Psi+phiP)*1j)
+                time, deltaT = self.shifted_time(params, f)
+                phiL = omega * deltaT
 
-        phase_shift_factor = np.exp(1j * (phiD + omega * model_params["tcoal"]))
+                Fpc = self.detector.compute_antenna_pattern(theta, phi, time, psi, rot=rot)
+                hpc = self.wf_model.hphc(f, **params)
+                phase_factor = phase_shift_factor * np.exp(1j * (phiL - phase))
+                hp = hpc[0] * Fpc[0] * phase_factor
+                hc = hpc[1] * Fpc[1] * phase_factor
 
-        hpc_12 = []
-        for params in (eval_params_1, eval_params_2):
-            iota = params["iota"]
-            psi = params["psi"]
-            phase = params["Phicoal"]
-            theta = params["theta"]
-            phi = params["phi"]
+                if is_lal:
+                    hp *= 0.5 * (1.0 + np.cos(iota) ** 2)
+                    hc *= np.cos(iota)
 
-            time, deltaT = self.shifted_time(params, f)
-            phiL = omega * deltaT
+                hpc_12.append((hp, hc))
 
-            Fpc = self.detector.compute_antenna_pattern(theta, phi, time, psi, rot=rot)
-            hpc = self.wf_model.hphc(f, **params)
-            phase_factor = phase_shift_factor * np.exp(1j * (phiL - phase))
-            hp = hpc[0] * Fpc[0] * phase_factor
-            hc = hpc[1] * Fpc[1] * phase_factor
+            ((hp1, hc1), (hp2, hc2)) = hpc_12
 
-            if is_lal:
-                hp *= 0.5 * (1.0 + np.cos(iota) ** 2)
-                hc *= np.cos(iota)
-
-            hpc_12.append((hp, hc))
-
-        hp = (
-            np.sqrt(np.abs(mag_1)) * hpc_12[0][0]
-            + np.sqrt(np.abs(mag_2)) * time_delay_phase_shift * hpc_12[1][0]
-        )
-        hc = (
-            np.sqrt(np.abs(mag_1)) * hpc_12[0][1]
-            + np.sqrt(np.abs(mag_2)) * time_delay_phase_shift * hpc_12[1][1]
-        )
+        hp = sqrt_mu_1 * hp1 + sqrt_mu_2 * time_delay_phase_shift * hp2
+        hc = sqrt_mu_1 * hc1 + sqrt_mu_2 * time_delay_phase_shift * hc2
 
         if return_single_comp is not None:
             if return_single_comp == "Ap":
@@ -220,8 +180,8 @@ class AGNLensedGWSignal(NewGWSignal):
             elif return_single_comp == "Psit":
                 return np.unwrap(np.angle(hp + hc), axis=0)
             elif return_single_comp == 'images':
-                h1 = np.sqrt(np.abs(mag_1)) * (hpc_12[0][0] + hpc_12[0][1])
-                h2 = np.sqrt(np.abs(mag_2)) * (hpc_12[1][0] + hpc_12[1][1]) * time_delay_phase_shift
+                h1 = sqrt_mu_1 * (hp1 + hc1)
+                h2 = sqrt_mu_2 * (hp2 + hc2) * time_delay_phase_shift
                 return h1, h2
             else:
                 raise ValueError(
