@@ -418,12 +418,12 @@ def compute_opening_angles(
     agn_bbh_system_params
 ):
     pass
-    
+
 def compute_exact_lensed_angles(
     agn_bbh_system_params
 ):
     '''
-    In the following, all vectors will take shape (3, N), 
+    In the following, all vectors will take shape (3, N),
     where N is the number of samples.
 
     We abbreviate the frames as follows:
@@ -440,7 +440,7 @@ def compute_exact_lensed_angles(
     src_pos_y = agn_bbh_system_params["src_pos"]  # Einstein radius
     zeros = jnp.zeros_like(iota)
     L_hat_src = jnp.array([zeros, zeros, zeros + 1])
-    
+
     theta_E = einstein_radius(lens_mass, luminosity_distance, r_orbit)  # rad, used later to convert dimensionless positions into radians
     _im_pos_1, _im_pos_2 = get_im_pos(src_pos_y)  # in units of Einstein radius
 
