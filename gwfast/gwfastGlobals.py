@@ -35,13 +35,13 @@ Path to the ``./WFfiles`` directory, containing files needed for the waveform ev
 ##############################################################################
 # See http://asa.hmnao.com/static/files/2021/Astronomical_Constants_2021.pdf
 
-GMsun_over_c3 = 4.925491025543575903411922162094833998e-6  # seconds
+MTSUN_SI = GMsun_over_c3 = 4.925491025543575903411922162094833998e-6  # seconds
 """
 Geometrized solar mass :math:`G \, {\\rm M}_{\odot} / c^3`, in seconds (:math:`\\rm s`).
 
 :type: float
 """
-GMsun_over_c2 = 1.476625061404649406193430731479084713e3  # meters
+MRSUN_SI = GMsun_over_c2 = 1.476625061404649406193430731479084713e3  # meters
 """
 Geometrized solar mass :math:`G \, {\\rm M}_{\odot} / c^2`, in meters (:math:`\\rm m`).
 
