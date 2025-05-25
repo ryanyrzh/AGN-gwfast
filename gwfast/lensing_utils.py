@@ -2,20 +2,18 @@ from jax import config
 
 config.update("jax_enable_x64", True)
 
-import numpy as np
-import jax.numpy as jnp
+import jax.numpy as np
 
 from astropy.cosmology import Planck18 as cosmo
+from gwfast.gwfastGlobals import MRSUN_SI, MTSUN_SI, uGpc, DEG_TO_RAD
 
-zGridGlob = np.logspace(start=-6, stop=5, base=10, num=5000)
-dLGridGlob = cosmo.luminosity_distance(zGridGlob).value / 1000.0
+zGridGlob = np.logspace(start=-6, stop=5, base=10, num=7000)
+dLGridGlob = cosmo.luminosity_distance(zGridGlob) / 1000.0  # Gpc
 
 # Constants in SI
 # TODO: Use the constants defined in gwfastGlobals
 G = 6.6743 * 1e-11
 c = 2.979246 * 1e8
-M_sun = 2.9884 * 1e30
-Gpc = 3.0856776 * 1e25
 
 
 ##############################################################################
@@ -26,7 +24,7 @@ def theta_in_terms_of_x_0(x_0, D_l):
     x_0: Minimal approach distance [R_Sch]
     D_l: Lens distance [R_Sch]
     """
-    return x_0 / (D_l * jnp.sqrt(1 - 1 / x_0))
+    return x_0 / (D_l * np.sqrt(1 - 1 / x_0))
 
 
 def thin_lens_equation(x_0, beta, D_ls, D_l):
@@ -46,7 +44,7 @@ def alpha(x_0):
     x_0: Minimal approach distance [R_Sch]
     """
     # Alpha approximations
-    x2_coef = (15 / 16) * jnp.pi - 1
+    x2_coef = (15 / 16) * np.pi - 1
     x2_coef = 0
     return 2 / x_0 + x2_coef / (x_0**2)
 
@@ -58,8 +56,7 @@ def alpha(x_0):
 #     D_l:    Lens distance [R_Sch]
 #     '''
 #     D_ratio = (1 + D_ls / D_l) * D_l**2
-#     return jnp.sqrt(2 * D_ratio)
-
+#     return np.sqrt(2 * D_ratio)
 
 def einstein_radius(M_lens, dL, R_orbit):
     """
@@ -73,11 +70,11 @@ def einstein_radius(M_lens, dL, R_orbit):
     D_ls_in_Gpc = get_Gpc_from_R_Sch(
         R_orbit, M_lens
     )  # Lens-source distance approximated as robital radius
-    z = jnp.interp(dL, dLGridGlob, zGridGlob)
+    z = np.interp(dL, dLGridGlob, zGridGlob)
     D_l_in_Gpc = dL / (1 + z) ** 2
     D_term = D_ls_in_Gpc / D_l_in_Gpc**2  # Approximating D_s=D_s
-    einstein_radius_in_arcsec = jnp.sqrt(M_term * D_term)
-    einstein_radius_in_rad = einstein_radius_in_arcsec * (1 / 3600) * (jnp.pi / 180)
+    einstein_radius_in_arcsec = np.sqrt(M_term * D_term)
+    einstein_radius_in_rad = einstein_radius_in_arcsec * (1 / 3600) * DEG_TO_RAD
     return einstein_radius_in_rad
 
 
@@ -87,10 +84,9 @@ def get_Gpc_from_R_Sch(qty, M):
     qty: Distance to be converted [R_Sch]
     M: Mass corresponding to the Schwarzschild radius [M_sun]
     """
-    M_in_kg = M * M_sun
-    one_R_Sch = 2 * G * M_in_kg / c**2  # m
+    one_R_Sch = 2 * MRSUN_SI * M  # m
     qty_in_m = qty * one_R_Sch
-    qty_in_Gpc = qty_in_m / Gpc
+    qty_in_Gpc = qty_in_m / uGpc
     return qty_in_Gpc
 
 
@@ -100,9 +96,8 @@ def get_R_Sch_from_Gpc(qty, M):
     qty: Distance to be converted [Gpc]
     M: Mass for which to calculate R_Sch [M_sun]
     """
-    M_in_kg = M * M_sun
-    R_Sch_in_m = 2 * G * M_in_kg / c**2
-    R_Sch_in_Gpc = R_Sch_in_m / Gpc
+    R_Sch_in_m = 2 * MRSUN_SI * M  # m
+    R_Sch_in_Gpc = R_Sch_in_m / uGpc
     return qty / R_Sch_in_Gpc
 
 
@@ -111,7 +106,7 @@ def get_im_pos(src_pos):
     Image positions, normalized by Einstein radius.
     src_pos: Source position [Einstein radius]
     """
-    sqrt_term = jnp.sqrt(src_pos**2 / 4 + 1)
+    sqrt_term = np.sqrt(src_pos**2 / 4 + 1)
     im_pos_1 = src_pos / 2 + sqrt_term
     im_pos_2 = src_pos / 2 - sqrt_term
     return im_pos_1, im_pos_2
@@ -126,7 +121,7 @@ def _get_alpha_hat(R_orbit, approx=1):
 
     R_orbit -- Unit: Schwarschild radius
     """
-    approx_simp = jnp.sqrt(2 / R_orbit)
+    approx_simp = np.sqrt(2 / R_orbit)
     match approx:
         ## Approx 1: The simplest approximation
         ## assuming α(x) to the first order
@@ -147,7 +142,7 @@ def _get_alpha_hat(R_orbit, approx=1):
 
 
 def find_quadratic_roots(a, b, c):
-    delta = jnp.sqrt(b**2 - 4 * a * c)
+    delta = np.sqrt(b**2 - 4 * a * c)
     return (-b + delta) / (2 * a), (-b - delta) / (2 * a)
 
 
@@ -167,13 +162,13 @@ def get_phi_L(iota, R_orbit, src_pos, theta_E, D_l, M_lens):
     src_pos_in_Gpc = src_pos_in_rad * D_l
     src_pos_in_R_Sch = get_R_Sch_from_Gpc(src_pos_in_Gpc, M_lens)
 
-    cos_phi_L = -jnp.sqrt(R_orbit**2 - src_pos_in_R_Sch**2) / (R_orbit * jnp.sin(iota))
-    return jnp.arccos(cos_phi_L)
+    cos_phi_L = -np.sqrt(R_orbit**2 - src_pos_in_R_Sch**2) / (R_orbit * np.sin(iota))
+    return np.arccos(cos_phi_L)
 
 
 def _sqrt_term(iota, phi_L):
-    angle_sq = jnp.cos(iota) ** 2 + jnp.sin(iota) ** 2 * jnp.sin(phi_L) ** 2
-    return jnp.sqrt(angle_sq)
+    angle_sq = np.cos(iota) ** 2 + np.sin(iota) ** 2 * np.sin(phi_L) ** 2
+    return np.sqrt(angle_sq)
 
 
 # def _get_cos_phi_proj(iota, phi_L):
@@ -183,26 +178,26 @@ def _sqrt_term(iota, phi_L):
 #     iota -- Inclination, Unit: radian
 #     phi_L -- Azimuthal angle of the lens?, unit: radian
 #     '''
-#     return jnp.sin(iota) * jnp.sin(phi_L) / _sqrt_term(iota, phi_L)
+#     return np.sin(iota) * np.sin(phi_L) / _sqrt_term(iota, phi_L)
 
 
 # def get_image_iota(iota, phi_L, alpha_hat, theta_1, theta_2, beta): # angle between total angular momentum and observer position
 #     # the formula used here was derived for inclination angle, not theta_jn! need to fix this!!
 #     common_term = 1 / _sqrt_term(iota, phi_L)
-#     correction = common_term * (jnp.sin(iota) * jnp.cos(iota) * jnp.cos(phi_L))
-#     return jnp.arccos(jnp.cos(iota) - (alpha_hat - theta_1 + beta) * correction), jnp.arccos(jnp.cos(iota) + (alpha_hat - theta_2 - beta) * correction)
+#     correction = common_term * (np.sin(iota) * np.cos(iota) * np.cos(phi_L))
+#     return np.arccos(np.cos(iota) - (alpha_hat - theta_1 + beta) * correction), np.arccos(np.cos(iota) + (alpha_hat - theta_2 - beta) * correction)
 
 
 # def get_image_Phicoal(iota, phi_L, Phicoal, alpha_hat, theta_1, theta_2, beta): # coalescence phase
 #     common_term = 1 / _sqrt_term(iota, phi_L)
-#     correction = common_term * (jnp.sin(Phicoal) * (1 / jnp.sin(iota)) * jnp.sin(phi_L))
-#     return jnp.arccos(jnp.cos(Phicoal) + (alpha_hat - theta_1 + beta) * correction), jnp.arccos(jnp.cos(Phicoal) - (alpha_hat - theta_2 - beta) * correction)
+#     correction = common_term * (np.sin(Phicoal) * (1 / np.sin(iota)) * np.sin(phi_L))
+#     return np.arccos(np.cos(Phicoal) + (alpha_hat - theta_1 + beta) * correction), np.arccos(np.cos(Phicoal) - (alpha_hat - theta_2 - beta) * correction)
 
 
 # def get_image_psi(iota, phi_L, psi, alpha_hat, theta_1, theta_2, beta): # polarization angle
 #     common_term = 1 / _sqrt_term(iota, phi_L)
-#     correction = common_term * ((1 / jnp.tan(iota)) * jnp.sin(phi_L) * jnp.sin(psi))
-#     return jnp.arccos(jnp.cos(psi) - (alpha_hat - theta_1 + beta) * correction), jnp.arccos(jnp.cos(psi) + (alpha_hat - theta_2 - beta) * correction)
+#     correction = common_term * ((1 / np.tan(iota)) * np.sin(phi_L) * np.sin(psi))
+#     return np.arccos(np.cos(psi) - (alpha_hat - theta_1 + beta) * correction), np.arccos(np.cos(psi) + (alpha_hat - theta_2 - beta) * correction)
 
 
 def get_lensing_induced_cosine_shifts(iota, phi_L, R_orbit, phi_coal, psi):
@@ -215,16 +210,16 @@ def get_lensing_induced_cosine_shifts(iota, phi_L, R_orbit, phi_coal, psi):
     sqrt_term = _sqrt_term(iota, phi_L)
     common_term = 1 / _sqrt_term(iota, phi_L)
 
-    delta_cos_iota = common_term * (jnp.sin(iota) * jnp.cos(iota) * jnp.cos(phi_L))
+    delta_cos_iota = common_term * (np.sin(iota) * np.cos(iota) * np.cos(phi_L))
     delta_cos_phi = common_term * (
-        jnp.sin(phi_coal) * (1 / jnp.sin(iota)) * jnp.sin(phi_L)
+        np.sin(phi_coal) * (1 / np.sin(iota)) * np.sin(phi_L)
     )
-    delta_cos_psi = common_term * ((1 / jnp.tan(iota)) * jnp.sin(phi_L) * jnp.sin(psi))
+    delta_cos_psi = common_term * ((1 / np.tan(iota)) * np.sin(phi_L) * np.sin(psi))
 
-    cos_phi_proj = jnp.sin(iota) * jnp.sin(phi_L) / sqrt_term
+    cos_phi_proj = np.sin(iota) * np.sin(phi_L) / sqrt_term
     z_orbit = 2 * cos_phi_proj / R_orbit
 
-    z_grav = jnp.sqrt(1 - 1 / R_orbit) - 1
+    z_grav = np.sqrt(1 - 1 / R_orbit) - 1
 
     return delta_cos_iota, delta_cos_phi, delta_cos_psi, z_orbit, z_grav
 
@@ -244,8 +239,8 @@ def _new_angle_from_lensing_shift(
     gamma_1 = alpha_hat - im_pos_1_in_rad + src_pos_in_rad
     gamma_2 = alpha_hat - im_pos_2_in_rad - src_pos_in_rad
 
-    return jnp.arccos(jnp.cos(angle) + gamma_1 * delta_cos), jnp.arccos(
-        jnp.cos(angle) - gamma_2 * delta_cos
+    return np.arccos(np.cos(angle) + gamma_1 * delta_cos), np.arccos(
+        np.cos(angle) - gamma_2 * delta_cos
     )
 
 
@@ -276,7 +271,7 @@ def get_lensed_parameter_sets(
     dL = unlensed_bbh_params["dL"].real
 
     # Compute non-redshifted lens mass
-    z = jnp.interp(dL, dLGridGlob, zGridGlob)
+    z = np.interp(dL, dLGridGlob, zGridGlob)
     M_lens = M_lz / (1 + z)
 
     # Compute image positions
@@ -309,14 +304,14 @@ def get_lensed_parameter_sets(
     gamma_1 = alpha_hat - im_pos_1_in_rad + src_pos_in_rad
     gamma_2 = alpha_hat - im_pos_2_in_rad - src_pos_in_rad
 
-    image_1_params["iota"] = jnp.arccos(jnp.cos(iota) - gamma_1 * delta_cos_iota)
-    image_2_params["iota"] = jnp.arccos(jnp.cos(iota) + gamma_2 * delta_cos_iota)
+    image_1_params["iota"] = np.arccos(np.cos(iota) - gamma_1 * delta_cos_iota)
+    image_2_params["iota"] = np.arccos(np.cos(iota) + gamma_2 * delta_cos_iota)
 
-    image_1_params["Phicoal"] = jnp.arccos(jnp.cos(Phicoal) + gamma_1 * delta_cos_phi)
-    image_2_params["Phicoal"] = jnp.arccos(jnp.cos(Phicoal) - gamma_2 * delta_cos_phi)
+    image_1_params["Phicoal"] = np.arccos(np.cos(Phicoal) + gamma_1 * delta_cos_phi)
+    image_2_params["Phicoal"] = np.arccos(np.cos(Phicoal) - gamma_2 * delta_cos_phi)
 
-    image_1_params["psi"] = jnp.arccos(jnp.cos(psi) - gamma_1 * delta_cos_psi)
-    image_2_params["psi"] = jnp.arccos(jnp.cos(psi) + gamma_2 * delta_cos_psi)
+    image_1_params["psi"] = np.arccos(np.cos(psi) - gamma_1 * delta_cos_psi)
+    image_2_params["psi"] = np.arccos(np.cos(psi) + gamma_2 * delta_cos_psi)
 
     # what does this do?
     # if cplx_return:
@@ -344,17 +339,16 @@ def get_lensing_time_delay(unlensed_bbh_params, M_lz=None, src_pos=None):
         )
         return 0
 
-    M_lz_in_kg = M_lz * M_sun
-    M_lz_in_s = M_lz_in_kg * G / c**3
+    M_lz_in_s = M_lz * MTSUN_SI
 
     time_delay = (
         4
         * M_lz_in_s
         * (
-            src_pos * jnp.sqrt(src_pos**2 + 4) / 2
-            + jnp.log(
-                (jnp.sqrt(src_pos**2 + 4) + src_pos)
-                / (jnp.sqrt(src_pos**2 + 4) - src_pos)
+            src_pos * np.sqrt(src_pos**2 + 4) / 2
+            + np.log(
+                (np.sqrt(src_pos**2 + 4) + src_pos)
+                / (np.sqrt(src_pos**2 + 4) - src_pos)
             )
         )
     )
@@ -368,14 +362,14 @@ def get_mag_factors(unlensed_bbh_params, src_pos=None):
     """
     if src_pos is None:
         src_pos = unlensed_bbh_params.get("src_pos", None)
-    if src_pos is None:
-        print(
-            "Source position not provided. Magnification factors will not be calculated."
-        )
-        return 1, 1
 
-    common_term = (src_pos**2 + 2) / (2 * src_pos * jnp.sqrt(src_pos**2 + 4))
-    mag_1, mag_2 = 1 / 2 + common_term, 1 / 2 - common_term
+        if src_pos is None:
+            print("Source position not provided, returning 1 as magnification.")
+            return 1, 1
+
+    sq_src_pos = np.square(src_pos)
+    common_term = (sq_src_pos + 2) / (2 * src_pos * np.sqrt(sq_src_pos + 4))
+    mag_1, mag_2 = 0.5 + common_term, 0.5 - common_term
 
     return mag_1, mag_2
 
@@ -397,13 +391,13 @@ def lens(unlensed_bbh_params):
     R_orbit = unlensed_bbh_params["R_orbit"]
     M_lz = unlensed_bbh_params["R_orbit"]
 
-    z = jnp.interp(dL, dLGridGlob, zGridGlob)
+    z = np.interp(dL, dLGridGlob, zGridGlob)
     M_lens = M_lz / (1 + z)
 
     R_orbit_in_Gpc = get_Gpc_from_R_Sch(R_orbit, M_lens)
     R_orbit_in_rad = R_orbit_in_Gpc / dL
     theta_E = einstein_radius(M_lens, dL, R_orbit)  # rad
-    min_src_pos = R_orbit_in_rad * jnp.abs(jnp.cos(iota)) / theta_E
+    min_src_pos = R_orbit_in_rad * np.abs(np.cos(iota)) / theta_E
     print("Minimum source position: %s" % (min_src_pos))
     return
 
@@ -411,15 +405,6 @@ def lens(unlensed_bbh_params):
 ##############################################################################
 # Compute angle changes with vectors
 ##############################################################################
-def line_of_sight_unit_vec(iota, phase):
-    phi = jnp.pi / 2 - phase
-    return jnp.array([
-        jnp.sin(iota) * jnp.cos(phi),
-        jnp.sin(iota) * jnp.sin(phi),
-        jnp.cos(iota)
-    ])
-
-
 def compute_opening_angles(
     agn_bbh_system_params
 ):
@@ -444,14 +429,20 @@ def compute_exact_lensed_angles(agn_bbh_system_params):
     r_orbit = agn_bbh_system_params["R_orbit"]  # R_Sch
     luminosity_distance = agn_bbh_system_params["dL"]  # Gpc
     lens_mass = agn_bbh_system_params["M_lz"]  # Gpc
-    src_pos_y = agn_bbh_system_params["src_pos"]  # Einstein radius
-    zeros = jnp.zeros_like(iota)
-    L_hat_src = jnp.array([zeros, zeros, zeros + 1])
+    src_pos_y_r = agn_bbh_system_params["src_pos"]  # R_orbit
+    zeros = np.zeros_like(iota)
+    L_hat_src = np.array([zeros, zeros, zeros + 1])
 
-    z = jnp.interp(luminosity_distance, dLGridGlob, zGridGlob)
+    # Converting new src_pos to theta_E unit
+    z = np.interp(luminosity_distance, dLGridGlob, zGridGlob)
     lens_mass_src = lens_mass / (1 + z)
+    theta_E = einstein_radius(lens_mass_src, luminosity_distance, r_orbit)
+    R_Sch = 2 * lens_mass_src * MRSUN_SI  # m
+    delta = R_Sch / uGpc
+    beta = src_pos_y_r * r_orbit / luminosity_distance * delta  # radian
+    src_pos_y = beta / theta_E
 
-    theta_E = einstein_radius(lens_mass, luminosity_distance, r_orbit)  # rad, used later to convert dimensionless positions into radians
+    # rad, used later to convert dimensionless positions into radians
     _im_pos_1, _im_pos_2 = get_im_pos(src_pos_y)  # in units of Einstein radius
 
     img_pos_1 = _im_pos_1 * theta_E
@@ -463,50 +454,52 @@ def compute_exact_lensed_angles(agn_bbh_system_params):
     theta_bar_p = alpha_hat - img_pos_1 + src_pos_y_rad
     theta_bar_m = alpha_hat - img_pos_2 - src_pos_y_rad
 
-    phi_L = get_phi_L(iota, r_orbit, src_pos_y, theta_E, luminosity_distance, lens_mass_src)
+    phi_L = agn_bbh_system_params.get(
+            'phi_L', get_phi_L(iota, r_orbit, src_pos_y, theta_E, luminosity_distance, lens_mass_src))
 
-    obs_pos = line_of_sight_unit_vec(iota, phase)
-    obs_pos = jnp.array([-jnp.sin(iota), zeros, jnp.cos(iota)])
-    lens_pos = jnp.array([jnp.cos(phi_L), jnp.sin(phi_L), zeros])
+    obs_pos = np.array([-np.sin(iota), zeros, np.cos(iota)])
+    lens_pos = np.array([np.cos(phi_L), np.sin(phi_L), zeros])
 
     lens_pln_x = obs_pos
-    lens_pln_z = jnp.cross(lens_pos, obs_pos, axis=0)
-    lens_pln_z /= jnp.linalg.norm(lens_pln_z, axis=0)
-    lens_pln_y = jnp.cross(lens_pln_z, lens_pln_x, axis=0)
-    lens_pln_y /= jnp.linalg.norm(lens_pln_y, axis=0)
-    lens_pln_frame = jnp.array([lens_pln_x, lens_pln_y, lens_pln_z])
+    lens_pln_z = np.cross(lens_pos, obs_pos, axis=0)
+    lens_pln_z /= np.linalg.norm(lens_pln_z, axis=0)
+    lens_pln_y = np.cross(lens_pln_z, lens_pln_x, axis=0)
+    lens_pln_y /= np.linalg.norm(lens_pln_y, axis=0)
+    lens_pln_frame = np.array([lens_pln_x, lens_pln_y, lens_pln_z])
 
-    img_p_hat_lens = jnp.array([
-        jnp.cos(theta_bar_p), jnp.sin(theta_bar_p), zeros
+    img_p_hat_lens = np.array([
+        np.cos(theta_bar_p), np.sin(theta_bar_p), zeros
     ])
-    img_m_hat_lens = jnp.array([
-        jnp.cos(theta_bar_m), -jnp.sin(theta_bar_m), zeros
+    img_m_hat_lens = np.array([
+        np.cos(theta_bar_m), -np.sin(theta_bar_m), zeros
     ])
-    img_p_hat_src = jnp.einsum('ik,ijk->jk', img_p_hat_lens, lens_pln_frame)
-    img_m_hat_src = jnp.einsum('ik,ijk->jk', img_m_hat_lens, lens_pln_frame)
+    img_p_hat_src = np.einsum('ik,ijk->jk', img_p_hat_lens, lens_pln_frame)
+    img_m_hat_src = np.einsum('ik,ijk->jk', img_m_hat_lens, lens_pln_frame)
 
-    iota_p = jnp.arccos(img_p_hat_src[2])
-    iota_m = jnp.arccos(img_m_hat_src[2])
+    iota_p = np.arccos(img_p_hat_src[2])
+    iota_m = np.arccos(img_m_hat_src[2])
 
     # Get the change in phase
     # First define the frame
-    img_p_hat_y_src = jnp.cross(img_p_hat_src, L_hat_src, axis=0)
-    img_p_hat_y_src /= jnp.linalg.norm(img_p_hat_y_src, axis=0)
-    img_p_hat_x_src = jnp.cross(img_p_hat_y_src, L_hat_src, axis=0)
+    img_p_hat_y_src = np.cross(img_p_hat_src, L_hat_src, axis=0)
+    img_p_hat_y_src /= np.linalg.norm(img_p_hat_y_src, axis=0)
+    img_p_hat_x_src = np.cross(img_p_hat_y_src, L_hat_src, axis=0)
 
-    img_m_hat_y_src = jnp.cross(img_m_hat_src, L_hat_src, axis=0)
-    img_m_hat_y_src /= jnp.linalg.norm(img_m_hat_y_src, axis=0)
-    img_m_hat_x_src = jnp.cross(img_m_hat_y_src, L_hat_src, axis=0)
+    img_m_hat_y_src = np.cross(img_m_hat_src, L_hat_src, axis=0)
+    img_m_hat_y_src /= np.linalg.norm(img_m_hat_y_src, axis=0)
+    img_m_hat_x_src = np.cross(img_m_hat_y_src, L_hat_src, axis=0)
 
     # Define the line-of-separation vector
-    n_coal = jnp.array([jnp.sin(phase), jnp.cos(phase), zeros])
-    coal_dot_img_p_x = jnp.einsum('ij,ij->j', n_coal, img_p_hat_x_src)
-    coal_dot_img_p_y = jnp.einsum('ij,ij->j', n_coal, img_p_hat_y_src)
-    _phi_p = jnp.arctan2(coal_dot_img_p_y, coal_dot_img_p_x)
+    n_coal = np.array([np.sin(phase), np.cos(phase), zeros])
+    coal_dot_img_p_x = np.einsum('ij,ij->j', n_coal, img_p_hat_x_src)
+    coal_dot_img_p_y = np.einsum('ij,ij->j', n_coal, img_p_hat_y_src)
+    _phi_p = np.arctan2(coal_dot_img_p_y, coal_dot_img_p_x)
+    _phi_p = np.arccos(coal_dot_img_p_y)
 
-    coal_dot_img_m_x = jnp.einsum('ij,ij->j', n_coal, img_m_hat_x_src)
-    coal_dot_img_m_y = jnp.einsum('ij,ij->j', n_coal, img_m_hat_y_src)
-    _phi_m = jnp.arctan2(coal_dot_img_m_y, coal_dot_img_m_x)
+    coal_dot_img_m_x = np.einsum('ij,ij->j', n_coal, img_m_hat_x_src)
+    coal_dot_img_m_y = np.einsum('ij,ij->j', n_coal, img_m_hat_y_src)
+    _phi_m = np.arctan2(coal_dot_img_m_y, coal_dot_img_m_x)
+    _phi_m = np.arccos(coal_dot_img_m_y)
 
     phase_p = np.pi / 2 - _phi_p
     phase_m = np.pi / 2 - _phi_m
@@ -514,103 +507,12 @@ def compute_exact_lensed_angles(agn_bbh_system_params):
     # Not implementing the polarisation angle shift
 
     # These velocities are in unit of c
-    v_orbit_mag = 1 / jnp.sqrt(2 * r_orbit)
-    v_orbit_hat = jnp.cross(L_hat_src, lens_pos, axis=0)
-    v_orbit_hat /= jnp.linalg.norm(v_orbit_hat, axis=0)
+    v_orbit_mag = 1 / np.sqrt(2 * r_orbit)
+    v_orbit_hat = np.cross(L_hat_src, lens_pos, axis=0)
+    v_orbit_hat /= np.linalg.norm(v_orbit_hat, axis=0)
     v_orbit_vec_src = v_orbit_mag * r_orbit * v_orbit_hat
-    v_proj_p = jnp.einsum('ij,ij->j', v_orbit_vec_src, img_p_hat_src)
-    v_proj_m = jnp.einsum('ij,ij->j', v_orbit_vec_src, img_m_hat_src)
-
-    return {
-        'iota_p': iota_p,
-        'iota_m': iota_m,
-        'phase_p': phase_p,
-        'phase_m': phase_m,
-        'v_proj_p': v_proj_p,
-        'v_proj_m': v_proj_m,
-    }
-
-
-def compute_exact_lensed_angles_SourceFrame(agn_bbh_system_params):
-    '''
-    In the following, all vectors will take shape (3, N),
-    where N is the number of samples.
-
-    This follows the convention in the paper draft at the moment.
-
-    We abbreviate the frames as follows:
-    - Source frame: `_src`
-    - Lens plane frame: `_lens`
-    - Wave frame: `_wav`
-    '''
-    iota = agn_bbh_system_params["iota"]
-    phase = agn_bbh_system_params["Phicoal"]
-    # phi_L = agn_bbh_system_params["phi_L"]
-    r_orbit = agn_bbh_system_params["R_orbit"]  # R_Sch
-    luminosity_distance = agn_bbh_system_params["dL"]  # Gpc
-    lens_mass = agn_bbh_system_params["M_lz"]  # Gpc
-    src_pos_y = agn_bbh_system_params["src_pos"]  # Einstein radius
-    zeros = jnp.zeros_like(iota)
-    L_hat_src = jnp.array([zeros, zeros, zeros + 1])
-
-    z = jnp.interp(luminosity_distance, dLGridGlob, zGridGlob)
-    lens_mass_src = lens_mass / (1 + z)
-
-    theta_E = einstein_radius(lens_mass, luminosity_distance, r_orbit)  # rad, used later to convert dimensionless positions into radians
-    _im_pos_1, _im_pos_2 = get_im_pos(src_pos_y)  # in units of Einstein radius
-
-    img_pos_1 = _im_pos_1 * theta_E
-    img_pos_2 = _im_pos_2 * theta_E
-    src_pos_y_rad = src_pos_y * theta_E
-
-    # TODO: Update this alpha calculations
-    alpha_hat = _get_alpha_hat(r_orbit)  # rad
-    theta_bar_p = alpha_hat - img_pos_1 + src_pos_y_rad
-    theta_bar_m = alpha_hat - img_pos_2 - src_pos_y_rad
-
-    phi_L = get_phi_L(iota, r_orbit, src_pos_y, theta_E, luminosity_distance, lens_mass_src)
-
-    obs_pos = line_of_sight_unit_vec(iota, phase)
-    lens_pos = jnp.array([jnp.cos(phi_L), jnp.sin(phi_L), zeros])
-
-    lens_pln_x = obs_pos
-    lens_pln_z = jnp.cross(lens_pos, obs_pos, axis=0)
-    lens_pln_z /= jnp.linalg.norm(lens_pln_z, axis=0)
-    lens_pln_y = jnp.cross(lens_pln_z, lens_pln_x, axis=0)
-    lens_pln_y /= jnp.linalg.norm(lens_pln_y, axis=0)
-    lens_pln_frame = jnp.array([lens_pln_x, lens_pln_y, lens_pln_z])
-
-    # Image positions in the lensing plane
-    img_p_hat_lens = jnp.array([
-        jnp.cos(theta_bar_p), jnp.sin(theta_bar_p), zeros
-    ])
-    img_m_hat_lens = jnp.array([
-        jnp.cos(theta_bar_m), -jnp.sin(theta_bar_m), zeros
-    ])
-    img_p_hat_src = jnp.einsum('ik,ijk->jk', img_p_hat_lens, lens_pln_frame)
-    img_m_hat_src = jnp.einsum('ik,ijk->jk', img_m_hat_lens, lens_pln_frame)
-
-    iota_p = jnp.arccos(img_p_hat_src[2])
-    iota_m = jnp.arccos(img_m_hat_src[2])
-
-    # Get the change in phase
-
-    # Define the line-of-separation vector
-    _phi_p = jnp.arctan2(img_p_hat_src[1], img_p_hat_src[0])
-    _phi_m = jnp.arctan2(img_m_hat_src[1], img_m_hat_src[0])
-
-    phase_p = np.pi / 2 - _phi_p
-    phase_m = np.pi / 2 - _phi_m
-
-    # Not implementing the polarisation angle shift
-
-    # These velocities are in unit of c
-    v_orbit_mag = 1 / jnp.sqrt(2 * r_orbit)
-    v_orbit_hat = jnp.cross(L_hat_src, lens_pos, axis=0)
-    v_orbit_hat /= jnp.linalg.norm(v_orbit_hat, axis=0)
-    v_orbit_vec_src = v_orbit_mag * r_orbit * v_orbit_hat
-    v_proj_p = jnp.einsum('ij,ij->j', v_orbit_vec_src, img_p_hat_src)
-    v_proj_m = jnp.einsum('ij,ij->j', v_orbit_vec_src, img_m_hat_src)
+    v_proj_p = np.einsum('ij,ij->j', v_orbit_vec_src, img_p_hat_src)
+    v_proj_m = np.einsum('ij,ij->j', v_orbit_vec_src, img_m_hat_src)
 
     return {
         'iota_p': iota_p,
