@@ -10,11 +10,6 @@ from gwfast.gwfastGlobals import MRSUN_SI, MTSUN_SI, uGpc, DEG_TO_RAD
 zGridGlob = np.logspace(start=-6, stop=5, base=10, num=7000)
 dLGridGlob = cosmo.luminosity_distance(zGridGlob) / 1000.0  # Gpc
 
-# Constants in SI
-# TODO: Use the constants defined in gwfastGlobals
-G = 6.6743 * 1e-11
-c = 2.979246 * 1e8
-
 
 ##############################################################################
 # LENSING
@@ -254,8 +249,8 @@ def get_lensed_parameter_sets(
     if M_lz is None:
         M_lz = unlensed_bbh_params.get("M_lz", None)
     if src_pos is None:
-        src_pos = unlensed_bbh_params.get("src_pos", None)
-    if (R_orbit is None) or (M_lz is None) or (src_pos is None):
+        _src_pos = unlensed_bbh_params.get("src_pos", None)  # r_orbit
+    if (R_orbit is None) or (M_lz is None) or (_src_pos is None):
         raise IOError(
             "Insufficient lensing parameters (R_orbit, M_lz or src_pos not provided)."
         )
@@ -274,10 +269,14 @@ def get_lensed_parameter_sets(
     z = np.interp(dL, dLGridGlob, zGridGlob)
     M_lens = M_lz / (1 + z)
 
+    # Converting new src_pos to theta_E unit
+    theta_E = einstein_radius(M_lens, dL, R_orbit)  # Radian
+    R_Sch = 2 * M_lens * MRSUN_SI  # m
+    delta = R_Sch / uGpc
+    beta = _src_pos * R_orbit / dL * delta  # radian
+    src_pos = beta / theta_E
+
     # Compute image positions
-    theta_E = einstein_radius(
-        M_lens, dL, R_orbit
-    )  # rad, used later to convert dimensionless positions into radians
     im_pos_1, im_pos_2 = get_im_pos(src_pos)  # in units of Einstein radius
 
     phi_L = get_phi_L(iota, R_orbit, src_pos, theta_E, dL, M_lens)

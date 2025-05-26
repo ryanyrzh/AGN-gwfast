@@ -7,7 +7,7 @@ from jax.lax import integer_pow
 
 from astropy.cosmology import Planck18 as cosmo
 from gwfast.gwfastGlobals import MRSUN_SI, MTSUN_SI, uGpc
-from gwfast.lensing_utils import _get_alpha_hat, get_im_pos
+from gwfast.lensing_utils import _get_alpha_hat
 
 zGridGlob = np.logspace(start=-6, stop=5, base=10, num=7000)
 dLGridGlob = cosmo.luminosity_distance(zGridGlob) / 1000.0  # Gpc
@@ -76,7 +76,7 @@ def get_phi_L(iota, y_src_pos, phi_N):
         such that lensing could occur.
     '''
     arg = np.sqrt(1 - y_src_pos**2) / np.sin(iota)
-    return phi_N + np.sign(y_src_pos) * np.arccos(arg)
+    return phi_N - np.sign(y_src_pos) * np.arccos(arg)
 
 
 def Keplerian_speed(r_orbit):
@@ -133,7 +133,7 @@ def PML_image_position(beta_src, theta_E=1):
 
 def PML_time_delay_magnification(beta_src, theta_E=1):
     '''
-    Time delay is simplified from https://inspirehep.net/literature/1862768, 
+    Time delay is simplified from https://inspirehep.net/literature/1862768,
     Eq. (3.13), with θ_± = (β ± √ (β² + 4)) / 2, for β measured in units of θ_E.
 
     t(+) - t(-) = -β √(4 +  β²) + 2 ln(θ(-) / θ(+))
@@ -143,7 +143,7 @@ def PML_time_delay_magnification(beta_src, theta_E=1):
     Parameters:
     ----------
     beta_src: float / array-like
-        The source position angle. 
+        The source position angle.
         If theta_E is not given, it is assumed to be in unit of theta_E.
         Otherwise, it should have the same unit as theta_E (radian, R_Sch, etc).
     theta_E: float / array-like
@@ -163,7 +163,7 @@ def PML_time_delay_magnification(beta_src, theta_E=1):
 
     _beta = beta_src / theta_E
     sqrt_term = np.sqrt(4 + _beta**2)
-    delta_t_geom = - _beta * sqrt_term 
+    delta_t_geom = - _beta * sqrt_term
     delta_t_Shap = 2 * np.log(np.abs(img_m / img_p))
 
     delta_t = (delta_t_geom + delta_t_Shap) * 2
@@ -226,17 +226,17 @@ def compute_lensed_angles_approx(
     theta_bar_m = alpha_hat - (img_pos_2 + beta)
 
     # Setting phi_N = 0 gives delta_phi
-    delta_phi = get_phi_L(iota, y_src, 0)
+    delta_phi = - get_phi_L(iota, y_src, 0)
 
     inv_Delta = (np.cos(iota)**2 + np.sin(iota)**2 * np.sin(delta_phi)**2)**-0.5
     iota_term = np.cos(iota) * np.cos(delta_phi) * inv_Delta
-    phi_term =  np.sin(delta_phi) / np.sin(iota) * inv_Delta
+    phi_term = np.sin(delta_phi) / np.sin(iota) * inv_Delta
     speed_term = np.sin(iota) * np.cos(delta_phi) * inv_Delta
 
     iota_p = iota - theta_bar_p * iota_term
     iota_m = iota + theta_bar_m * iota_term
-    phi_p = phi_N + theta_bar_p * phi_term * 2
-    phi_m = phi_N - theta_bar_m * phi_term * 2
+    phi_p = phi_N + theta_bar_p * phi_term
+    phi_m = phi_N - theta_bar_m * phi_term
 
     v_orb = Keplerian_speed(r_orbit)
     gamma = Lorentz_factor(v_orb)
@@ -256,12 +256,13 @@ def compute_lensed_angles_approx(
     return {
         'iota_p': iota_p,
         'iota_m': iota_m,
-        'phase_p': phase_p,
-        'phase_m': phase_m,
-        'v_proj_p': v_proj_p,
-        'v_proj_m': v_proj_m,
+        'phase_p': np.pi/2 - phi_p,
+        'phase_m': np.pi/2 - phi_m,
+        'v_proj_p': v_orb_p,
+        'v_proj_m': v_orb_m,
         'z_rel_p': z_rel_p,
         'z_rel_m': z_rel_m,
+        'z_grav': z_grav,
         'delta_time': delta_time,
         'sqrt_mu_p': sqrt_mu_p,
         'sqrt_mu_m': sqrt_mu_m,
@@ -309,7 +310,7 @@ def compute_exact_lensed_angles_SourceFrame(agn_bbh_system_params):
     theta_E = einstein_angle(lens_mass_src, ang_D_L, d_LS)  # Radian
 
     # Image positions
-    img_pos_1, img_pos_2 = get_image_position(beta, theta_E)  # Radian
+    img_pos_1, img_pos_2 = PML_image_position(beta, theta_E)  # Radian
 
     # The opening angles
     alpha_hat = _get_alpha_hat(r_orbit)  # rad
@@ -330,7 +331,7 @@ def compute_exact_lensed_angles_SourceFrame(agn_bbh_system_params):
     lens_pln_frame = np.array([lens_pln_x, lens_pln_y, lens_pln_z])
 
     # Compute phi_L from vectors:
-    optical_axis = luminosity_distance * obs_pos - r_orbit * lens_pos
+    optical_axis = obs_pos - r_orbit / luminosity_distance * delta * lens_pos
     optical_axis /= np.linalg.norm(optical_axis, axis=0)
 
     # Image positions in the lensing plane
@@ -347,30 +348,26 @@ def compute_exact_lensed_angles_SourceFrame(agn_bbh_system_params):
     iota_m = np.arccos(img_m_hat_src[2])
 
     # Get the change in phase
-    _phi_p = np.arctan2(img_p_hat_src[1], img_p_hat_src[0])
-    _phi_m = np.arctan2(img_m_hat_src[1], img_m_hat_src[0])
-
-    phase_p = np.pi / 2 - _phi_p
-    phase_m = np.pi / 2 - _phi_m
-
-    # Not implementing the polarisation angle shift
+    phi_p = np.arctan2(img_p_hat_src[1], img_p_hat_src[0])
+    phi_m = np.arctan2(img_m_hat_src[1], img_m_hat_src[0])
 
     # These velocities are in unit of c
-    v_orbit_mag = 1 / np.sqrt(2 * r_orbit)
+    v_orbit_mag = Keplerian_speed(r_orbit)
     v_orbit_hat = np.cross(L_hat_src, lens_pos, axis=0)
     v_orbit_hat /= np.linalg.norm(v_orbit_hat, axis=0)
     v_orbit_vec_src = v_orbit_mag * r_orbit * v_orbit_hat
     v_proj_p = np.einsum('ij,ij->j', v_orbit_vec_src, img_p_hat_src)
     v_proj_m = np.einsum('ij,ij->j', v_orbit_vec_src, img_m_hat_src)
 
-    z_rel_p = gamma * (1 + v_orb_p) - 1
-    z_rel_m = gamma * (1 + v_orb_m) - 1
+    gamma = Lorentz_factor(v_orbit_mag)
+    z_rel_p = gamma * (1 + v_proj_p) - 1
+    z_rel_m = gamma * (1 + v_proj_m) - 1
 
     return {
         'iota_p': iota_p,
         'iota_m': iota_m,
-        'phase_p': phase_p,
-        'phase_m': phase_m,
+        'phase_p': np.pi / 2 - phi_p,
+        'phase_m': np.pi / 2 - phi_m,
         'v_proj_p': v_proj_p,
         'v_proj_m': v_proj_m,
         'z_rel_p': z_rel_p,
