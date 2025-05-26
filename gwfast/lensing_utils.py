@@ -340,19 +340,9 @@ def get_lensing_time_delay(unlensed_bbh_params, M_lz=None, src_pos=None):
         return 0
 
     M_lz_in_s = M_lz * MTSUN_SI
-
-    time_delay = (
-        4
-        * M_lz_in_s
-        * (
-            src_pos * np.sqrt(src_pos**2 + 4) / 2
-            + np.log(
-                (np.sqrt(src_pos**2 + 4) + src_pos)
-                / (np.sqrt(src_pos**2 + 4) - src_pos)
-            )
-        )
-    )
-    return time_delay
+    sqrt_term = np.sqrt(src_pos**2 + 4)
+    log_diff = np.log((sqrt_term + src_pos) / (sqrt_term - src_pos))
+    return 4 * M_lz_in_s * (src_pos * sqrt_term / 2 + log_diff)
 
 
 def get_mag_factors(unlensed_bbh_params, src_pos=None):
