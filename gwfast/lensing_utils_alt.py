@@ -47,7 +47,7 @@ def einstein_angle(lens_mass_source, angular_D_L, D_LS):
     return np.sqrt(2 * RSch_DL * d_ls / (1 + d_ls))
 
 
-def get_phi_L(iota, y_src_pos, r_orbit, phi_N):
+def get_phi_L(iota, y_src_pos, phi_N):
     '''
     Computes the phi_L from the given observer and source positions,
         such that lensing could happen.
@@ -226,7 +226,7 @@ def compute_lensed_angles_approx(
     theta_bar_m = alpha_hat - (img_pos_2 + beta)
 
     # Setting phi_N = 0 gives delta_phi
-    delta_phi = get_phi_L(iota, y_src, r_orbit, 0)
+    delta_phi = get_phi_L(iota, y_src, 0)
 
     inv_Delta = (np.cos(iota)**2 + np.sin(iota)**2 * np.sin(delta_phi)**2)**-0.5
     iota_term = np.cos(iota) * np.cos(delta_phi) * inv_Delta
@@ -317,7 +317,7 @@ def compute_exact_lensed_angles_SourceFrame(agn_bbh_system_params):
     theta_bar_m = alpha_hat - (img_pos_2 + beta)
 
     phi_L = agn_bbh_system_params.get(
-            'phi_L', get_phi_L(iota, y_src, r_orbit, phi_N))
+            'phi_L', get_phi_L(iota, y_src, phi_N))
 
     obs_pos = line_of_sight_unit_vec(iota, phase)
     lens_pos = np.array([np.cos(phi_L), np.sin(phi_L), zeros])
