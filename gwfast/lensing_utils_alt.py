@@ -79,6 +79,102 @@ def get_phi_L(iota, y_src_pos, r_orbit, phi_N):
     return phi_N + np.sign(y_src_pos) * np.arccos(arg)
 
 
+def Keplerian_speed(r_orbit):
+    '''
+    From arXiv:2310.16025, Eq.(2)
+        v = (2r - 1)^(-1/2)
+
+    Parameters:
+    ----------
+    r_orbit: float / array-like
+        The orbital radius of the source around the SMBH, R_Sch.
+
+    Returns:
+    ----------
+    float / array-like
+        The orbital speed from Kepler's law, light speed.
+    '''
+
+    # TODO: Check whether this is true
+    return (2 * r_orbit - 1)**(-0.5)
+
+
+def gravitational_redshift(r_orbit):
+    '''
+    From arXiv:2310.16025, Eq.(3)
+        z_grav = (1 - r_orbit)^2 - 1
+
+    Parameters:
+    ----------
+    r_orbit: float / array-like
+        The orbital radius of the source around the SMBH, R_Sch.
+
+    Returns:
+    ----------
+    float / array-like
+        The gravitational redshift from a Schwarzschild BH.
+    '''
+
+    # TODO: Check whether this is true
+    return integer_pow(1 - r_orbit, 2) - 1
+
+
+def Lorentz_factor(beta):
+    return (1 - beta**2)**(-0.5)
+
+
+def PML_image_position(beta_src, theta_E=1):
+    _beta = beta_src / theta_E
+    sqrt_term = np.sqrt(4 + _beta**2)
+    img_p = (_beta + sqrt_term) / 2 * theta_E
+    img_m = (_beta - sqrt_term) / 2 * theta_E
+    return img_p, img_m
+
+
+def PML_time_delay_magnification(beta_src, theta_E=1):
+    '''
+    Time delay is simplified from https://inspirehep.net/literature/1862768, 
+    Eq. (3.13), with θ_± = (β ± √ (β² + 4)) / 2, for β measured in units of θ_E.
+
+    t(+) - t(-) = -β √(4 +  β²) + 2 ln(θ(-) / θ(+))
+
+    The magnifications are taken from Eq. (3.8) directly.
+
+    Parameters:
+    ----------
+    beta_src: float / array-like
+        The source position angle. 
+        If theta_E is not given, it is assumed to be in unit of theta_E.
+        Otherwise, it should have the same unit as theta_E (radian, R_Sch, etc).
+    theta_E: float / array-like
+        The Einstein radius (angle), it acts as the scale of for beta_src.
+        It can have any units, as long as it being consistent with beta_src.
+
+    Returns:
+    ----------
+    delta_t: float / array-like
+        The time delay between the "+" and "-" images, in geometric time.
+        (Need to multiply by GM/c^3 to get SI unit.)
+    mag_p, mag_m: float / array-like
+        The magnification of the "+" and "-" images respectively.
+    '''
+
+    img_p, img_m = PML_image_position(beta_src, theta_E)
+
+    _beta = beta_src / theta_E
+    sqrt_term = np.sqrt(4 + _beta**2)
+    delta_t_geom = - _beta * sqrt_term 
+    delta_t_Shap = 2 * np.log(np.abs(img_m / img_p))
+
+    delta_t = (delta_t_geom + delta_t_Shap) * 2
+
+    common_term = _beta / sqrt_term + sqrt_term / _beta
+    mag_p = 0.25 * (common_term + 2)
+    mag_m = 0.25 * (common_term - 2)
+
+    return delta_t, mag_p, mag_m
+
+
 def line_of_sight_unit_vec(iota, phase):
     phi = np.pi / 2 - phase
     return np.array([
@@ -86,6 +182,90 @@ def line_of_sight_unit_vec(iota, phase):
         np.sin(iota) * np.sin(phi),
         np.cos(iota)
     ])
+
+
+def compute_lensed_angles_approx(
+        agn_bbh_system_params, angular_distances=False):
+    iota = agn_bbh_system_params["iota"]
+    phase = agn_bbh_system_params["Phicoal"]
+    r_orbit = agn_bbh_system_params["R_orbit"]  # R_Sch
+    luminosity_distance = agn_bbh_system_params["dL"]  # Gpc
+    lens_mass = agn_bbh_system_params["M_lz"]  # Gpc
+    y_src = agn_bbh_system_params["src_pos"]  # R_orbit
+
+    # Useful constructs
+    phi_N = np.pi / 2 - phase
+    d_LS = r_orbit * np.sqrt(1 - y_src**2)  # R_Sch
+    _y_src = y_src * r_orbit  # R_Sch
+
+    # Schwarschild radius
+    # A small, but necessary assumption, that the lens is at dL
+    z = np.interp(luminosity_distance, dLGridGlob, zGridGlob)
+    lens_mass_src = lens_mass / (1 + z)
+    R_Sch = 2 * lens_mass_src * MRSUN_SI  # m
+    delta = R_Sch / uGpc
+
+    if angular_distances:
+        # For most practical purposes, ang_lum_dist = ang_D_S
+        ang_lum_dist = luminosity_distance / integer_pow(1 + z, 2)  # Gpc
+        beta = np.arcsin(_y_src / ang_lum_dist * delta)  # Radian
+        ang_D_S = ang_lum_dist * np.cos(beta)   # Gpc
+    else:
+        beta = _y_src / luminosity_distance * delta  # Radian
+        ang_D_S = luminosity_distance
+
+    ang_D_L = ang_D_S / (1 + d_LS * delta)  # Gpc
+    theta_E = einstein_angle(lens_mass_src, ang_D_L, d_LS)  # Radian
+
+    # Image positions
+    img_pos_1, img_pos_2 = PML_image_position(beta, theta_E)  # Radian
+
+    # The opening angles
+    alpha_hat = _get_alpha_hat(r_orbit)  # rad
+    theta_bar_p = alpha_hat - (img_pos_1 - beta)
+    theta_bar_m = alpha_hat - (img_pos_2 + beta)
+
+    # Setting phi_N = 0 gives delta_phi
+    delta_phi = get_phi_L(iota, y_src, r_orbit, 0)
+
+    inv_Delta = (np.cos(iota)**2 + np.sin(iota)**2 * np.sin(delta_phi)**2)**-0.5
+    iota_term = np.cos(iota) * np.cos(delta_phi) * inv_Delta
+    phi_term =  np.sin(delta_phi) / np.sin(iota) * inv_Delta
+    speed_term = np.sin(iota) * np.cos(delta_phi) * inv_Delta
+
+    iota_p = iota - theta_bar_p * iota_term
+    iota_m = iota + theta_bar_m * iota_term
+    phi_p = phi_N + theta_bar_p * phi_term * 2
+    phi_m = phi_N - theta_bar_m * phi_term * 2
+
+    v_orb = Keplerian_speed(r_orbit)
+    gamma = Lorentz_factor(v_orb)
+    v_proj = - v_orb * np.sin(iota) * np.sin(delta_phi)
+    v_orb_p = v_proj * (1 + theta_bar_p * speed_term)
+    v_orb_m = v_proj * (1 - theta_bar_m * speed_term)
+
+    z_rel_p = gamma * (1 + v_orb_p) - 1
+    z_rel_m = gamma * (1 + v_orb_m) - 1
+    z_grav = gravitational_redshift(r_orbit)
+
+    delta_time, mu_p, mu_m = PML_time_delay_magnification(beta, theta_E)
+    delta_time *= lens_mass_src * MTSUN_SI  # s
+    sqrt_mu_p = np.sqrt(np.abs(mu_p))
+    sqrt_mu_m = np.sqrt(np.abs(mu_m))
+
+    return {
+        'iota_p': iota_p,
+        'iota_m': iota_m,
+        'phase_p': phase_p,
+        'phase_m': phase_m,
+        'v_proj_p': v_proj_p,
+        'v_proj_m': v_proj_m,
+        'z_rel_p': z_rel_p,
+        'z_rel_m': z_rel_m,
+        'delta_time': delta_time,
+        'sqrt_mu_p': sqrt_mu_p,
+        'sqrt_mu_m': sqrt_mu_m,
+    }
 
 
 def compute_exact_lensed_angles_SourceFrame(agn_bbh_system_params):
@@ -101,7 +281,6 @@ def compute_exact_lensed_angles_SourceFrame(agn_bbh_system_params):
     '''
     iota = agn_bbh_system_params["iota"]
     phase = agn_bbh_system_params["Phicoal"]
-    # phi_L = agn_bbh_system_params["phi_L"]
     r_orbit = agn_bbh_system_params["R_orbit"]  # R_Sch
     luminosity_distance = agn_bbh_system_params["dL"]  # Gpc
     lens_mass = agn_bbh_system_params["M_lz"]  # Gpc
@@ -112,6 +291,7 @@ def compute_exact_lensed_angles_SourceFrame(agn_bbh_system_params):
     # Useful constructs
     phi_N = np.pi / 2 - phase
     d_LS = r_orbit * np.sqrt(1 - y_src**2)  # R_Sch
+    _y_src = y_src * r_orbit  # R_Sch
 
     # Schwarschild radius
     # A small, but necessary assumption, that the lens is at dL
@@ -119,29 +299,22 @@ def compute_exact_lensed_angles_SourceFrame(agn_bbh_system_params):
     lens_mass_src = lens_mass / (1 + z)
     R_Sch = 2 * lens_mass_src * MRSUN_SI  # m
     delta = R_Sch / uGpc
-    sq_1pz = integer_pow(1 + z, 2)
 
-    # Angular distances
+    # Angular distances and Source position
     # For most practical purposes, ang_lum_dist = ang_D_S
-    ang_lum_dist = luminosity_distance / sq_1pz  # Gpc
-    _y_src = y_src * r_orbit  # R_Sch
+    ang_lum_dist = luminosity_distance / integer_pow(1 + z, 2)  # Gpc
     beta = np.arcsin(_y_src / ang_lum_dist * delta)  # Radian
     ang_D_S = ang_lum_dist * np.cos(beta)   # Gpc
     ang_D_L = ang_D_S / (1 + d_LS * delta)  # Gpc
     theta_E = einstein_angle(lens_mass_src, ang_D_L, d_LS)  # Radian
 
-    # Source and image positions
-    beta = _y_src / ang_D_S * delta  # Radian
-    beta_thetaE = beta / theta_E
-
-    _img_pos_1, _img_pos_2 = get_im_pos(beta_thetaE)  # in units of Einstein angle
-    img_pos_1 = _img_pos_1 * theta_E
-    img_pos_2 = _img_pos_2 * theta_E
+    # Image positions
+    img_pos_1, img_pos_2 = get_image_position(beta, theta_E)  # Radian
 
     # The opening angles
     alpha_hat = _get_alpha_hat(r_orbit)  # rad
-    theta_bar_p = alpha_hat - img_pos_1 + beta
-    theta_bar_m = alpha_hat - img_pos_2 - beta
+    theta_bar_p = alpha_hat - (img_pos_1 - beta)
+    theta_bar_m = alpha_hat - (img_pos_2 + beta)
 
     phi_L = agn_bbh_system_params.get(
             'phi_L', get_phi_L(iota, y_src, r_orbit, phi_N))
@@ -174,8 +347,6 @@ def compute_exact_lensed_angles_SourceFrame(agn_bbh_system_params):
     iota_m = np.arccos(img_m_hat_src[2])
 
     # Get the change in phase
-
-    # Define the line-of-separation vector
     _phi_p = np.arctan2(img_p_hat_src[1], img_p_hat_src[0])
     _phi_m = np.arctan2(img_m_hat_src[1], img_m_hat_src[0])
 
@@ -192,6 +363,9 @@ def compute_exact_lensed_angles_SourceFrame(agn_bbh_system_params):
     v_proj_p = np.einsum('ij,ij->j', v_orbit_vec_src, img_p_hat_src)
     v_proj_m = np.einsum('ij,ij->j', v_orbit_vec_src, img_m_hat_src)
 
+    z_rel_p = gamma * (1 + v_orb_p) - 1
+    z_rel_m = gamma * (1 + v_orb_m) - 1
+
     return {
         'iota_p': iota_p,
         'iota_m': iota_m,
@@ -199,6 +373,8 @@ def compute_exact_lensed_angles_SourceFrame(agn_bbh_system_params):
         'phase_m': phase_m,
         'v_proj_p': v_proj_p,
         'v_proj_m': v_proj_m,
+        'z_rel_p': z_rel_p,
+        'z_rel_m': z_rel_m,
     }
 
 
