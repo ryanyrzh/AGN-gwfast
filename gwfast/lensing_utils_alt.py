@@ -6,7 +6,7 @@ import jax.numpy as np
 from jax.lax import integer_pow
 
 from astropy.cosmology import Planck18 as cosmo
-from gwfast.gwfastGlobals import MRSUN_SI, MTSUN_SI, uGpc
+from gwfast.gwfastGlobals import MRSUN_SI, MTSUN_SI, uGpc, DAY_TO_SEC
 from gwfast.lensing_utils import _get_alpha_hat
 
 zGridGlob = np.logspace(start=-6, stop=5, base=10, num=7000)
@@ -182,6 +182,33 @@ def line_of_sight_unit_vec(iota, phase):
         np.sin(iota) * np.sin(phi),
         np.cos(iota)
     ])
+
+
+def get_agn_lensed_parameters(unlensed_parameters):
+    plus_image_params = unlensed_parameters.copy()
+    minus_image_params = unlensed_parameters.copy()
+
+    lensed_params = compute_lensed_angles_approx(unlensed_parameters)
+
+    # Environemental effects (orbit-induced redshift and gravitational redshift) can be modeled as 
+    # changes in effective chirp mass and effective luminosity distance
+    # https://arxiv.org/abs/2310.16025 Eqs. 4&5
+    plus_redshift_factor = (1 + lensed_params['z_rel_p']) * (1 + lensed_params['z_grav'])
+    minus_redshift_factor = (1 + lensed_params['z_rel_m']) * (1 + lensed_params['z_grav'])
+
+    plus_image_params['iota'] = lensed_params['iota_p']
+    plus_image_params['Phicoal'] = lensed_params['phase_p']
+    plus_image_params['Mc'] *= plus_redshift_factor
+    plus_image_params['dL'] /= lensed_params['sqrt_mu_p']
+    plus_image_params['dL'] *= (1 + lensed_params['z_rel_p']) * plus_redshift_factor
+    minus_image_params['iota'] = lensed_params['iota_m']
+    minus_image_params['Phicoal'] = lensed_params['phase_m']
+    minus_image_params['Mc'] *= minus_redshift_factor
+    minus_image_params['dL'] /= lensed_params['sqrt_mu_m']
+    minus_image_params['dL'] *= (1 + lensed_params['z_rel_m']) * minus_redshift_factor
+    minus_image_params['tcoal'] += lensed_params['delta_time'] / DAY_TO_SEC  # days
+
+    return plus_image_params, minus_image_params
 
 
 def compute_lensed_angles_approx(
