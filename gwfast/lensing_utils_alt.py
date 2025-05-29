@@ -102,7 +102,7 @@ def Keplerian_speed(r_orbit):
 def gravitational_redshift(r_orbit):
     '''
     From arXiv:2310.16025, Eq.(3)
-        z_grav = (1 - r_orbit)^2 - 1
+        z_grav = (1 - 1/r_orbit)^1/2 - 1
 
     Parameters:
     ----------
@@ -116,7 +116,7 @@ def gravitational_redshift(r_orbit):
     '''
 
     # TODO: Check whether this is true
-    return integer_pow(1 - r_orbit, 2) - 1
+    return (1 - 1 / r_orbit)**0.5 - 1
 
 
 def Lorentz_factor(beta):
