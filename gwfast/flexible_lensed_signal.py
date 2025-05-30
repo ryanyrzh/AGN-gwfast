@@ -17,10 +17,10 @@ os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform"
 
 from gwfast.gwfastGlobals import TWOPI, DAY_TO_SEC
 from gwfast.gwfastUtils import get_model_parameters
-from gwfast.new_signal import NewGWSignal
+from gwfast.new_signal import BasicGWSignal
 
 
-class FlexibleLensedGWSignal(NewGWSignal):
+class FlexibleLensedGWSignal(BasicGWSignal):
     """
     Class to compute the lensed GW signal emitted by a coalescing binary system as seen by a detector on Earth.
     This assumes the point-mass lens model, splitting the GW signal into two, each with a phenomenological change 
@@ -90,7 +90,7 @@ class FlexibleLensedGWSignal(NewGWSignal):
     def GWPhase(self, evParams, f):
         raise NotImplementedError("Yeah, someone should work on this.")
 
-    def GWstrain(self, f, parameters, rot=0.0, return_single_comp=None):
+    def GWstrain(self, freqs, parameters, rot=0.0, return_single_comp=None):
         """
         Compute the full GW strain (complex) as a function of the parameters, at given frequencies.
 
@@ -102,11 +102,7 @@ class FlexibleLensedGWSignal(NewGWSignal):
         :rtype: array or float
 
         """
-        # Full GW strain expression (complex)
-        # Here we have the decompressed parameters and we put them back in a dictionary just to have an easier
-        # implementation of the JAX module for derivatives
-
-        omega = TWOPI * f * DAY_TO_SEC
+        omega = TWOPI * freqs * DAY_TO_SEC
 
         signal_1_params, signal_2_params = self.get_parameter_sets(parameters)
         signal_1_params = get_model_parameters(signal_1_params, self.strain_model_keys)
@@ -123,11 +119,11 @@ class FlexibleLensedGWSignal(NewGWSignal):
         for params in (signal_1_params, signal_2_params):
             # 22 mode waveforms
             if not (self.need_HM or is_lal):
-                _, deltaT = self.shifted_time(params, f)
+                _, deltaT = self.shifted_time(params, freqs)
                 phiL = omega * deltaT
 
-                Ap, Ac = super().GWAmplitudes(params, f, rot=rot)
-                Psi = super().GWPhase(params, f)
+                Ap, Ac = super().GWAmplitudes(params, freqs, rot=rot)
+                Psi = super().GWPhase(params, freqs)
                 Psi += phiD + phiL
 
                 hp, hc = Ap * np.exp(Psi * 1j), 1j * Ac * np.exp(Psi * 1j)
@@ -140,11 +136,11 @@ class FlexibleLensedGWSignal(NewGWSignal):
                 phi = params["phi"]
 
                 phase_shift_factor = np.exp(1j * (phiD + omega * params["tcoal"]))
-                time, deltaT = self.shifted_time(params, f)
+                time, deltaT = self.shifted_time(params, freqs)
                 phiL = omega * deltaT
 
                 Fpc = self.detector.compute_antenna_pattern(theta, phi, time, psi, rot=rot)
-                hpc = self.wf_model.hphc(f, **params)
+                hpc = self.wf_model.hphc(freqs, **params)
                 phase_factor = phase_shift_factor * np.exp(1j * (phiL - phase))
                 hp = hpc[0] * Fpc[0] * phase_factor
                 hc = hpc[1] * Fpc[1] * phase_factor

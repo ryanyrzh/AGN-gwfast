@@ -31,7 +31,7 @@ from gwfast.gwfastUtils import (
 from gwfast.detector import Detector
 
 
-class NewGWSignal(object):
+class BasicGWSignal(object):
     """
     Class to compute the GW signal emitted by a coalescing binary system as seen by a detector on Earth.
 
@@ -286,7 +286,7 @@ class NewGWSignal(object):
 
         return TWOPI * freqs * (tcoal * DAY_TO_SEC) - Phicoal - PhiGw
 
-    def GWstrain(self, f, parameters, rot=0.0, return_single_comp=None):
+    def GWstrain(self, freqs, parameters, rot=0.0, return_single_comp=None):
         """
         Compute the full GW strain (complex) as a function of the parameters, at given frequencies.
 
@@ -302,10 +302,10 @@ class NewGWSignal(object):
         # Here we have the decompressed parameters and we put them back in a dictionary just to have an easier
         # implementation of the JAX module for derivatives
 
-        omega = TWOPI * f * DAY_TO_SEC
+        omega = TWOPI * freqs * DAY_TO_SEC
 
         model_params = get_model_parameters(parameters, self.strain_model_keys)
-        time, deltaT = self.shifted_time(model_params, f)
+        time, deltaT = self.shifted_time(model_params, freqs)
         phiL = omega * deltaT
 
         # Not sure what does this do, but it was set to zero in both cases
@@ -317,8 +317,8 @@ class NewGWSignal(object):
 
         if not (self.need_HM or is_lal):
             # Return with the simplest things
-            Ap, Ac = self.GWAmplitudes(model_params, f, rot=rot)
-            Psi = self.GWPhase(model_params, f)
+            Ap, Ac = self.GWAmplitudes(model_params, freqs, rot=rot)
+            Psi = self.GWPhase(model_params, freqs)
             Psi += phiD + phiL
 
             # TODO: Check whether h = hp - i hc.
@@ -354,7 +354,7 @@ class NewGWSignal(object):
         phi = model_params["phi"]
 
         Fpc = self.detector.compute_antenna_pattern(theta, phi, time, psi, rot=rot)
-        hpc = self.wf_model.hphc(f, **model_params)
+        hpc = self.wf_model.hphc(freqs, **model_params)
         phase_factor = phase_shift_factor * np.exp(1j * (phiL - phase))
         hp = hpc[0] * Fpc[0] * phase_factor
         hc = hpc[1] * Fpc[1] * phase_factor
