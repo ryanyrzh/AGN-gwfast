@@ -56,15 +56,15 @@ class AGNLensedGWSignal(FlexibleLensedGWSignal):
 
     def __init__(self, **kwargs):
 
-        additional_params = {
+        self.additional_params = {
             'R_orbit': 100,
             'M_lz': 1e6,
             'src_pos': 0.1
         }
         # Use the base class constructor
-        super(FlexibleLensedGWSignal, self).__init__(**kwargs, init_params=additional_params)
+        super(FlexibleLensedGWSignal, self).__init__(**kwargs, init_params=self.additional_params)
         self.strain_model_keys = list(
-            self.wf_model.ParNums.keys() | additional_params.keys()
+            self.wf_model.ParNums.keys() | self.additional_params.keys()
         )
 
     def GWAmplitudes(self, evParams, f, rot=0.0):
@@ -93,8 +93,7 @@ class AGNLensedGWSignal(FlexibleLensedGWSignal):
     def _analytical_derivatives(self):
         raise NotImplementedError('Lensed waveforms have no well-defined analytical derivatives (yet)')
 
-    @classmethod
-    def convert_to_flexible_model_parameters(cls, agn_lensed_params):
+    def convert_to_flexible_model_parameters(self, agn_lensed_params):
         """
         Convert the AGN lensed parameters to parameters of the flexible model.
 
@@ -103,7 +102,7 @@ class AGNLensedGWSignal(FlexibleLensedGWSignal):
         agn_lensed_params : dict
             Dictionary containing the AGN lensed parameters.
         """
-        model_params = get_model_parameters(agn_lensed_params, cls.strain_model_keys)
+        model_params = get_model_parameters(agn_lensed_params, self.strain_model_keys)
         params_1, params_2 = get_agn_lensed_parameters(model_params)
 
         output_params = params_1.copy()
