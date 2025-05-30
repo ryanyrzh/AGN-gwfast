@@ -15,13 +15,13 @@ config.update("jax_enable_x64", True)
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform"
 
-from gwfast.gwfastGlobals import TWOPI, DAY_TO_SEC
+from gwfast.gwfastGlobals import DAY_TO_SEC
 from gwfast.gwfastUtils import get_model_parameters
 from gwfast.lensing_utils_alt import get_agn_lensed_parameters
-from gwfast.new_signal import NewGWSignal
+from gwfast.flexible_lensed_signal import FlexibleLensedGWSignal
 
 
-class AGNLensedGWSignal(NewGWSignal):
+class AGNLensedGWSignal(FlexibleLensedGWSignal):
     """
     Class to compute the GW signal emitted by a coalescing binary system as seen by a detector on Earth.
 
@@ -61,7 +61,8 @@ class AGNLensedGWSignal(NewGWSignal):
             'M_lz': 1e6,
             'src_pos': 0.1
         }
-        super().__init__(**kwargs, init_params=additional_params)
+        # Use the base class constructor
+        super(FlexibleLensedGWSignal, self).__init__(**kwargs, init_params=additional_params)
         self.strain_model_keys = list(
             self.wf_model.ParNums.keys() | additional_params.keys()
         )
@@ -72,7 +73,7 @@ class AGNLensedGWSignal(NewGWSignal):
     def GWPhase(self, evParams, f):
         raise NotImplementedError("Yeah, someone should work on this.")
 
-    def GWstrain(self, f, parameters, rot=0.0, return_single_comp=None):
+    def GWstrain(self, freqs, parameters, rot=0.0, return_single_comp=None):
         """
         Compute the full GW strain (complex) as a function of the parameters, at given frequencies.
 
@@ -84,108 +85,47 @@ class AGNLensedGWSignal(NewGWSignal):
         :rtype: array or float
 
         """
-        # Full GW strain expression (complex)
-        # Here we have the decompressed parameters and we put them back in a dictionary just to have an easier
-        # implementation of the JAX module for derivatives
+        model_parameters = self.convert_to_flexible_model_parameters(parameters)
 
-        omega = TWOPI * f * DAY_TO_SEC
-
-        model_params = get_model_parameters(parameters, self.strain_model_keys)
-        eval_params_1, eval_params_2 = get_agn_lensed_parameters(model_params)
-        # # Time delay and magnification
-        # # TODO: Check ordering of 1, 2.
-        # time_delay = get_lensing_time_delay(model_params)
-        # time_delay_phase_shift = np.exp(2j * np.pi * f * time_delay)
-        # mag_1, mag_2 = get_mag_factors(model_params)
-        # sqrt_mu_1 = np.sqrt(np.abs(mag_1))
-        # sqrt_mu_2 = np.sqrt(np.abs(mag_2))
-
-        # Not sure what does this do, but it was set to zero in both cases
-        # (with or without useEarthMotion)
-        phiD = np.zeros_like(model_params["Mc"])
-
-        # Moving on to combining the strain with the antenna patterns
-        is_lal = self.wf_model.is_LAL
-
-        # 22 mode waveforms
-        if not (self.need_HM or is_lal):
-            _, deltaT_1 = self.shifted_time(eval_params_1, f)
-            phiL1 = omega * deltaT_1
-            _, deltaT_2 = self.shifted_time(eval_params_2, f)
-            phiL2 = omega * deltaT_2
-            # Return with the simplest things
-            # A hacky way to access the old GWSignal Amplitude method
-            # One should just implement it in the NewSignal class
-            Ap1, Ac1 = super().GWAmplitudes(eval_params_1, f, rot=rot)
-            Psi1 = super().GWPhase(eval_params_1, f)
-            Psi1 += phiD + phiL1
-
-            Ap2, Ac2 = super().GWAmplitudes(eval_params_2, f, rot=rot)
-            Psi2 = super().GWPhase(eval_params_2, f)
-            Psi2 += phiD + phiL2
-
-            # TODO: Check whether h = hp - i hc.
-            hp1, hc1 = Ap1 * np.exp(Psi1 * 1j), 1j * Ac1 * np.exp(Psi1 * 1j)
-            hp2, hc2 = Ap2 * np.exp(Psi2 * 1j), 1j * Ac2 * np.exp(Psi2 * 1j)
-
-        else:
-            phase_shift_factor = np.exp(1j * (phiD + omega * model_params["tcoal"]))
-
-            hpc_12 = []
-            for params in (eval_params_1, eval_params_2):
-                iota = params["iota"]
-                psi = params["psi"]
-                phase = params["Phicoal"]
-                theta = params["theta"]
-                phi = params["phi"]
-
-                time, deltaT = self.shifted_time(params, f)
-                phiL = omega * deltaT
-
-                Fpc = self.detector.compute_antenna_pattern(theta, phi, time, psi, rot=rot)
-                hpc = self.wf_model.hphc(f, **params)
-                phase_factor = phase_shift_factor * np.exp(1j * (phiL - phase))
-                hp = hpc[0] * Fpc[0] * phase_factor
-                hc = hpc[1] * Fpc[1] * phase_factor
-
-                if is_lal:
-                    hp *= 0.5 * (1.0 + np.cos(iota) ** 2)
-                    hc *= np.cos(iota)
-
-                hpc_12.append((hp, hc))
-
-            ((hp1, hc1), (hp2, hc2)) = hpc_12
-
-        hp = hp1 + hp2
-        hc = hc1 + hc2
-        # hp = sqrt_mu_1 * hp1 + sqrt_mu_2 * time_delay_phase_shift * hp2
-        # hc = sqrt_mu_1 * hc1 + sqrt_mu_2 * time_delay_phase_shift * hc2
-
-        if return_single_comp is not None:
-            if return_single_comp == "Ap":
-                return np.abs(hp)
-            elif return_single_comp == "Ac":
-                return np.abs(hc)
-            elif return_single_comp == "Psip":
-                return np.unwrap(np.angle(hp), axis=0)
-            elif return_single_comp == "Psic":
-                return np.unwrap(np.angle(hc), axis=0)
-            elif return_single_comp == "At":
-                return np.abs(hp + hc)
-            elif return_single_comp == "Psit":
-                return np.unwrap(np.angle(hp + hc), axis=0)
-            elif return_single_comp == 'images':
-                # h1 = sqrt_mu_1 * (hp1 + hc1)
-                # h2 = sqrt_mu_2 * (hp2 + hc2) * time_delay_phase_shift
-                h1 = hp1 + hc1
-                h2 = hp2 + hc2
-                return h1, h2
-            else:
-                raise ValueError(
-                    "Single component to return has to be among Ap, Ac, Psip, Psic"
-                )
-        else:
-            return hp + hc
+        return super().GWstrain(
+            freqs, model_parameters, rot=rot, return_single_comp=return_single_comp)
 
     def _analytical_derivatives(self):
         raise NotImplementedError('Lensed waveforms have no well-defined analytical derivatives (yet)')
+
+    @classmethod
+    def convert_to_flexible_model_parameters(cls, agn_lensed_params):
+        """
+        Convert the AGN lensed parameters to parameters of the flexible model.
+
+        Parameters
+        ----------
+        agn_lensed_params : dict
+            Dictionary containing the AGN lensed parameters.
+        """
+        model_params = get_model_parameters(agn_lensed_params, cls.strain_model_keys)
+        params_1, params_2 = get_agn_lensed_parameters(model_params)
+
+        output_params = params_1.copy()
+        output_params.update({
+            'iota': params_1['iota'],
+            'delta_iota': params_2['iota'] - params_1['iota'],
+            'Phicoal': params_1['Phicoal'],
+            'delta_phase': params_2['Phicoal'] - params_1['Phicoal'],
+            'dL': params_1['dL'],
+            'relative_distance': params_2['dL'] / params_1['dL'],
+            'Mc': params_1['Mc'],
+            'relative_mass': params_2['Mc'] / params_1['Mc'],
+        })
+
+        tGPS = params_1.get('tGPS', None)
+        if tGPS is not None:
+            output_params['tGPS'] = tGPS
+            output_params['delta_time'] = params_2['tGPS'] - tGPS
+        else:
+            tcoal = params_2.get('tcoal', None)
+            delta_time = params_2['tcoal'] - tcoal
+            output_params['tGPS'] = tcoal * DAY_TO_SEC
+            output_params['delta_time'] = delta_time * DAY_TO_SEC
+
+        return output_params
