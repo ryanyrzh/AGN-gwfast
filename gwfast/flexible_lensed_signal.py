@@ -15,19 +15,8 @@ config.update("jax_enable_x64", True)
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform"
 
-import copy
-
 from gwfast.gwfastGlobals import TWOPI, DAY_TO_SEC
-from gwfast.gwfastUtils import (
-    noise_weighted_inner_product,
-    optimal_snr,
-    get_model_parameters,
-)
-from gwfast.lensing_utils import (
-    get_lensed_parameter_sets,
-    get_lensing_time_delay,
-    get_mag_factors,
-)
+from gwfast.gwfastUtils import get_model_parameters
 from gwfast.new_signal import NewGWSignal
 
 
