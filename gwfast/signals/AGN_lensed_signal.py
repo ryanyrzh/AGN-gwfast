@@ -18,7 +18,7 @@ os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform"
 from gwfast.gwfastGlobals import DAY_TO_SEC
 from gwfast.gwfastUtils import get_model_parameters
 from gwfast.lensing_utils_alt import get_agn_lensed_parameters
-from gwfast.flexible_lensed_signal import FlexibleLensedGWSignal
+from gwfast.signals.flexible_lensed_signal import FlexibleLensedGWSignal
 
 
 class AGNLensedGWSignal(FlexibleLensedGWSignal):

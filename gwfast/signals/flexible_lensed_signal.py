@@ -17,7 +17,7 @@ os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform"
 
 from gwfast.gwfastGlobals import TWOPI, DAY_TO_SEC
 from gwfast.gwfastUtils import get_model_parameters
-from gwfast.new_signal import BasicGWSignal
+from gwfast.signals.new_signal import BasicGWSignal
 
 
 class FlexibleLensedGWSignal(BasicGWSignal):
