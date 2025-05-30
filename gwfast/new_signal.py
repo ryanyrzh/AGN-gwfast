@@ -149,7 +149,7 @@ class BasicGWSignal(object):
             "chi2x": 0.05, "chi2y": -0.01, "chi2z": -0.68859213,
             "chis": 0.2018924, "chia": -0.68859213,
             "dL": 22.68426174, "psi": 3.11843169,
-            "iota": 4.48411048, "Phicoal": 3.28297867,
+            "iota": 4.48411048, "phase": 3.28297867,
             "theta": 3.00702251, "phi": 0.90252645,
             "Lambda1": 300.0, "Lambda2": 300.0,
             "tcoal": 0.0, "ecc": 0.0,
@@ -245,7 +245,7 @@ class BasicGWSignal(object):
         """
         # evParams are all the parameters characterizing the event(s) under exam. It has to be a dictionary containing the entries:
         # Mc -> chirp mass (Msun), dL -> luminosity distance (Gpc), theta & phi -> sky position (rad), iota -> inclination angle of orbital angular momentum to l.o.s toward the detector,
-        # psi -> polarisation angle, tcoal -> time of coalescence as GMST (fraction of days), eta -> symmetric mass ratio, Phicoal -> GW frequency at coalescence.
+        # psi -> polarisation angle, tcoal -> time of coalescence as GMST (fraction of days), eta -> symmetric mass ratio, phase -> GW frequency at coalescence.
         # chi1z, chi2z -> dimensionless spin components aligned to orbital angular momentum [-1;1], Lambda1,2 -> tidal parameters of the objects,
         # f is the frequency (Hz)
 
@@ -281,10 +281,10 @@ class BasicGWSignal(object):
 
         """
         # Phase of the GW signal
-        tcoal, Phicoal = parameters["tcoal"], parameters["Phicoal"]
+        tcoal, phase = parameters["tcoal"], parameters["phase"]
         PhiGw = self.wf_model.Phi(freqs, **parameters)
 
-        return TWOPI * freqs * (tcoal * DAY_TO_SEC) - Phicoal - PhiGw
+        return TWOPI * freqs * (tcoal * DAY_TO_SEC) - phase - PhiGw
 
     def GWstrain(self, freqs, parameters, rot=0.0, return_single_comp=None):
         """
@@ -511,7 +511,7 @@ class BasicGWSignal(object):
         :param bool, optional use_chi1chi2: Boolean specifying if, in the non-precessing case, the FIM has to be computed with respect to the individual spins ``chi1z`` and ``chi2z`` rather than ``chiS`` and ``chiA``.
         :param bool, optional use_prec_ang: Boolean specifying if, in the precessing case, the FIM has to be computed with respect to the spin angular variables rather than the spin cartesian components.
         :param bool, optional computeDerivFinDiff: Boolean specifying if the derivatives have to be computed using numerical differentiation (finite differences) through the `numdifftools <https://github.com/pbrod/numdifftools>`_ package.
-        :param bool, optional computeAnalyticalDeriv: Boolean specifying if the derivatives with respect to ``dL``, ``theta``, ``phi``, ``psi``, ``tcoal``, ``Phicoal`` and ``iota`` (the latter only for the fundamental mode in the non-precessing case) have to be computed analytically. This considerably speeds up the calculation and provides better accuracy.
+        :param bool, optional computeAnalyticalDeriv: Boolean specifying if the derivatives with respect to ``dL``, ``theta``, ``phi``, ``psi``, ``tcoal``, ``phase`` and ``iota`` (the latter only for the fundamental mode in the non-precessing case) have to be computed analytically. This considerably speeds up the calculation and provides better accuracy.
         :param bool, optional return_all: Boolean specifying if, in the case of a triangular detector, the FIMs of the individual instruments have to be returned separately. In this case the return type is *list(array, array, array)*.
         :param kwargs: Optional arguments to be passed to :py:class:`gwfast.signal.GWSignal._SignalDerivatives`, such as ``methodNDT``.
         :return: FIM(s) as a function of the parameters of the event(s). The shape is :math:`(N_{\\rm parameters}`, :math:`N_{\\rm parameters}`, :math:`N_{\\rm events})`.
@@ -773,11 +773,11 @@ class BasicGWSignal(object):
 
     def _analytical_derivatives(self, freqs, parameters, rot=0.0):
         """
-        Compute analytical derivatives with respect to ``dL``, ``theta``, ``phi``, ``psi``, ``tcoal``, ``Phicoal`` and ``iota`` (the latter only for the fundamental mode in the non-precessing case).
+        Compute analytical derivatives with respect to ``dL``, ``theta``, ``phi``, ``psi``, ``tcoal``, ``phase`` and ``iota`` (the latter only for the fundamental mode in the non-precessing case).
 
         :param array or float freqs: The frequency(ies) at which to perform the calculation, in :math:`\\rm Hz`.
         :param float rot: Further rotation of the interferometer with respect to the :py:data:`self.xax` orientation, in degrees, needed for the triangular geometry.
-        :return: Analytical derivatives with respect to ``dL``, ``theta``, ``phi``, ``iota``, ``psi``, ``tcoal`` and ``Phicoal``. If the :py:class:`self.wf_model` is precessing or includes higher order modes the derivative with respect to ``iota`` will be ``None``
+        :return: Analytical derivatives with respect to ``dL``, ``theta``, ``phi``, ``iota``, ``psi``, ``tcoal`` and ``phase``. If the :py:class:`self.wf_model` is precessing or includes higher order modes the derivative with respect to ``iota`` will be ``None``
         :rtype: tuple(array, array, array, array, array, array, array)
 
         """
@@ -790,7 +790,7 @@ class BasicGWSignal(object):
         phi = parameters.get("phi", None)
         psi = parameters.get("psi", None)
         tcoal = parameters.get("tcoal", None)
-        Phicoal = parameters.get("Phicoal", None)
+        phase = parameters.get("phase", None)
         dL = parameters.get("dL", None)
 
         if (not self.wf_model.is_HigherModes) and (not self.wf_model.is_Precessing):
@@ -813,7 +813,7 @@ class BasicGWSignal(object):
         ras, decs = ra_dec_from_th_phi_rad(theta, phi)
         Fpc = self.detector.compute_antenna_pattern(theta, phi, t, psi, rot)
 
-        phase = 1j * (omega * tcoal - Phicoal + phiD + phiL)
+        phase = 1j * (omega * tcoal - phase + phiD + phiL)
         _hp = wfhp * np.exp(phase)
         _hc = wfhc * np.exp(phase)
 
@@ -904,5 +904,5 @@ class BasicGWSignal(object):
             "iota": iota_par_deriv(),
             "psi": psi_par_deriv(),
             "tcoal": tcoal_par_deriv(),
-            "Phicoal": -1j * (hp + hc),
+            "phase": -1j * (hp + hc),
         }

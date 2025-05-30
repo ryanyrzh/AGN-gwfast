@@ -109,8 +109,8 @@ class AGNLensedGWSignal(FlexibleLensedGWSignal):
         output_params.update({
             'iota': params_1['iota'],
             'delta_iota': params_2['iota'] - params_1['iota'],
-            'Phicoal': params_1['Phicoal'],
-            'delta_phase': params_2['Phicoal'] - params_1['Phicoal'],
+            'phase': params_1['phase'],
+            'delta_phase': params_2['phase'] - params_1['phase'],
             'dL': params_1['dL'],
             'relative_distance': params_2['dL'] / params_1['dL'],
             'Mc': params_1['Mc'],

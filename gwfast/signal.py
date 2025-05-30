@@ -200,7 +200,7 @@ class GWSignal(object):
 
         inj_params_init = {
             "Mc": np.array([77.23905294]),
-            "Phicoal": np.array([3.28297867]),
+            "phase": np.array([3.28297867]),
             "chi1z": np.array([0.2018924]),
             "chi2z": np.array([-0.68859213]),
             "chis": np.array([0.2018924]),
@@ -436,7 +436,7 @@ class GWSignal(object):
         """
         # evParams are all the parameters characterizing the event(s) under exam. It has to be a dictionary containing the entries:
         # Mc -> chirp mass (Msun), dL -> luminosity distance (Gpc), theta & phi -> sky position (rad), iota -> inclination angle of orbital angular momentum to l.o.s toward the detector,
-        # psi -> polarisation angle, tcoal -> time of coalescence as GMST (fraction of days), eta -> symmetric mass ratio, Phicoal -> GW frequency at coalescence.
+        # psi -> polarisation angle, tcoal -> time of coalescence as GMST (fraction of days), eta -> symmetric mass ratio, phase -> GW frequency at coalescence.
         # chi1z, chi2z -> dimensionless spin components aligned to orbital angular momentum [-1;1], Lambda1,2 -> tidal parameters of the objects,
         # f is the frequency (Hz)
 
@@ -474,10 +474,10 @@ class GWSignal(object):
 
         """
         # Phase of the GW signal
-        tcoal, Phicoal = evParams["tcoal"], evParams["Phicoal"]
+        tcoal, phase = evParams["tcoal"], evParams["phase"]
         PhiGw = self.wf_model.Phi(f, **evParams)
 
-        return TWOPI * f * (tcoal * DAY_TO_SEC) - Phicoal - PhiGw
+        return TWOPI * f * (tcoal * DAY_TO_SEC) - phase - PhiGw
 
     def GWstrain(
         self,
@@ -490,7 +490,7 @@ class GWSignal(object):
         iota,
         psi,
         tcoal,
-        Phicoal,
+        phase,
         chiS,
         chiA,
         chi1x,
@@ -522,7 +522,7 @@ class GWSignal(object):
         :param array or float iota: The inclination angle(s), with respect to orbital angular momentum, :math:`\iota`, in :math:`\\rm rad`. If ``is_prec_ang=True`` this is interpreted as the inclination angle(s) with respect to total angular momentum, :math:`\\theta_{JN}`, in :math:`\\rm rad`.
         :param array or float psi: The polarisation angle(s), :math:`\psi`, in :math:`\\rm rad`.
         :param array or float tcoal: The time(s) of coalescence, :math:`t_{\\rm coal}`, as a GMST.
-        :param array or float Phicoal: The phase(s) at coalescence, :math:`\Phi_{\\rm coal}`, in :math:`\\rm rad`.
+        :param array or float phase: The phase(s) at coalescence, :math:`\Phi_{\\rm coal}`, in :math:`\\rm rad`.
         :param array or float chiS: The symmetric spin component(s), :math:`\chi_s`. If :py:class:`self.wf_model` is precessing or ``is_chi1chi2=True`` this is interpreted as the spin component(s) of the primary object(s) along the axis :math:`z`, :math:`\chi_{1,z}`. If ``is_prec_ang=True`` this is interpreted as the spin magnitude(s) of the primary object(s), :math:`\chi_1`.
         :param array or float chiA: The antisymmetric spin component(s) :math:`\chi_a`. If :py:class:`self.wf_model` is precessing or ``is_chi1chi2=True`` this is interpreted as the spin component(s) of the secondary object(s) along the axis :math:`z`, :math:`\chi_{2,z}`. If ``is_prec_ang=True`` this is interpreted as the spin magnitude(s) of the secondary object(s), :math:`\chi_2`.
         :param array or float chi1x: The spin component(s) of the primary object(s) along the axis :math:`x`, :math:`\chi_{1,x}`. If ``is_prec_ang=True`` this is interpreted as the spin tilt angle(s) of the primary object(s), :math:`\\theta_{s,1}`, in :math:`\\rm rad`.
@@ -596,7 +596,7 @@ class GWSignal(object):
             "Mc": McUse,
             "eta": etaUse,
             "iota": iota,
-            "Phicoal": Phicoal,
+            "phase": phase,
             "chi1x": chi1xUse,
             "chi1y": chi1yUse,
             "chi1z": chi1z,
@@ -708,8 +708,8 @@ class GWSignal(object):
             Fp, Fc = self.detector.compute_antenna_pattern(theta, phi, t, psi, rot=rot)
             hp, hc = self.wf_model.hphc(f, **evParams)
 
-            hp *= Fp * phase_shift_factor * np.exp(1j * (phiL - Phicoal))
-            hc *= Fc * phase_shift_factor * np.exp(1j * (phiL - Phicoal))
+            hp *= Fp * phase_shift_factor * np.exp(1j * (phiL - phase))
+            hc *= Fc * phase_shift_factor * np.exp(1j * (phiL - phase))
 
             if is_lal:
                 hp *= 0.5 * (1.0 + np.cos(iota) ** 2)
@@ -718,13 +718,13 @@ class GWSignal(object):
         else:
             iota1 = evParams1["iota"]
             psi1 = evParams1["psi"]
-            Phicoal1 = evParams1["Phicoal"]
+            phase1 = evParams1["phase"]
             Fp1, Fc1 = self.detector.compute_antenna_pattern(
                 theta, phi, t1, psi1, rot=rot
             )
             hp1, hc1 = self.wf_model.hphc(f, **evParams1)
-            hp1 = hp1 * Fp1 * phase_shift_factor * np.exp(1j * (phiL1 - Phicoal1))
-            hc1 = hc1 * Fc1 * phase_shift_factor * np.exp(1j * (phiL1 - Phicoal1))
+            hp1 = hp1 * Fp1 * phase_shift_factor * np.exp(1j * (phiL1 - phase1))
+            hc1 = hc1 * Fc1 * phase_shift_factor * np.exp(1j * (phiL1 - phase1))
 
             if is_lal:
                 hp1 *= 0.5 * (1.0 + np.cos(iota1) ** 2)
@@ -732,13 +732,13 @@ class GWSignal(object):
 
             iota2 = evParams2["iota"]
             psi2 = evParams2["psi"]
-            Phicoal2 = evParams2["Phicoal"]
+            phase2 = evParams2["phase"]
             Fp2, Fc2 = self.detector.compute_antenna_pattern(
                 theta, phi, t2, psi2, rot=rot
             )
             hp2, hc2 = self.wf_model.hphc(f, **evParams2)
-            hp2 = hp2 * Fp2 * phase_shift_factor * np.exp(1j * (phiL2 - Phicoal2))
-            hc2 = hc2 * Fc2 * phase_shift_factor * np.exp(1j * (phiL2 - Phicoal2))
+            hp2 = hp2 * Fp2 * phase_shift_factor * np.exp(1j * (phiL2 - phase2))
+            hc2 = hc2 * Fc2 * phase_shift_factor * np.exp(1j * (phiL2 - phase2))
 
             if is_lal:
                 hp2 *= 0.5 * (1.0 + np.cos(iota2) ** 2)
@@ -896,7 +896,7 @@ class GWSignal(object):
                     evParams1["iota"],
                     evParams1["psi"],
                     evParams1["tcoal"],
-                    evParams1["Phicoal"],
+                    evParams1["phase"],
                     evParams1["chi1z"],
                     evParams1["chi2z"],
                     evParams1["chi1x"],
@@ -926,7 +926,7 @@ class GWSignal(object):
                     evParams2["iota"],
                     evParams2["psi"],
                     evParams2["tcoal"],
-                    evParams2["Phicoal"],
+                    evParams2["phase"],
                     evParams2["chi1z"],
                     evParams2["chi2z"],
                     evParams2["chi1x"],
@@ -971,7 +971,7 @@ class GWSignal(object):
                             evParams1["iota"],
                             evParams1["psi"],
                             evParams1["tcoal"],
-                            evParams1["Phicoal"],
+                            evParams1["phase"],
                             evParams1["chi1z"],
                             evParams1["chi2z"],
                             evParams1["chi1x"],
@@ -1001,7 +1001,7 @@ class GWSignal(object):
                             evParams2["iota"],
                             evParams2["psi"],
                             evParams2["tcoal"],
-                            evParams2["Phicoal"],
+                            evParams2["phase"],
                             evParams2["chi1z"],
                             evParams2["chi2z"],
                             evParams2["chi1x"],
@@ -1052,7 +1052,7 @@ class GWSignal(object):
                         evParams1["iota"],
                         evParams1["psi"],
                         evParams1["tcoal"],
-                        evParams1["Phicoal"],
+                        evParams1["phase"],
                         evParams1["chi1z"],
                         evParams1["chi2z"],
                         evParams1["chi1x"],
@@ -1082,7 +1082,7 @@ class GWSignal(object):
                         evParams2["iota"],
                         evParams2["psi"],
                         evParams2["tcoal"],
-                        evParams2["Phicoal"],
+                        evParams2["phase"],
                         evParams2["chi1z"],
                         evParams2["chi2z"],
                         evParams2["chi1x"],
@@ -1113,7 +1113,7 @@ class GWSignal(object):
                         evParams1["iota"],
                         evParams1["psi"],
                         evParams1["tcoal"],
-                        evParams1["Phicoal"],
+                        evParams1["phase"],
                         evParams1["chi1z"],
                         evParams1["chi2z"],
                         evParams1["chi1x"],
@@ -1143,7 +1143,7 @@ class GWSignal(object):
                         evParams2["iota"],
                         evParams2["psi"],
                         evParams2["tcoal"],
-                        evParams2["Phicoal"],
+                        evParams2["phase"],
                         evParams2["chi1z"],
                         evParams2["chi2z"],
                         evParams2["chi1x"],
@@ -1228,7 +1228,7 @@ class GWSignal(object):
         :param bool, optional use_chi1chi2: Boolean specifying if, in the non-precessing case, the FIM has to be computed with respect to the individual spins ``chi1z`` and ``chi2z`` rather than ``chiS`` and ``chiA``.
         :param bool, optional use_prec_ang: Boolean specifying if, in the precessing case, the FIM has to be computed with respect to the spin angular variables rather than the spin cartesian components.
         :param bool, optional computeDerivFinDiff: Boolean specifying if the derivatives have to be computed using numerical differentiation (finite differences) through the `numdifftools <https://github.com/pbrod/numdifftools>`_ package.
-        :param bool, optional computeAnalyticalDeriv: Boolean specifying if the derivatives with respect to ``dL``, ``theta``, ``phi``, ``psi``, ``tcoal``, ``Phicoal`` and ``iota`` (the latter only for the fundamental mode in the non-precessing case) have to be computed analytically. This considerably speeds up the calculation and provides better accuracy.
+        :param bool, optional computeAnalyticalDeriv: Boolean specifying if the derivatives with respect to ``dL``, ``theta``, ``phi``, ``psi``, ``tcoal``, ``phase`` and ``iota`` (the latter only for the fundamental mode in the non-precessing case) have to be computed analytically. This considerably speeds up the calculation and provides better accuracy.
         :param bool, optional return_all: Boolean specifying if, in the case of a triangular detector, the FIMs of the individual instruments have to be returned separately. In this case the return type is *list(array, array, array)*.
         :param kwargs: Optional arguments to be passed to :py:class:`gwfast.signal.GWSignal._SignalDerivatives`, such as ``methodNDT``.
         :return: FIM(s) as a function of the parameters of the event(s). The shape is :math:`(N_{\\rm parameters}`, :math:`N_{\\rm parameters}`, :math:`N_{\\rm events})`.
@@ -1249,12 +1249,12 @@ class GWSignal(object):
             evParams["theta"].astype("complex128"),
             evParams["phi"].astype("complex128"),
         )
-        iota, psi, tcoal, etaOr, Phicoal = (
+        iota, psi, tcoal, etaOr, phase = (
             evParams["iota"].astype("complex128"),
             evParams["psi"].astype("complex128"),
             evParams["tcoal"].astype("complex128"),
             evParams["eta"].astype("complex128"),
-            evParams["Phicoal"].astype("complex128"),
+            evParams["phase"].astype("complex128"),
         )
 
         ZEROS = np.zeros_like(McOr)
@@ -1448,7 +1448,7 @@ class GWSignal(object):
                 iota,
                 psi,
                 tcoal,
-                Phicoal,
+                phase,
                 chiS,
                 chiA,
                 chi1x,
@@ -1508,7 +1508,7 @@ class GWSignal(object):
                         iota,
                         psi,
                         tcoal,
-                        Phicoal,
+                        phase,
                         chiS,
                         chiA,
                         chi1x,
@@ -1575,7 +1575,7 @@ class GWSignal(object):
                     iota,
                     psi,
                     tcoal,
-                    Phicoal,
+                    phase,
                     chiS,
                     chiA,
                     chi1x,
@@ -1639,7 +1639,7 @@ class GWSignal(object):
                     iota,
                     psi,
                     tcoal,
-                    Phicoal,
+                    phase,
                     chiS,
                     chiA,
                     chi1x,
@@ -1739,7 +1739,7 @@ class GWSignal(object):
         iota,
         psi,
         tcoal,
-        Phicoal,
+        phase,
         chiS,
         chiA,
         chi1x,
@@ -1775,7 +1775,7 @@ class GWSignal(object):
         :param array or float iota: The inclination angle(s), with respect to orbital angular momentum, :math:`\iota`, in :math:`\\rm rad`. If ``is_prec_ang=True`` this is interpreted as the inclination angle(s) with respect to total angular momentum, :math:`\\theta_{JN}`, in :math:`\\rm rad`.
         :param array or float psi: The polarisation angle(s), :math:`\psi`, in :math:`\\rm rad`.
         :param array or float tcoal: The time(s) of coalescence, :math:`t_{\\rm coal}`, as a GMST.
-        :param array or float Phicoal: The phase(s) at coalescence, :math:`\Phi_{\\rm coal}`, in :math:`\\rm rad`.
+        :param array or float phase: The phase(s) at coalescence, :math:`\Phi_{\\rm coal}`, in :math:`\\rm rad`.
         :param array or float chiS: The symmetric spin component(s), :math:`\chi_s`. If :py:class:`self.wf_model` is precessing or ``use_chi1chi2=True`` this is interpreted as the spin component(s) of the primary object(s) along the axis :math:`z`, :math:`\chi_{1,z}`. If ``use_prec_ang=True`` this is interpreted as the spin magnitude(s) of the primary object(s), :math:`\chi_1`.
         :param array or float chiA: The antisymmetric spin component(s) :math:`\chi_a`. If :py:class:`self.wf_model` is precessing or ``use_chi1chi2=True`` this is interpreted as the spin component(s) of the secondary object(s) along the axis :math:`z`, :math:`\chi_{2,z}`. If ``use_prec_ang=True`` this is interpreted as the spin magnitude(s) of the secondary object(s), :math:`\chi_2`.
         :param array or float chi1x: The spin component(s) of the primary object(s) along the axis :math:`x`, :math:`\chi_{1,x}`. If ``use_prec_ang=True`` this is interpreted as the spin tilt angle(s) of the primary object(s), :math:`\\theta_{s,1}`, in :math:`\\rm rad`.
@@ -1790,7 +1790,7 @@ class GWSignal(object):
         :param bool, optional use_chi1chi2: Boolean specifying if the ``chiS`` and ``chiA`` inputs should be interpreted as the primary and secondary spin components along the axis :math:`z`. In this case the derivatives are then taken with respect to ``chi1z`` and ``chi2z``.
         :param bool, optional use_prec_ang: Boolean specifying if the ``iota`` input should be interpreted as the inclination angle with respect to total angular momentum, ``chiS`` and ``chiA`` as the primary and secondary spin magnitudes, ``chi1x`` and ``chi2x`` as the primary and secondary spin tilts, ``chi1y`` as the azimuthal angle of orbital angular momentum relative to total angular momentum and ``chi2y`` as the difference in azimuthal angle between spin vectors. In this case the derivatives are then taken with respect to ``thetaJN``, ``chi1``, ``chi2``, ``tilt1``, ``tilt2``, ``phiJL`` and ``phi12``.
         :param bool, optional computeDerivFinDiff: Boolean specifying if the derivatives have to be computed using numerical differentiation (finite differences) through the `numdifftools <https://github.com/pbrod/numdifftools>`_ package.
-        :param bool, optional computeAnalyticalDeriv: Boolean specifying if the derivatives with respect to ``dL``, ``theta``, ``phi``, ``psi``, ``tcoal``, ``Phicoal`` and ``iota`` (the latter only for the fundamental mode in the non-precessing case) have to be computed analytically. This considerably speeds up the calculation and provides better accuracy.
+        :param bool, optional computeAnalyticalDeriv: Boolean specifying if the derivatives with respect to ``dL``, ``theta``, ``phi``, ``psi``, ``tcoal``, ``phase`` and ``iota`` (the latter only for the fundamental mode in the non-precessing case) have to be computed analytically. This considerably speeds up the calculation and provides better accuracy.
         :param stepNDT: The step size to use in the computation with numerical differentiation (finite differences).
         :type stepNDT: float or numdifftools.step_generators.MaxStepGenerator
         :param str methodNDT: The method to use in the computation with numerical differentiation (finite differences). This can be ``'central'``, ``'complex'``, ``'multicomplex'``, ``'forward'`` or ``'backward'``.
@@ -1801,7 +1801,7 @@ class GWSignal(object):
         # `numdifftools.step_generators <https://numdifftools.readthedocs.io/en/latest/reference/numdifftools.html#module-numdifftools.step_generators>`_
         if self.verbose:
             print("Computing derivatives...")
-        # Function to compute the derivatives of a GW signal, both with JAX (automatic differentiation) and NumDiffTools (finite differences). It offers the possibility to compute directly the derivative of the complex signal. It is also possible to compute analytically the derivatives w.r.t. dL, theta, phi, psi, tcoal and Phicoal, and also iota in absence of HM or precessing spins.
+        # Function to compute the derivatives of a GW signal, both with JAX (automatic differentiation) and NumDiffTools (finite differences). It offers the possibility to compute directly the derivative of the complex signal. It is also possible to compute analytically the derivatives w.r.t. dL, theta, phi, psi, tcoal and phase, and also iota in absence of HM or precessing spins.
 
         if self.wf_model.is_newtonian:
             if self.verbose:
@@ -1849,7 +1849,7 @@ class GWSignal(object):
 
         if not computeDerivFinDiff:
             if self.wf_model.is_holomorphic:
-                GWstrainUse = lambda f, Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, ecc, R_orbit, M_lz, src_pos: self.GWstrain(
+                GWstrainUse = lambda f, Mc, eta, dL, theta, phi, iota, psi, tcoal, phase, chiS, chiA, chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, ecc, R_orbit, M_lz, src_pos: self.GWstrain(
                     f,
                     Mc,
                     eta,
@@ -1859,7 +1859,7 @@ class GWSignal(object):
                     iota,
                     psi,
                     tcoal,
-                    Phicoal,
+                    phase,
                     chiS,
                     chiA,
                     chi1x,
@@ -1890,7 +1890,7 @@ class GWSignal(object):
                         iota,
                         psi,
                         tcoal,
-                        Phicoal,
+                        phase,
                         chiS,
                         chiA,
                         chi1x,
@@ -1917,7 +1917,7 @@ class GWSignal(object):
                     iota,
                     psi,
                     tcoal,
-                    Phicoal,
+                    phase,
                     chiS,
                     chiA,
                     chi1x,
@@ -1940,7 +1940,7 @@ class GWSignal(object):
                     np.real(iota),
                     np.real(psi),
                     np.real(tcoal),
-                    np.real(Phicoal),
+                    np.real(phase),
                     np.real(chiS),
                     np.real(chiA),
                     np.real(chi1x),
@@ -1955,7 +1955,7 @@ class GWSignal(object):
                     np.real(src_pos),
                 )
 
-                GWstrainUse_real = lambda f, Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, ecc, R_orbit, M_lz, src_pos: np.real(
+                GWstrainUse_real = lambda f, Mc, eta, dL, theta, phi, iota, psi, tcoal, phase, chiS, chiA, chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, ecc, R_orbit, M_lz, src_pos: np.real(
                     self.GWstrain(
                         f,
                         Mc,
@@ -1966,7 +1966,7 @@ class GWSignal(object):
                         iota,
                         psi,
                         tcoal,
-                        Phicoal,
+                        phase,
                         chiS,
                         chiA,
                         chi1x,
@@ -1986,7 +1986,7 @@ class GWSignal(object):
                         use_lensing=use_lensing,
                     )
                 )
-                GWstrainUse_imag = lambda f, Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA, chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, ecc, R_orbit, M_lz, src_pos: np.imag(
+                GWstrainUse_imag = lambda f, Mc, eta, dL, theta, phi, iota, psi, tcoal, phase, chiS, chiA, chi1x, chi2x, chi1y, chi2y, LambdaTilde, deltaLambda, ecc, R_orbit, M_lz, src_pos: np.imag(
                     self.GWstrain(
                         f,
                         Mc,
@@ -1997,7 +1997,7 @@ class GWSignal(object):
                         iota,
                         psi,
                         tcoal,
-                        Phicoal,
+                        phase,
                         chiS,
                         chiA,
                         chi1x,
@@ -2029,7 +2029,7 @@ class GWSignal(object):
                         iota,
                         psi,
                         tcoal,
-                        Phicoal,
+                        phase,
                         chiS,
                         chiA,
                         chi1x,
@@ -2055,7 +2055,7 @@ class GWSignal(object):
                         iota,
                         psi,
                         tcoal,
-                        Phicoal,
+                        phase,
                         chiS,
                         chiA,
                         chi1x,
@@ -2086,7 +2086,7 @@ class GWSignal(object):
                         iota,
                         psi,
                         tcoal,
-                        Phicoal,
+                        phase,
                         chiS,
                         chiA,
                         chi1x,
@@ -2128,7 +2128,7 @@ class GWSignal(object):
                         is_m1m2=use_m1m2,
                         is_chi1chi2=use_chi1chi2,
                     )
-                    evpars = [Mc, dL, theta, phi, iota, psi, tcoal, Phicoal]
+                    evpars = [Mc, dL, theta, phi, iota, psi, tcoal, phase]
             elif self.wf_model.is_tidal:
                 if self.wf_model.is_Precessing:
                     if not self.wf_model.is_eccentric:
@@ -2154,7 +2154,7 @@ class GWSignal(object):
                                     iota,
                                     psi,
                                     tcoal,
-                                    Phicoal,
+                                    phase,
                                     chiS,
                                     chiA,
                                     chi1x,
@@ -2175,7 +2175,7 @@ class GWSignal(object):
                                     pars[2],
                                     psi,
                                     tcoal,
-                                    Phicoal,
+                                    phase,
                                     *pars[3:11],
                                     ecc,
                                     R_orbit,
@@ -2221,7 +2221,7 @@ class GWSignal(object):
                                     iota,
                                     psi,
                                     tcoal,
-                                    Phicoal,
+                                    phase,
                                     chiS,
                                     chiA,
                                     chi1x,
@@ -2243,7 +2243,7 @@ class GWSignal(object):
                                     pars[2],
                                     psi,
                                     tcoal,
-                                    Phicoal,
+                                    phase,
                                     *pars[3:11],
                                     ecc,
                                     pars[11],
@@ -2290,7 +2290,7 @@ class GWSignal(object):
                                     iota,
                                     psi,
                                     tcoal,
-                                    Phicoal,
+                                    phase,
                                     chiS,
                                     chiA,
                                     chi1x,
@@ -2312,7 +2312,7 @@ class GWSignal(object):
                                     pars[2],
                                     psi,
                                     tcoal,
-                                    Phicoal,
+                                    phase,
                                     *pars[3:12],
                                     R_orbit,
                                     rot=rot,
@@ -2355,7 +2355,7 @@ class GWSignal(object):
                                     iota,
                                     psi,
                                     tcoal,
-                                    Phicoal,
+                                    phase,
                                     chiS,
                                     chiA,
                                     chi1x,
@@ -2378,7 +2378,7 @@ class GWSignal(object):
                                     pars[2],
                                     psi,
                                     tcoal,
-                                    Phicoal,
+                                    phase,
                                     *pars[3:14],
                                     rot=rot,
                                     is_m1m2=use_m1m2,
@@ -2430,7 +2430,7 @@ class GWSignal(object):
                                     iota,
                                     psi,
                                     tcoal,
-                                    Phicoal,
+                                    phase,
                                     chiS,
                                     chiA,
                                     LambdaTilde,
@@ -2448,7 +2448,7 @@ class GWSignal(object):
                                         iota,
                                         psi,
                                         tcoal,
-                                        Phicoal,
+                                        phase,
                                         pars[2],
                                         pars[3],
                                         chi1x,
@@ -2483,7 +2483,7 @@ class GWSignal(object):
                                         pars[2],
                                         psi,
                                         tcoal,
-                                        Phicoal,
+                                        phase,
                                         pars[3],
                                         pars[4],
                                         chi1x,
@@ -2537,7 +2537,7 @@ class GWSignal(object):
                                     iota,
                                     psi,
                                     tcoal,
-                                    Phicoal,
+                                    phase,
                                     chiS,
                                     chiA,
                                     LambdaTilde,
@@ -2556,7 +2556,7 @@ class GWSignal(object):
                                         iota,
                                         psi,
                                         tcoal,
-                                        Phicoal,
+                                        phase,
                                         pars[2],
                                         pars[3],
                                         chi1x,
@@ -2593,7 +2593,7 @@ class GWSignal(object):
                                         pars[2],
                                         psi,
                                         tcoal,
-                                        Phicoal,
+                                        phase,
                                         pars[3],
                                         pars[4],
                                         chi1x,
@@ -2648,7 +2648,7 @@ class GWSignal(object):
                                     iota,
                                     psi,
                                     tcoal,
-                                    Phicoal,
+                                    phase,
                                     chiS,
                                     chiA,
                                     LambdaTilde,
@@ -2667,7 +2667,7 @@ class GWSignal(object):
                                         iota,
                                         psi,
                                         tcoal,
-                                        Phicoal,
+                                        phase,
                                         pars[2],
                                         pars[3],
                                         chi1x,
@@ -2703,7 +2703,7 @@ class GWSignal(object):
                                         pars[2],
                                         psi,
                                         tcoal,
-                                        Phicoal,
+                                        phase,
                                         pars[3],
                                         pars[4],
                                         chi1x,
@@ -2753,7 +2753,7 @@ class GWSignal(object):
                                     iota,
                                     psi,
                                     tcoal,
-                                    Phicoal,
+                                    phase,
                                     chiS,
                                     chiA,
                                     LambdaTilde,
@@ -2773,7 +2773,7 @@ class GWSignal(object):
                                         iota,
                                         psi,
                                         tcoal,
-                                        Phicoal,
+                                        phase,
                                         pars[2],
                                         pars[3],
                                         chi1x,
@@ -2807,7 +2807,7 @@ class GWSignal(object):
                                         pars[2],
                                         psi,
                                         tcoal,
-                                        Phicoal,
+                                        phase,
                                         pars[3],
                                         pars[4],
                                         chi1x,
@@ -2861,7 +2861,7 @@ class GWSignal(object):
                                     iota,
                                     psi,
                                     tcoal,
-                                    Phicoal,
+                                    phase,
                                     chiS,
                                     chiA,
                                     chi1x,
@@ -2880,7 +2880,7 @@ class GWSignal(object):
                                     pars[2],
                                     psi,
                                     tcoal,
-                                    Phicoal,
+                                    phase,
                                     *pars[3:9],
                                     LambdaTilde,
                                     deltaLambda,
@@ -2928,7 +2928,7 @@ class GWSignal(object):
                                     iota,
                                     psi,
                                     tcoal,
-                                    Phicoal,
+                                    phase,
                                     chiS,
                                     chiA,
                                     chi1x,
@@ -2948,7 +2948,7 @@ class GWSignal(object):
                                     pars[2],
                                     psi,
                                     tcoal,
-                                    Phicoal,
+                                    phase,
                                     *pars[3:9],
                                     LambdaTilde,
                                     deltaLambda,
@@ -2998,7 +2998,7 @@ class GWSignal(object):
                                     iota,
                                     psi,
                                     tcoal,
-                                    Phicoal,
+                                    phase,
                                     chiS,
                                     chiA,
                                     chi1x,
@@ -3018,7 +3018,7 @@ class GWSignal(object):
                                     pars[2],
                                     psi,
                                     tcoal,
-                                    Phicoal,
+                                    phase,
                                     *pars[3:9],
                                     LambdaTilde,
                                     deltaLambda,
@@ -3067,7 +3067,7 @@ class GWSignal(object):
                                     iota,
                                     psi,
                                     tcoal,
-                                    Phicoal,
+                                    phase,
                                     chiS,
                                     chiA,
                                     chi1x,
@@ -3088,7 +3088,7 @@ class GWSignal(object):
                                     pars[2],
                                     psi,
                                     tcoal,
-                                    Phicoal,
+                                    phase,
                                     *pars[3:9],
                                     LambdaTilde,
                                     deltaLambda,
@@ -3143,7 +3143,7 @@ class GWSignal(object):
                                     iota,
                                     psi,
                                     tcoal,
-                                    Phicoal,
+                                    phase,
                                     chiS,
                                     chiA,
                                 ]
@@ -3159,7 +3159,7 @@ class GWSignal(object):
                                         iota,
                                         psi,
                                         tcoal,
-                                        Phicoal,
+                                        phase,
                                         pars[2],
                                         pars[3],
                                         chi1x,
@@ -3187,7 +3187,7 @@ class GWSignal(object):
                                         pars[2],
                                         psi,
                                         tcoal,
-                                        Phicoal,
+                                        phase,
                                         pars[3],
                                         pars[4],
                                         chi1x,
@@ -3232,7 +3232,7 @@ class GWSignal(object):
                                     iota,
                                     psi,
                                     tcoal,
-                                    Phicoal,
+                                    phase,
                                     chiS,
                                     chiA,
                                     R_orbit,
@@ -3249,7 +3249,7 @@ class GWSignal(object):
                                         iota,
                                         psi,
                                         tcoal,
-                                        Phicoal,
+                                        phase,
                                         pars[2],
                                         pars[3],
                                         chi1x,
@@ -3278,7 +3278,7 @@ class GWSignal(object):
                                         pars[2],
                                         psi,
                                         tcoal,
-                                        Phicoal,
+                                        phase,
                                         pars[3],
                                         pars[4],
                                         chi1x,
@@ -3324,7 +3324,7 @@ class GWSignal(object):
                                     iota,
                                     psi,
                                     tcoal,
-                                    Phicoal,
+                                    phase,
                                     chiS,
                                     chiA,
                                     ecc,
@@ -3341,7 +3341,7 @@ class GWSignal(object):
                                         iota,
                                         psi,
                                         tcoal,
-                                        Phicoal,
+                                        phase,
                                         pars[2],
                                         pars[3],
                                         chi1x,
@@ -3369,7 +3369,7 @@ class GWSignal(object):
                                         pars[2],
                                         psi,
                                         tcoal,
-                                        Phicoal,
+                                        phase,
                                         pars[3],
                                         pars[4],
                                         chi1x,
@@ -3414,7 +3414,7 @@ class GWSignal(object):
                                     iota,
                                     psi,
                                     tcoal,
-                                    Phicoal,
+                                    phase,
                                     chiS,
                                     chiA,
                                     ecc,
@@ -3432,7 +3432,7 @@ class GWSignal(object):
                                         iota,
                                         psi,
                                         tcoal,
-                                        Phicoal,
+                                        phase,
                                         pars[2],
                                         pars[3],
                                         chi1x,
@@ -3461,7 +3461,7 @@ class GWSignal(object):
                                         pars[2],
                                         psi,
                                         tcoal,
-                                        Phicoal,
+                                        phase,
                                         pars[3],
                                         pars[4],
                                         chi1x,
@@ -3487,7 +3487,7 @@ class GWSignal(object):
             FisherDerivs = FisherDerivs.transpose(1, 2, 0)
 
         if computeAnalyticalDeriv:
-            # We compute the derivative w.r.t. dL, theta, phi, iota, psi, tcoal and Phicoal analytically, so have to split the matrix and insert them
+            # We compute the derivative w.r.t. dL, theta, phi, iota, psi, tcoal and phase analytically, so have to split the matrix and insert them
             if (not self.wf_model.is_HigherModes) and (not self.wf_model.is_Precessing):
                 NAnalyticalDerivs = 7
             else:
@@ -3500,7 +3500,7 @@ class GWSignal(object):
                 iota_deriv,
                 psi_deriv,
                 tc_deriv,
-                Phicoal_deriv,
+                phase_deriv,
             ) = self._AnalyticalDerivatives(
                 fgrids,
                 Mc,
@@ -3511,7 +3511,7 @@ class GWSignal(object):
                 iota,
                 psi,
                 tcoal,
-                Phicoal,
+                phase,
                 chiS,
                 chiA,
                 chi1x,
@@ -3545,7 +3545,7 @@ class GWSignal(object):
                             np.asarray(iota_deriv).T[np.newaxis, :],
                             np.asarray(psi_deriv).T[np.newaxis, :],
                             np.asarray(tc_deriv).T[np.newaxis, :],
-                            np.asarray(Phicoal_deriv).T[np.newaxis, :],
+                            np.asarray(phase_deriv).T[np.newaxis, :],
                             tmpsplit2,
                         )
                     )
@@ -3559,7 +3559,7 @@ class GWSignal(object):
                             np.asarray(iota_deriv).T[np.newaxis, :],
                             np.asarray(psi_deriv).T[np.newaxis, :],
                             np.asarray(tc_deriv).T[np.newaxis, :],
-                            np.asarray(Phicoal_deriv).T[np.newaxis, :],
+                            np.asarray(phase_deriv).T[np.newaxis, :],
                         )
                     )
             else:
@@ -3576,7 +3576,7 @@ class GWSignal(object):
                         tmpsplit2,
                         np.asarray(psi_deriv).T[np.newaxis, :],
                         np.asarray(tc_deriv).T[np.newaxis, :],
-                        np.asarray(Phicoal_deriv).T[np.newaxis, :],
+                        np.asarray(phase_deriv).T[np.newaxis, :],
                         tmpsplit3,
                     )
                 )
@@ -3594,7 +3594,7 @@ class GWSignal(object):
         iota,
         psi,
         tcoal,
-        Phicoal,
+        phase,
         chiS,
         chiA,
         chi1x,
@@ -3615,7 +3615,7 @@ class GWSignal(object):
         use_lensing=False,
     ):
         """
-        Compute analytical derivatives with respect to ``dL``, ``theta``, ``phi``, ``psi``, ``tcoal``, ``Phicoal`` and ``iota`` (the latter only for the fundamental mode in the non-precessing case).
+        Compute analytical derivatives with respect to ``dL``, ``theta``, ``phi``, ``psi``, ``tcoal``, ``phase`` and ``iota`` (the latter only for the fundamental mode in the non-precessing case).
 
         :param array or float f: The frequency(ies) at which to perform the calculation, in :math:`\\rm Hz`.
         :param array or float Mc: The chirp mass(es), :math:`{\cal M}_c`, in units of :math:`\\rm M_{\odot}`. If ``use_m1m2=True`` this is interpreted as the primary mass, :math:`m_1`, in units of :math:`\\rm M_{\odot}`.
@@ -3626,7 +3626,7 @@ class GWSignal(object):
         :param array or float iota: The inclination angle(s), with respect to orbital angular momentum, :math:`\iota`, in :math:`\\rm rad`. If ``is_prec_ang=True`` this is interpreted as the inclination angle(s) with respect to total angular momentum, :math:`\\theta_{JN}`, in :math:`\\rm rad`.
         :param array or float psi: The polarisation angle(s), :math:`\psi`, in :math:`\\rm rad`.
         :param array or float tcoal: The time(s) of coalescence, :math:`t_{\\rm coal}`, as a GMST.
-        :param array or float Phicoal: The phase(s) at coalescence, :math:`\Phi_{\\rm coal}`, in :math:`\\rm rad`.
+        :param array or float phase: The phase(s) at coalescence, :math:`\Phi_{\\rm coal}`, in :math:`\\rm rad`.
         :param array or float chiS: The symmetric spin component(s), :math:`\chi_s`. If :py:class:`self.wf_model` is precessing or ``use_chi1chi2=True`` this is interpreted as the spin component(s) of the primary object(s) along the axis :math:`z`, :math:`\chi_{1,z}`. If ``use_prec_ang=True`` this is interpreted as the spin magnitude(s) of the primary object(s), :math:`\chi_1`.
         :param array or float chiA: The antisymmetric spin component(s) :math:`\chi_a`. If :py:class:`self.wf_model` is precessing or ``use_chi1chi2=True`` this is interpreted as the spin component(s) of the secondary object(s) along the axis :math:`z`, :math:`\chi_{2,z}`. If ``use_prec_ang=True`` this is interpreted as the spin magnitude(s) of the secondary object(s), :math:`\chi_2`.
         :param array or float chi1x: The spin component(s) of the primary object(s) along the axis :math:`x`, :math:`\chi_{1,x}`. If ``use_prec_ang=True`` this is interpreted as the spin tilt angle(s) of the primary object(s), :math:`\\theta_{s,1}`, in :math:`\\rm rad`.
@@ -3640,12 +3640,12 @@ class GWSignal(object):
         :param bool, optional use_m1m2: Boolean specifying if the ``Mc`` and ``eta`` inputs should be interpreted as the primary and secondary mass(es).
         :param bool, optional use_chi1chi2: Boolean specifying if the ``chiS`` and ``chiA`` inputs should be interpreted as the primary and secondary spin components along the axis :math:`z`.
         :param bool, optional use_prec_ang: Boolean specifying if the ``iota`` input should be interpreted as the inclination angle with respect to total angular momentum, ``chiS`` and ``chiA`` as the primary and secondary spin magnitudes, ``chi1x`` and ``chi2x`` as the primary and secondary spin tilts, ``chi1y`` as the azimuthal angle of orbital angular momentum relative to total angular momentum and ``chi2y`` as the difference in azimuthal angle between spin vectors.
-        :return: Analytical derivatives with respect to ``dL``, ``theta``, ``phi``, ``iota``, ``psi``, ``tcoal`` and ``Phicoal``. If the :py:class:`self.wf_model` is precessing or includes higher order modes the derivative with respect to ``iota`` will be ``None``
+        :return: Analytical derivatives with respect to ``dL``, ``theta``, ``phi``, ``iota``, ``psi``, ``tcoal`` and ``phase``. If the :py:class:`self.wf_model` is precessing or includes higher order modes the derivative with respect to ``iota`` will be ``None``
         :rtype: tuple(array, array, array, array, array, array, array)
 
         """
         ZEROS = np.zeros_like(Mc)
-        # Module to compute analytically the derivatives w.r.t. dL, theta, phi, psi, tcoal, Phicoal and also iota in absence of HM or precessing spins. Each derivative is inserted into its own function with representative name, for ease of check.
+        # Module to compute analytically the derivatives w.r.t. dL, theta, phi, psi, tcoal, phase and also iota in absence of HM or precessing spins. Each derivative is inserted into its own function with representative name, for ease of check.
         if use_m1m2:
             # Interpret Mc as m1 and eta as m2
             McUse, etaUse = utils.Mceta_from_m1m2(Mc, eta)
@@ -3696,7 +3696,7 @@ class GWSignal(object):
         #     # Lensing modification ignored for now
         #     alpha_hat = _get_alpha_hat(R_orbit)
         #     iotaUse = get_image_iota(iota, phi_L, alpha_hat)[0]
-        #     Phicoal = get_image_Phicoal(iota, phi_L, Phicoal, alpha_hat)[0]
+        #     phase = get_image_phase(iota, phi_L, phase, alpha_hat)[0]
         #     psi = get_image_psi(iota, phi_L, psi, alpha_hat)[0]
         #     cos_phi_proj = get_cos_phi_proj(iota, phi_L)
 
@@ -3719,7 +3719,7 @@ class GWSignal(object):
             "psi": psi,
             "tcoal": tcoal,
             "eta": etaUse,
-            "Phicoal": Phicoal,
+            "phase": phase,
             "chi1z": chi1z,
             "chi2z": chi2z,
             "chi1x": chi1xUse,
@@ -3757,7 +3757,7 @@ class GWSignal(object):
         Fpc = self.detector.compute_antenna_pattern(theta, phi, t, psi, rot)
 
         omega = TWOPI * f * DAY_TO_SEC
-        phase = 1j * (omega * tcoal - Phicoal + phiD + phiL)
+        phase = 1j * (omega * tcoal - phase + phiD + phiL)
         _hp = wfhp * np.exp(phase)
         _hc = wfhc * np.exp(phase)
 
@@ -4215,7 +4215,7 @@ class GWSignal(object):
                     params["iota"],
                     params["psi"],
                     params["tcoal"],
-                    params["Phicoal"],
+                    params["phase"],
                     params["chi1z"],
                     params["chi2z"],
                     params["chi1x"],
@@ -4248,7 +4248,7 @@ class GWSignal(object):
                     params["iota"],
                     params["psi"],
                     params["tcoal"],
-                    params["Phicoal"],
+                    params["phase"],
                     params["chi1z"],
                     params["chi2z"],
                     params["chi1x"],
@@ -4271,7 +4271,7 @@ class GWSignal(object):
                     params["iota"],
                     params["psi"],
                     params["tcoal"],
-                    params["Phicoal"],
+                    params["phase"],
                     params["chi1z"],
                     params["chi2z"],
                     params["chi1x"],

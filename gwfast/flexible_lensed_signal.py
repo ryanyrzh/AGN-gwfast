@@ -131,7 +131,7 @@ class FlexibleLensedGWSignal(BasicGWSignal):
             else:
                 iota = params["iota"]
                 psi = params["psi"]
-                phase = params["Phicoal"]
+                phase = params["phase"]
                 theta = params["theta"]
                 phi = params["phi"]
 
@@ -224,14 +224,14 @@ class FlexibleLensedGWSignal(BasicGWSignal):
 
         signal_1_params.update({
             "iota": iota_1,
-            "Phicoal": phase_1,
+            "phase": phase_1,
             "tGPS": time_1,
             "dL": distance_1,
             "Mc": mass_1,
         })
         signal_2_params.update({
             "iota": iota_2,
-            "Phicoal": phase_2,
+            "phase": phase_2,
             "tGPS": time_2,
             "dL": distance_2,
             "Mc": mass_2,

@@ -149,7 +149,7 @@ The function to compute signal derivatives for one or multiple events is
 
 .. automethod:: gwfast.signal.GWSignal._SignalDerivatives
 
-Analytical derivatives can be computed for the parameters ``dL``, ``theta``, ``phi``, ``psi``, ``tcoal``, ``Phicoal`` and ``iota`` (the latter only for the fundamental mode in the non-precessing case).
+Analytical derivatives can be computed for the parameters ``dL``, ``theta``, ``phi``, ``psi``, ``tcoal``, ``phase`` and ``iota`` (the latter only for the fundamental mode in the non-precessing case).
 These are cross-checked both with ``JAX`` derivatives and an independent `Wolfram Mathematica <https://www.wolfram.com/mathematica/>`_ code.
 Computing analytical derivatives for these parameters considerably speeds-up the computation and further improves the accuracy.
 

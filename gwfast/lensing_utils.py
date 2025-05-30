@@ -183,10 +183,10 @@ def _sqrt_term(iota, phi_L):
 #     return np.arccos(np.cos(iota) - (alpha_hat - theta_1 + beta) * correction), np.arccos(np.cos(iota) + (alpha_hat - theta_2 - beta) * correction)
 
 
-# def get_image_Phicoal(iota, phi_L, Phicoal, alpha_hat, theta_1, theta_2, beta): # coalescence phase
+# def get_image_phase(iota, phi_L, phase, alpha_hat, theta_1, theta_2, beta): # coalescence phase
 #     common_term = 1 / _sqrt_term(iota, phi_L)
-#     correction = common_term * (np.sin(Phicoal) * (1 / np.sin(iota)) * np.sin(phi_L))
-#     return np.arccos(np.cos(Phicoal) + (alpha_hat - theta_1 + beta) * correction), np.arccos(np.cos(Phicoal) - (alpha_hat - theta_2 - beta) * correction)
+#     correction = common_term * (np.sin(phase) * (1 / np.sin(iota)) * np.sin(phi_L))
+#     return np.arccos(np.cos(phase) + (alpha_hat - theta_1 + beta) * correction), np.arccos(np.cos(phase) - (alpha_hat - theta_2 - beta) * correction)
 
 
 # def get_image_psi(iota, phi_L, psi, alpha_hat, theta_1, theta_2, beta): # polarization angle
@@ -198,7 +198,7 @@ def _sqrt_term(iota, phi_L):
 def get_lensing_induced_cosine_shifts(iota, phi_L, R_orbit, phi_coal, psi):
     """
     Absolute shift = angular factor * cosine factor.
-    This function calculates cosine factor, which solely depends on which angle we're shifting (iota, Phicoal, or psi),
+    This function calculates cosine factor, which solely depends on which angle we're shifting (iota, phase, or psi),
     while the angular factor differentiates between the two images.
     Redshifts induced by environmental effects are also calculated, including orbit-induced redshift and gravitational redshift.
     """
@@ -261,7 +261,7 @@ def get_lensed_parameter_sets(
 
     # Casting the angles into real
     iota = unlensed_bbh_params["iota"].real
-    Phicoal = unlensed_bbh_params["Phicoal"].real
+    phase = unlensed_bbh_params["phase"].real
     psi = unlensed_bbh_params["psi"].real
     dL = unlensed_bbh_params["dL"].real
 
@@ -283,7 +283,7 @@ def get_lensed_parameter_sets(
 
     # Get the change in parameters
     delta_cos_iota, delta_cos_phi, delta_cos_psi, z_orbit, z_grav = (
-        get_lensing_induced_cosine_shifts(iota, phi_L, R_orbit, Phicoal, psi)
+        get_lensing_induced_cosine_shifts(iota, phi_L, R_orbit, phase, psi)
     )
 
     # Environemental effects (orbit-induced redshift and gravitational redshift) can be modeled as changes in effective chirp mass and effective luminosity distance
@@ -306,8 +306,8 @@ def get_lensed_parameter_sets(
     image_1_params["iota"] = np.arccos(np.cos(iota) - gamma_1 * delta_cos_iota)
     image_2_params["iota"] = np.arccos(np.cos(iota) + gamma_2 * delta_cos_iota)
 
-    image_1_params["Phicoal"] = np.arccos(np.cos(Phicoal) + gamma_1 * delta_cos_phi)
-    image_2_params["Phicoal"] = np.arccos(np.cos(Phicoal) - gamma_2 * delta_cos_phi)
+    image_1_params["phase"] = np.arccos(np.cos(phase) + gamma_1 * delta_cos_phi)
+    image_2_params["phase"] = np.arccos(np.cos(phase) - gamma_2 * delta_cos_phi)
 
     image_1_params["psi"] = np.arccos(np.cos(psi) - gamma_1 * delta_cos_psi)
     image_2_params["psi"] = np.arccos(np.cos(psi) + gamma_2 * delta_cos_psi)
@@ -413,7 +413,7 @@ def compute_exact_lensed_angles(agn_bbh_system_params):
     - Wave frame: `_wav`
     '''
     iota = agn_bbh_system_params["iota"]
-    phase = agn_bbh_system_params["Phicoal"]
+    phase = agn_bbh_system_params["phase"]
     # phi_L = agn_bbh_system_params["phi_L"]
     r_orbit = agn_bbh_system_params["R_orbit"]  # R_Sch
     luminosity_distance = agn_bbh_system_params["dL"]  # Gpc

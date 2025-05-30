@@ -16,7 +16,7 @@ As an example, the dictionary can be structured as
 
   :type: dict(array, array, ...)
 
-  events = {``'Mc'``:np.array([...]), ``'eta'``:np.array([...]), ``'dL'``:np.array([...]), ``'theta'``:np.array([...]), ``'phi'``:np.array([...]), ``'iota'``:np.array([...]), ``'psi'``:np.array([...]), ``'tcoal'``:np.array([...]), ``'Phicoal'``:np.array([...]), ``'chi1x'``:np.array([...]), ``'chi2x'``:np.array([...]), ``'chi1y'``:np.array([...]), ``'chi2y'``:np.array([...]), ``'chi1z'``:np.array([...]), ``'chi2z'``:np.array([...]), ``'LambdaTilde'``:np.array([...]), ``'deltaLambda'``:np.array([...]), ``'ecc'``:np.array([...])}
+  events = {``'Mc'``:np.array([...]), ``'eta'``:np.array([...]), ``'dL'``:np.array([...]), ``'theta'``:np.array([...]), ``'phi'``:np.array([...]), ``'iota'``:np.array([...]), ``'psi'``:np.array([...]), ``'tcoal'``:np.array([...]), ``'phase'``:np.array([...]), ``'chi1x'``:np.array([...]), ``'chi2x'``:np.array([...]), ``'chi1y'``:np.array([...]), ``'chi2y'``:np.array([...]), ``'chi1z'``:np.array([...]), ``'chi2z'``:np.array([...]), ``'LambdaTilde'``:np.array([...]), ``'deltaLambda'``:np.array([...]), ``'ecc'``:np.array([...])}
 
 .. note::
   The arrays in the :py:data:`events` dictionary have to be 1-D and all of the same size.
@@ -65,7 +65,7 @@ Here we report the naming conventions used in ``gwfast``, as well as the units o
   | :math:`t_{c, {\rm GPS}}`      | ``'tGPS'``                    | GPS time of                   | :math:`\rm s`        | :math:`[0,\,+\infty)`                        |
   |                               |                               | coalescence                   |                      |                                              |
   +-------------------------------+-------------------------------+-------------------------------+----------------------+----------------------------------------------+
-  | :math:`\Phi_c`                | ``'Phicoal'``                 | phase at coalescence          | :math:`\rm rad`      | :math:`[0,\,2\pi]`                           |
+  | :math:`\Phi_c`                | ``'phase'``                 | phase at coalescence          | :math:`\rm rad`      | :math:`[0,\,2\pi]`                           |
   +-------------------------------+-------------------------------+-------------------------------+----------------------+----------------------------------------------+
   | :math:`\chi_{1,x}`            | ``'chi1x'``                   | spin of object 1              | --                   | :math:`[-1,\,1]`                             |
   |                               |                               | along the axis :math:`x`      |                      |                                              |

@@ -16,7 +16,7 @@ mywf = waveforms.TaylorF2_RestrictedPN()
 
 events = {
     'Mc':np.array([50]), 'eta':np.array([0.24]), 'dL':np.array([0.8]), 'theta':np.array([2.34]), 'phi':np.array([5.43]), 
-    'iota':np.array([0.9 * np.pi/2]), 'psi':np.array([1]), 'tGPS':np.array([0]), 'Phicoal':np.array([2.8]), 
+    'iota':np.array([0.9 * np.pi/2]), 'psi':np.array([1]), 'tGPS':np.array([0]), 'phase':np.array([2.8]), 
     'chi1z':np.array([1e-3]), 'chi2z':np.array([1e-3]), 'chi1x':np.array([0]), 'chi2x':np.array([0]), 'chi1y':np.array([0]), 'chi2y':np.array([0]), 
     'Lambda1':np.array([0]), 'Lambda2':np.array([0]), 'ecc':np.array([0]), 
     'phi_L':np.array([0.9*np.pi/2]), 'R_orbit':np.array([20])
@@ -33,7 +33,7 @@ L1 = signal.GWSignal(mywf, psd_path=L1_conf['psd_path'],
 
 frequencies = np.linspace(10, 1000, 10000)
 L1strain = L1.GWstrain(frequencies, events['Mc'], events['eta'], events['dL'], events['theta'], events['phi'], events['iota'], 
-                       events['psi'], events['tGPS'], events['Phicoal'], events['chi1z'], events['chi2z'], 
+                       events['psi'], events['tGPS'], events['phase'], events['chi1z'], events['chi2z'], 
                        events['chi1x'], events['chi2x'], events['chi1y'], events['chi2y'], 
                        events['Lambda1'], events['Lambda2'], events['ecc'], events['phi_L'], events['R_orbit'], use_lensing=True)
 L1strain

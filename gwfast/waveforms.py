@@ -69,7 +69,7 @@ class WaveFormModel(ABC):
         self.fcutPar = fcutPar
 
         # Dictionary containing the order in which the parameters will appear in the Fisher matrix
-        self.ParNums = {'Mc':0, 'eta':1, 'dL':2, 'theta':3, 'phi':4, 'iota':5, 'psi':6, 'tcoal':7, 'Phicoal':8, 'chiS':9,  'chiA':10}
+        self.ParNums = {'Mc':0, 'eta':1, 'dL':2, 'theta':3, 'phi':4, 'iota':5, 'psi':6, 'tcoal':7, 'phase':8, 'chiS':9,  'chiA':10}
         """
         Dictionary containing the number of the rows/columns in which the parameters will appear in the Fisher matrix.
 
@@ -88,14 +88,14 @@ class WaveFormModel(ABC):
 
         if is_newtonian:
             # In the Newtonian case eta and the spins are not included in the Fisher, since they do not enter the signal
-            self.ParNums = {'Mc':0, 'dL':1, 'theta':2, 'phi':3, 'iota':4, 'psi':5, 'tcoal':6, 'Phicoal':7}
+            self.ParNums = {'Mc':0, 'dL':1, 'theta':2, 'phi':3, 'iota':4, 'psi':5, 'tcoal':6, 'phase':7}
             self.nParams = 8
         if (is_Precessing) and (is_tidal):
             if not is_eccentric:
-                self.ParNums = {'Mc':0, 'eta':1, 'dL':2, 'theta':3, 'phi':4, 'iota':5, 'psi':6, 'tcoal':7, 'Phicoal':8, 'chi1z':9,  'chi2z':10, 'chi1x':11, 'chi2x':12, 'chi1y':13, 'chi2y':14, 'LambdaTilde':15, 'deltaLambda':16}
+                self.ParNums = {'Mc':0, 'eta':1, 'dL':2, 'theta':3, 'phi':4, 'iota':5, 'psi':6, 'tcoal':7, 'phase':8, 'chi1z':9,  'chi2z':10, 'chi1x':11, 'chi2x':12, 'chi1y':13, 'chi2y':14, 'LambdaTilde':15, 'deltaLambda':16}
                 self.nParams = 17
             else:
-                self.ParNums = {'Mc':0, 'eta':1, 'dL':2, 'theta':3, 'phi':4, 'iota':5, 'psi':6, 'tcoal':7, 'Phicoal':8, 'chi1z':9,  'chi2z':10, 'chi1x':11, 'chi2x':12, 'chi1y':13, 'chi2y':14, 'LambdaTilde':15, 'deltaLambda':16, 'ecc':17}
+                self.ParNums = {'Mc':0, 'eta':1, 'dL':2, 'theta':3, 'phi':4, 'iota':5, 'psi':6, 'tcoal':7, 'phase':8, 'chi1z':9,  'chi2z':10, 'chi1x':11, 'chi2x':12, 'chi1y':13, 'chi2y':14, 'LambdaTilde':15, 'deltaLambda':16, 'ecc':17}
                 self.nParams = 18
         elif (is_tidal) and (not is_Precessing):
             # Note that the Fisher is computed for LabdaTilde and deltaLambda, but the waveforms accept as input only Lambda1 and Lambda2
@@ -108,10 +108,10 @@ class WaveFormModel(ABC):
                 self.nParams = 14
         elif (not is_tidal) and (is_Precessing):
             if not is_eccentric:
-                self.ParNums = {'Mc':0, 'eta':1, 'dL':2, 'theta':3, 'phi':4, 'iota':5, 'psi':6, 'tcoal':7, 'Phicoal':8, 'chi1z':9,  'chi2z':10, 'chi1x':11, 'chi2x':12, 'chi1y':13, 'chi2y':14}
+                self.ParNums = {'Mc':0, 'eta':1, 'dL':2, 'theta':3, 'phi':4, 'iota':5, 'psi':6, 'tcoal':7, 'phase':8, 'chi1z':9,  'chi2z':10, 'chi1x':11, 'chi2x':12, 'chi1y':13, 'chi2y':14}
                 self.nParams = 15
             else:
-                self.ParNums = {'Mc':0, 'eta':1, 'dL':2, 'theta':3, 'phi':4, 'iota':5, 'psi':6, 'tcoal':7, 'Phicoal':8, 'chi1z':9,  'chi2z':10, 'chi1x':11, 'chi2x':12, 'chi1y':13, 'chi2y':14, 'ecc':15}
+                self.ParNums = {'Mc':0, 'eta':1, 'dL':2, 'theta':3, 'phi':4, 'iota':5, 'psi':6, 'tcoal':7, 'phase':8, 'chi1z':9,  'chi2z':10, 'chi1x':11, 'chi2x':12, 'chi1y':13, 'chi2y':14, 'ecc':15}
                 self.nParams = 16
         elif (not is_tidal) and (not is_Precessing) and (is_eccentric):
             self.ParNums['ecc']=11

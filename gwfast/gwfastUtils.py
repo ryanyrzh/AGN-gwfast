@@ -215,7 +215,7 @@ def get_model_parameters(input_params, model_param_keys, use_jit=True):
             input_params["Mc"],
             input_params["eta"],
             input_params["fRef"],
-            input_params["Phicoal"],
+            input_params["phase"],
         )
         for key, value in zip(spin_angle_keys, spin_comps):
             converted_params[key] = value
@@ -232,7 +232,7 @@ def get_model_parameters(input_params, model_param_keys, use_jit=True):
             input_params["Mc"],
             input_params["eta"],
             input_params["fRef"],
-            input_params["Phicoal"],
+            input_params["phase"],
         )
         for key, value in zip(spin_angle_keys, spin_angles):
             converted_params[key] = value

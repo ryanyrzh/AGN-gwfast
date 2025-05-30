@@ -197,12 +197,12 @@ def get_agn_lensed_parameters(unlensed_parameters):
     minus_redshift_factor = (1 + lensed_params['z_rel_m']) * (1 + lensed_params['z_grav'])
 
     plus_image_params['iota'] = lensed_params['iota_p']
-    plus_image_params['Phicoal'] = lensed_params['phase_p']
+    plus_image_params['phase'] = lensed_params['phase_p']
     plus_image_params['Mc'] *= plus_redshift_factor
     plus_image_params['dL'] /= lensed_params['sqrt_mu_p']
     plus_image_params['dL'] *= (1 + lensed_params['z_rel_p']) * plus_redshift_factor
     minus_image_params['iota'] = lensed_params['iota_m']
-    minus_image_params['Phicoal'] = lensed_params['phase_m']
+    minus_image_params['phase'] = lensed_params['phase_m']
     minus_image_params['Mc'] *= minus_redshift_factor
     minus_image_params['dL'] /= lensed_params['sqrt_mu_m']
     minus_image_params['dL'] *= (1 + lensed_params['z_rel_m']) * minus_redshift_factor
@@ -214,7 +214,7 @@ def get_agn_lensed_parameters(unlensed_parameters):
 def compute_lensed_angles_approx(
         agn_bbh_system_params, angular_distances=False):
     iota = agn_bbh_system_params["iota"]
-    phase = agn_bbh_system_params["Phicoal"]
+    phase = agn_bbh_system_params["phase"]
     r_orbit = agn_bbh_system_params["R_orbit"]  # R_Sch
     luminosity_distance = agn_bbh_system_params["dL"]  # Gpc
     lens_mass = agn_bbh_system_params["M_lz"]  # Gpc
@@ -308,7 +308,7 @@ def compute_exact_lensed_angles_SourceFrame(agn_bbh_system_params):
     - Lens plane frame: `_lens`
     '''
     iota = agn_bbh_system_params["iota"]
-    phase = agn_bbh_system_params["Phicoal"]
+    phase = agn_bbh_system_params["phase"]
     r_orbit = agn_bbh_system_params["R_orbit"]  # R_Sch
     luminosity_distance = agn_bbh_system_params["dL"]  # Gpc
     lens_mass = agn_bbh_system_params["M_lz"]  # Gpc
