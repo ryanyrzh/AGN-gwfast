@@ -72,14 +72,15 @@ class FlexibleLensedGWSignal(BasicGWSignal):
 
     def __init__(self, **kwargs):
 
-        self.additional_params = {
+        additional_params = {
             'delta_iota': 0.5,   # radian
             'delta_phase': 0.5,  # radian
             'delta_time': 1.0,   # seconds
             'relative_distance': 1.0,   # dimensionless
             'relative_mass': 1.0,   # dimensionless
         }
-        super().__init__(**kwargs, init_params=self.additional_params)
+        super().__init__(**kwargs, init_params=additional_params)
+        self.additional_params = additional_params
         self.strain_model_keys = list(
             self.wf_model.ParNums.keys() | self.additional_params.keys()
         )
@@ -183,19 +184,25 @@ class FlexibleLensedGWSignal(BasicGWSignal):
 
     @staticmethod
     def _get_parameter_pairs(key, reference_parameters, mode):
+        alternative_keys = {'dL': 'distance', 'Mc': 'mass', 'tGPS': 'time', 'tcoal': 'time'}
+
         param_1 = reference_parameters.pop(f"{key}_1", None)
         if param_1 is None:
             param_1 = reference_parameters.pop(key, None)
+        if param_1 is None:
+            return None, None
 
         param_2 = reference_parameters.pop(f"{key}_2", None)
         if param_2 is None:
+            key = alternative_keys.get(key, key)
             variation = reference_parameters.pop(f"{mode}_{key}", None)
+            if variation is None:
+                return param_1, None
             if mode == 'relative':
                 param_2 = param_1 * variation
             elif mode == 'delta':
                 param_2 = param_1 + variation
 
-        assert not (param_1 is None or param_2 is None)
         return param_1, param_2
 
     def get_parameter_sets(self, parameters_dict):
@@ -215,7 +222,8 @@ class FlexibleLensedGWSignal(BasicGWSignal):
         ref_parameters_dict = parameters_dict.copy()
         iota_1, iota_2 = self._get_parameter_pairs('iota', ref_parameters_dict, 'delta')
         phase_1, phase_2 = self._get_parameter_pairs('phase', ref_parameters_dict, 'delta')
-        time_1, time_2 = self._get_parameter_pairs('tGPS', ref_parameters_dict, 'delta')
+        tGPS_1, tGPS_2 = self._get_parameter_pairs('tGPS', ref_parameters_dict, 'delta')
+        tcoal_1, tcoal_2 = self._get_parameter_pairs('tcoal', ref_parameters_dict, 'delta')
         distance_1, distance_2 = self._get_parameter_pairs('dL', ref_parameters_dict, 'relative')
         mass_1, mass_2 = self._get_parameter_pairs('Mc', ref_parameters_dict, 'relative')
 
@@ -225,16 +233,21 @@ class FlexibleLensedGWSignal(BasicGWSignal):
         signal_1_params.update({
             "iota": iota_1,
             "phase": phase_1,
-            "tGPS": time_1,
             "dL": distance_1,
             "Mc": mass_1,
         })
         signal_2_params.update({
             "iota": iota_2,
             "phase": phase_2,
-            "tGPS": time_2,
             "dL": distance_2,
             "Mc": mass_2,
         })
+
+        if not (tcoal_1 is None or tcoal_2 is None):
+            signal_1_params["tcoal"] = tcoal_1
+            signal_2_params["tcoal"] = tcoal_2
+        elif not (tGPS_1 is None or tGPS_2 is None):
+            signal_1_params["tGPS"] = tGPS_1
+            signal_2_params["tGPS"] = tGPS_2
 
         return signal_1_params, signal_2_params

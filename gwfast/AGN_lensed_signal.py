@@ -56,13 +56,14 @@ class AGNLensedGWSignal(FlexibleLensedGWSignal):
 
     def __init__(self, **kwargs):
 
-        self.additional_params = {
+        additional_params = {
             'R_orbit': 100,
             'M_lz': 1e6,
             'src_pos': 0.1
         }
         # Use the base class constructor
-        super(FlexibleLensedGWSignal, self).__init__(**kwargs, init_params=self.additional_params)
+        super(FlexibleLensedGWSignal, self).__init__(**kwargs, init_params=additional_params)
+        self.additional_params = additional_params
         self.strain_model_keys = list(
             self.wf_model.ParNums.keys() | self.additional_params.keys()
         )
@@ -117,14 +118,13 @@ class AGNLensedGWSignal(FlexibleLensedGWSignal):
             'relative_mass': params_2['Mc'] / params_1['Mc'],
         })
 
-        tGPS = params_1.get('tGPS', None)
-        if tGPS is not None:
+        tcoal = params_1.get('tcoal', None)
+        if tcoal is not None:
+            output_params['tcoal'] = tcoal
+            output_params['delta_time'] = params_2['tcoal'] - tcoal
+        else:
+            tGPS = params_1.get('tGPS', None)
             output_params['tGPS'] = tGPS
             output_params['delta_time'] = params_2['tGPS'] - tGPS
-        else:
-            tcoal = params_2.get('tcoal', None)
-            delta_time = params_2['tcoal'] - tcoal
-            output_params['tGPS'] = tcoal * DAY_TO_SEC
-            output_params['delta_time'] = delta_time * DAY_TO_SEC
 
         return output_params

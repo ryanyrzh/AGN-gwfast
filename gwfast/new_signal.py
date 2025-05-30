@@ -152,7 +152,7 @@ class BasicGWSignal(object):
             "iota": 4.48411048, "phase": 3.28297867,
             "theta": 3.00702251, "phi": 0.90252645,
             "Lambda1": 300.0, "Lambda2": 300.0,
-            "tcoal": 0.0, "ecc": 0.0,
+            "tcoal": 0.0, "tGPS": 0.0, "ecc": 0.0,
         }
         self.init_params.update(init_params)
 
