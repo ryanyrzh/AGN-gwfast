@@ -15,10 +15,9 @@ config.update("jax_enable_x64", True)
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform"
 
-from gwfast.gwfastGlobals import DAY_TO_SEC
 from gwfast.gwfastUtils import get_model_parameters
 from gwfast.lensing_utils_alt import get_agn_lensed_parameters
-from gwfast.signals.flexible_lensed_signal import FlexibleLensedGWSignal
+from gwfast.signals import FlexibleLensedGWSignal
 
 
 class AGNLensedGWSignal(FlexibleLensedGWSignal):
