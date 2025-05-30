@@ -67,12 +67,15 @@ class AGNLensedGWSignal(NewGWSignal):
 
     def __init__(self, **kwargs):
 
-        super().__init__(**kwargs)
-        self.strain_model_keys = list(self.wf_model.ParNums.keys()) + [
-            "R_orbit",
-            "M_lz",
-            "src_pos",
-        ]
+        additional_params = {
+            'R_orbit': 100,
+            'M_lz': 1e6,
+            'src_pos': 0.1
+        }
+        super().__init__(**kwargs, init_params=additional_params)
+        self.strain_model_keys = list(
+            self.wf_model.ParNums.keys() | additional_params.keys()
+        )
 
     def GWAmplitudes(self, evParams, f, rot=0.0):
         raise NotImplementedError("Yeah, someone should work on this.")
@@ -197,86 +200,3 @@ class AGNLensedGWSignal(NewGWSignal):
 
     def _analytical_derivatives(self):
         raise NotImplementedError('Lensed waveforms have no well-defined analytical derivatives (yet)')
-
-    def WFOverlap(
-        self, WF1, WF2, evParams1, evParams2, res=1000, return_separate=False, **kwargs
-    ):
-        """
-        Compute the *overlap* of two waveforms in a single detector on two sets of parameters, for one or multiple events.
-
-        :param WaveFormModel WF1: Object containing the first waveform model to analyse.
-        :param WaveFormModel WF2: Object containing the second waveform model to analyse.
-        :param dict(array, array, ...) evParams1: Dictionary containing the parameters of the event(s) for the first waveform model, as in :py:data:`events`.
-        :param dict(array, array, ...) evParams2: Dictionary containing the parameters of the event(s) for the second waveform model, as in :py:data:`events`.
-        :param int res: The resolution of the frequency grid to use.
-        :param bool, optional return_all: Boolean specifying if, instead of returning the overlap, the function has to return separately product at the numerator of the definition, :math:`(h_1|h_2)`, and the SNRs at the denominator. This is needed to compute the overlap for a detector network. In this case the return type is *tuple(array, array, array)*.
-        :param unused kwargs: Optional arguments.
-
-        :return: Overlap(s) of the two waveforms. The shape is :math:`(N_{\\rm events})`.
-        :rtype: 1-D array
-
-        """
-        wfm_1_keys = list(WF1.ParNums.keys()) + ["R_orbit", "M_lz", "src_pos"]
-        wfm_2_keys = list(WF2.ParNums.keys()) + ["R_orbit", "M_lz", "src_pos"]
-
-        model_params_1 = get_model_parameters(evParams1, wfm_1_keys)
-        model_params_2 = get_model_parameters(evParams2, wfm_2_keys)
-
-        # The frequency cut is chosen to be the highest among the two
-        fcut1 = WF1.fcut(**model_params_1)
-        fcut2 = WF2.fcut(**model_params_2)
-
-        fcutUse = np.where(fcut1 > fcut2, fcut1, fcut2)
-
-        if self.fmax is not None:
-            fcutUse = np.where(fcutUse > self.fmax, self.fmax, fcut1)
-        fminarr = np.full(fcutUse.shape, self.fmin)
-
-        fgrids = np.geomspace(fminarr, fcutUse, num=int(res))
-        # Out of the provided PSD range, we use a constant value of 1, which results in completely negligible conntributions
-        psd_strain_grids = self.detector.psd_interp(fgrids)
-
-        # This is a horrible way of changing the waveform, but the fastest to implement
-        WFor = copy.deepcopy(self.wf_model)
-
-        strains = []
-        SNRhs = []
-        if self.detector.shape == "L":
-            for model, params in zip((WF1, WF2), (model_params_1, model_params_2)):
-                self.wf_model = model
-                strain = self.GWstrain(fgrids, params)
-
-                strains.append(strain)
-                SNRhs.append(optimal_snr(fgrids, strain, psd_strain_grids))
-
-            overlap_int = noise_weighted_inner_product(
-                fgrids, *strains, psd_strain_grids
-            )
-
-        elif self.detector.shape == "T":
-            for model, params in zip((WF1, WF2), (model_params_1, model_params_2)):
-                self.wf_model = model
-                h_1 = self.GWstrain(fgrids, params, rot=0.0)
-                h_2 = self.GWstrain(fgrids, params, rot=60.0)
-                h_3 = -(h_1 + h_2)
-
-                strains.append((h_1, h_2, h_3))
-
-                SNRh_1_sq = optimal_snr(fgrids, h_1, psd_strain_grids) ** 2
-                SNRh_2_sq = optimal_snr(fgrids, h_2, psd_strain_grids) ** 2
-                SNRh_3_sq = optimal_snr(fgrids, h_3, psd_strain_grids) ** 2
-                SNRhs.append(np.sqrt(SNRh_1_sq + SNRh_2_sq + SNRh_3_sq))
-
-            overlap_int = 0.0
-            for h1_i, h2_i in zip(strains[0], strains[1]):
-                overlap_int += noise_weighted_inner_product(
-                    fgrids, h1_i, h2_i, psd_strain_grids
-                )
-
-        # Restore the waveform
-        self.wf_model = WFor
-
-        if return_separate:
-            return overlap_int, *SNRhs
-        else:
-            return overlap_int / (SNRhs[0] * SNRhs[1])
