@@ -28,6 +28,7 @@ from gwfast.lensing_utils import (
     get_lensing_time_delay,
     get_mag_factors,
 )
+from gwfast.lensing_utils_alt import get_agn_lensed_parameters
 from gwfast.new_signal import NewGWSignal
 
 
@@ -98,14 +99,14 @@ class AGNLensedGWSignal(NewGWSignal):
         omega = TWOPI * f * DAY_TO_SEC
 
         model_params = get_model_parameters(parameters, self.strain_model_keys)
-        eval_params_1, eval_params_2 = get_lensed_parameter_sets(model_params)
-        # Time delay and magnification
-        # TODO: Check ordering of 1, 2.
-        time_delay = get_lensing_time_delay(model_params)
-        time_delay_phase_shift = np.exp(2j * np.pi * f * time_delay)
-        mag_1, mag_2 = get_mag_factors(model_params)
-        sqrt_mu_1 = np.sqrt(np.abs(mag_1))
-        sqrt_mu_2 = np.sqrt(np.abs(mag_2))
+        eval_params_1, eval_params_2 = get_agn_lensed_parameters(model_params)
+        # # Time delay and magnification
+        # # TODO: Check ordering of 1, 2.
+        # time_delay = get_lensing_time_delay(model_params)
+        # time_delay_phase_shift = np.exp(2j * np.pi * f * time_delay)
+        # mag_1, mag_2 = get_mag_factors(model_params)
+        # sqrt_mu_1 = np.sqrt(np.abs(mag_1))
+        # sqrt_mu_2 = np.sqrt(np.abs(mag_2))
 
         # Not sure what does this do, but it was set to zero in both cases
         # (with or without useEarthMotion)
@@ -163,8 +164,10 @@ class AGNLensedGWSignal(NewGWSignal):
 
             ((hp1, hc1), (hp2, hc2)) = hpc_12
 
-        hp = sqrt_mu_1 * hp1 + sqrt_mu_2 * time_delay_phase_shift * hp2
-        hc = sqrt_mu_1 * hc1 + sqrt_mu_2 * time_delay_phase_shift * hc2
+        hp = hp1 + hp2
+        hc = hc1 + hc2
+        # hp = sqrt_mu_1 * hp1 + sqrt_mu_2 * time_delay_phase_shift * hp2
+        # hc = sqrt_mu_1 * hc1 + sqrt_mu_2 * time_delay_phase_shift * hc2
 
         if return_single_comp is not None:
             if return_single_comp == "Ap":
@@ -180,8 +183,10 @@ class AGNLensedGWSignal(NewGWSignal):
             elif return_single_comp == "Psit":
                 return np.unwrap(np.angle(hp + hc), axis=0)
             elif return_single_comp == 'images':
-                h1 = sqrt_mu_1 * (hp1 + hc1)
-                h2 = sqrt_mu_2 * (hp2 + hc2) * time_delay_phase_shift
+                # h1 = sqrt_mu_1 * (hp1 + hc1)
+                # h2 = sqrt_mu_2 * (hp2 + hc2) * time_delay_phase_shift
+                h1 = hp1 + hc1
+                h2 = hp2 + hc2
                 return h1, h2
             else:
                 raise ValueError(
