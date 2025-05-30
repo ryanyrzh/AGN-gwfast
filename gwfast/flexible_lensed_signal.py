@@ -72,12 +72,17 @@ class FlexibleLensedGWSignal(NewGWSignal):
 
     def __init__(self, **kwargs):
 
-        super().__init__(**kwargs)
-        self.strain_model_keys = list(self.wf_model.ParNums.keys()) + [
-            "R_orbit",
-            "M_lz",
-            "src_pos",
-        ]
+        self.additional_params = {
+            'delta_iota': 0.5,   # radian
+            'delta_phase': 0.5,  # radian
+            'delta_time': 1.0,   # seconds
+            'relative_distance': 1.0,   # dimensionless
+            'relative_mass': 1.0,   # dimensionless
+        }
+        super().__init__(**kwargs, init_params=self.additional_params)
+        self.strain_model_keys = list(
+            self.wf_model.ParNums.keys() | self.additional_params.keys()
+        )
 
     def GWAmplitudes(self, evParams, f, rot=0.0):
         raise NotImplementedError("Yeah, someone should work on this.")
@@ -103,55 +108,38 @@ class FlexibleLensedGWSignal(NewGWSignal):
 
         omega = TWOPI * f * DAY_TO_SEC
 
-        model_params = get_model_parameters(parameters, self.strain_model_keys)
-        eval_params_1, eval_params_2 = get_lensed_parameter_sets(model_params)
-        # Time delay and magnification
-        # TODO: Check ordering of 1, 2.
-        time_delay = get_lensing_time_delay(model_params)
-        time_delay_phase_shift = np.exp(2j * np.pi * f * time_delay)
-        mag_1, mag_2 = get_mag_factors(model_params)
-        sqrt_mu_1 = np.sqrt(np.abs(mag_1))
-        sqrt_mu_2 = np.sqrt(np.abs(mag_2))
+        signal_1_params, signal_2_params = self.get_parameter_sets(parameters)
+        signal_1_params = get_model_parameters(signal_1_params, self.strain_model_keys)
+        signal_2_params = get_model_parameters(signal_2_params, self.strain_model_keys)
 
         # Not sure what does this do, but it was set to zero in both cases
         # (with or without useEarthMotion)
-        phiD = np.zeros_like(model_params["Mc"])
+        phiD = np.zeros_like(signal_1_params["Mc"])
 
         # Moving on to combining the strain with the antenna patterns
         is_lal = self.wf_model.is_LAL
 
-        # 22 mode waveforms
-        if not (self.need_HM or is_lal):
-            _, deltaT_1 = self.shifted_time(eval_params_1, f)
-            phiL1 = omega * deltaT_1
-            _, deltaT_2 = self.shifted_time(eval_params_2, f)
-            phiL2 = omega * deltaT_2
-            # Return with the simplest things
-            # A hacky way to access the old GWSignal Amplitude method
-            # One should just implement it in the NewSignal class
-            Ap1, Ac1 = super().GWAmplitudes(eval_params_1, f, rot=rot)
-            Psi1 = super().GWPhase(eval_params_1, f)
-            Psi1 += phiD + phiL1
+        hpc_12 = []
+        for params in (signal_1_params, signal_2_params):
+            # 22 mode waveforms
+            if not (self.need_HM or is_lal):
+                _, deltaT = self.shifted_time(params, f)
+                phiL = omega * deltaT
 
-            Ap2, Ac2 = super().GWAmplitudes(eval_params_2, f, rot=rot)
-            Psi2 = super().GWPhase(eval_params_2, f)
-            Psi2 += phiD + phiL2
+                Ap, Ac = super().GWAmplitudes(params, f, rot=rot)
+                Psi = super().GWPhase(params, f)
+                Psi += phiD + phiL
 
-            # TODO: Check whether h = hp - i hc.
-            hp1, hc1 = Ap1 * np.exp(Psi1 * 1j), 1j * Ac1 * np.exp(Psi1 * 1j)
-            hp2, hc2 = Ap2 * np.exp(Psi2 * 1j), 1j * Ac2 * np.exp(Psi2 * 1j)
-
-        else:
-            phase_shift_factor = np.exp(1j * (phiD + omega * model_params["tcoal"]))
-
-            hpc_12 = []
-            for params in (eval_params_1, eval_params_2):
+                hp, hc = Ap * np.exp(Psi * 1j), 1j * Ac * np.exp(Psi * 1j)
+                hpc_12.append((hp, hc))
+            else:
                 iota = params["iota"]
                 psi = params["psi"]
                 phase = params["Phicoal"]
                 theta = params["theta"]
                 phi = params["phi"]
 
+                phase_shift_factor = np.exp(1j * (phiD + omega * params["tcoal"]))
                 time, deltaT = self.shifted_time(params, f)
                 phiL = omega * deltaT
 
@@ -167,10 +155,10 @@ class FlexibleLensedGWSignal(NewGWSignal):
 
                 hpc_12.append((hp, hc))
 
-            ((hp1, hc1), (hp2, hc2)) = hpc_12
+        ((hp1, hc1), (hp2, hc2)) = hpc_12
 
-        hp = sqrt_mu_1 * hp1 + sqrt_mu_2 * time_delay_phase_shift * hp2
-        hc = sqrt_mu_1 * hc1 + sqrt_mu_2 * time_delay_phase_shift * hc2
+        hp = hp1 + hp2
+        hc = hc1 + hc2
 
         if return_single_comp is not None:
             if return_single_comp == "Ap":
@@ -186,9 +174,7 @@ class FlexibleLensedGWSignal(NewGWSignal):
             elif return_single_comp == "Psit":
                 return np.unwrap(np.angle(hp + hc), axis=0)
             elif return_single_comp == 'images':
-                h1 = sqrt_mu_1 * (hp1 + hc1)
-                h2 = sqrt_mu_2 * (hp2 + hc2) * time_delay_phase_shift
-                return h1, h2
+                return hp1 + hc1, hp2 + hc2
             else:
                 raise ValueError(
                     "Single component to return has to be among Ap, Ac, Psip, Psic"
@@ -198,86 +184,3 @@ class FlexibleLensedGWSignal(NewGWSignal):
 
     def _analytical_derivatives(self):
         raise NotImplementedError('Lensed waveforms have no well-defined analytical derivatives (yet)')
-
-    def WFOverlap(
-        self, WF1, WF2, evParams1, evParams2, res=1000, return_separate=False, **kwargs
-    ):
-        """
-        Compute the *overlap* of two waveforms in a single detector on two sets of parameters, for one or multiple events.
-
-        :param WaveFormModel WF1: Object containing the first waveform model to analyse.
-        :param WaveFormModel WF2: Object containing the second waveform model to analyse.
-        :param dict(array, array, ...) evParams1: Dictionary containing the parameters of the event(s) for the first waveform model, as in :py:data:`events`.
-        :param dict(array, array, ...) evParams2: Dictionary containing the parameters of the event(s) for the second waveform model, as in :py:data:`events`.
-        :param int res: The resolution of the frequency grid to use.
-        :param bool, optional return_all: Boolean specifying if, instead of returning the overlap, the function has to return separately product at the numerator of the definition, :math:`(h_1|h_2)`, and the SNRs at the denominator. This is needed to compute the overlap for a detector network. In this case the return type is *tuple(array, array, array)*.
-        :param unused kwargs: Optional arguments.
-
-        :return: Overlap(s) of the two waveforms. The shape is :math:`(N_{\\rm events})`.
-        :rtype: 1-D array
-
-        """
-        wfm_1_keys = list(WF1.ParNums.keys()) + ["R_orbit", "M_lz", "src_pos"]
-        wfm_2_keys = list(WF2.ParNums.keys()) + ["R_orbit", "M_lz", "src_pos"]
-
-        model_params_1 = get_model_parameters(evParams1, wfm_1_keys)
-        model_params_2 = get_model_parameters(evParams2, wfm_2_keys)
-
-        # The frequency cut is chosen to be the highest among the two
-        fcut1 = WF1.fcut(**model_params_1)
-        fcut2 = WF2.fcut(**model_params_2)
-
-        fcutUse = np.where(fcut1 > fcut2, fcut1, fcut2)
-
-        if self.fmax is not None:
-            fcutUse = np.where(fcutUse > self.fmax, self.fmax, fcut1)
-        fminarr = np.full(fcutUse.shape, self.fmin)
-
-        fgrids = np.geomspace(fminarr, fcutUse, num=int(res))
-        # Out of the provided PSD range, we use a constant value of 1, which results in completely negligible conntributions
-        psd_strain_grids = self.detector.psd_interp(fgrids)
-
-        # This is a horrible way of changing the waveform, but the fastest to implement
-        WFor = copy.deepcopy(self.wf_model)
-
-        strains = []
-        SNRhs = []
-        if self.detector.shape == "L":
-            for model, params in zip((WF1, WF2), (model_params_1, model_params_2)):
-                self.wf_model = model
-                strain = self.GWstrain(fgrids, params)
-
-                strains.append(strain)
-                SNRhs.append(optimal_snr(fgrids, strain, psd_strain_grids))
-
-            overlap_int = noise_weighted_inner_product(
-                fgrids, *strains, psd_strain_grids
-            )
-
-        elif self.detector.shape == "T":
-            for model, params in zip((WF1, WF2), (model_params_1, model_params_2)):
-                self.wf_model = model
-                h_1 = self.GWstrain(fgrids, params, rot=0.0)
-                h_2 = self.GWstrain(fgrids, params, rot=60.0)
-                h_3 = -(h_1 + h_2)
-
-                strains.append((h_1, h_2, h_3))
-
-                SNRh_1_sq = optimal_snr(fgrids, h_1, psd_strain_grids) ** 2
-                SNRh_2_sq = optimal_snr(fgrids, h_2, psd_strain_grids) ** 2
-                SNRh_3_sq = optimal_snr(fgrids, h_3, psd_strain_grids) ** 2
-                SNRhs.append(np.sqrt(SNRh_1_sq + SNRh_2_sq + SNRh_3_sq))
-
-            overlap_int = 0.0
-            for h1_i, h2_i in zip(strains[0], strains[1]):
-                overlap_int += noise_weighted_inner_product(
-                    fgrids, h1_i, h2_i, psd_strain_grids
-                )
-
-        # Restore the waveform
-        self.wf_model = WFor
-
-        if return_separate:
-            return overlap_int, *SNRhs
-        else:
-            return overlap_int / (SNRhs[0] * SNRhs[1])
