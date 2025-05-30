@@ -184,3 +184,61 @@ class FlexibleLensedGWSignal(NewGWSignal):
 
     def _analytical_derivatives(self):
         raise NotImplementedError('Lensed waveforms have no well-defined analytical derivatives (yet)')
+
+    @staticmethod
+    def _get_parameter_pairs(key, reference_parameters, mode):
+        param_1 = reference_parameters.pop(f"{key}_1", None)
+        if param_1 is None:
+            param_1 = reference_parameters.pop(key, None)
+
+        param_2 = reference_parameters.pop(f"{key}_2", None)
+        if param_2 is None:
+            variation = reference_parameters.pop(f"{mode}_{key}", None)
+            if mode == 'relative':
+                param_2 = param_1 * variation
+            elif mode == 'delta':
+                param_2 = param_1 + variation
+
+        assert not (param_1 is None or param_2 is None)
+        return param_1, param_2
+
+    def get_parameter_sets(self, parameters_dict):
+        """
+        Generate two sets of parameters from the provided dictionary.
+        The two sets of parameters differ in:
+            * iota, phase, time, luminosity distance and chirp mass
+
+        It is assumed that they are always given in either of the two forms:
+            * param_1, param_2
+            * param, delta_param / relative_param
+
+        `delta` or `relative` depends on the parameter itself, 
+            * iota, phase, and time are `delta`
+            * distance and chirp mass are `relative`
+        """
+        ref_parameters_dict = parameters_dict.copy()
+        iota_1, iota_2 = self._get_parameter_pairs('iota', ref_parameters_dict, 'delta')
+        phase_1, phase_2 = self._get_parameter_pairs('phase', ref_parameters_dict, 'delta')
+        time_1, time_2 = self._get_parameter_pairs('tGPS', ref_parameters_dict, 'delta')
+        distance_1, distance_2 = self._get_parameter_pairs('dL', ref_parameters_dict, 'relative')
+        mass_1, mass_2 = self._get_parameter_pairs('Mc', ref_parameters_dict, 'relative')
+
+        signal_1_params = ref_parameters_dict.copy()
+        signal_2_params = ref_parameters_dict.copy()
+
+        signal_1_params.update({
+            "iota": iota_1,
+            "Phicoal": phase_1,
+            "tGPS": time_1,
+            "dL": distance_1,
+            "Mc": mass_1,
+        })
+        signal_2_params.update({
+            "iota": iota_2,
+            "Phicoal": phase_2,
+            "tGPS": time_2,
+            "dL": distance_2,
+            "Mc": mass_2,
+        })
+
+        return signal_1_params, signal_2_params
