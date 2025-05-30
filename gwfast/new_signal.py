@@ -78,6 +78,7 @@ class NewGWSignal(object):
         fmin=2.0,
         fmax=None,
         detector=None,
+        init_params = {},
         DutyFactor=None,
         compute2arms=True,
         jitCompileDerivs=False,
@@ -139,6 +140,22 @@ class NewGWSignal(object):
         self.seedUse = onp.random.randint(2**32 - 1, size=1)
         self.jitCompileDerivs = jitCompileDerivs
 
+        # These are initial parameters that are for general use,
+        # so they can be over-complete. 
+        self.additional_params = {}
+        self.init_params = {
+            "Mc": 77.23905294, "eta": 0.20586622,
+            "chi1x": 0.1, "chi1y": 0.1, "chi1z": 0.2018924,
+            "chi2x": 0.05, "chi2y": -0.01, "chi2z": -0.68859213,
+            "chis": 0.2018924, "chia": -0.68859213,
+            "dL": 22.68426174, "psi": 3.11843169,
+            "iota": 4.48411048, "Phicoal": 3.28297867,
+            "theta": 3.00702251, "phi": 0.90252645,
+            "Lambda1": 300.0, "Lambda2": 300.0,
+            "tcoal": 0.0, "ecc": 0.0,
+        }
+        self.init_params.update(init_params)
+
         if self.wf_model.is_LAL:
             self.signal_derivatives = self._signal_derivatives
         else:
@@ -169,32 +186,7 @@ class NewGWSignal(object):
         else:
             self.signal_derivatives = self._signal_derivatives
 
-        inj_params_init = {
-            "Mc": 77.23905294,
-            "eta": 0.20586622,
-            "chi1x": 0.1,
-            "chi2x": 0.05,
-            "chi1y": 0.1,
-            "chi2y": -0.01,
-            "chi1z": 0.2018924,
-            "chi2z": -0.68859213,
-            "chis": 0.2018924,
-            "chia": -0.68859213,
-            "dL": 22.68426174,
-            "psi": 3.11843169,
-            "iota": 4.48411048,
-            "Phicoal": 3.28297867,
-            "theta": 3.00702251,
-            "phi": 0.90252645,
-            "Lambda1": 300.0,
-            "Lambda2": 300.0,
-            "tcoal": 0.0,
-            "ecc": 0.0,
-            "R_orbit": 100.0,
-            "M_lz": 1e6,
-            "src_pos": 0.1,
-        }
-        inj_params_init = {key: np.array([val]) for key, val in inj_params_init.items()}
+        inj_params_init = {key: np.array([val]) for key, val in self.init_params.items()}
 
         _verbose = self.verbose
         self.verbose = False
@@ -713,9 +705,10 @@ class NewGWSignal(object):
         :rtype: 1-D array
 
         """
-        wfm_1_keys = list(WF1.ParNums.keys())
-        wfm_2_keys = list(WF2.ParNums.keys())
+        wfm_1_keys = list(WF1.ParNums.keys() | self.additional_params.keys())
+        wfm_2_keys = list(WF2.ParNums.keys() | self.additional_params.keys())
 
+        # This step is needed only for computation of `fcut`
         model_params_1 = get_model_parameters(evParams1, wfm_1_keys)
         model_params_2 = get_model_parameters(evParams2, wfm_2_keys)
 
