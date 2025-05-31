@@ -265,7 +265,7 @@ def get_agn_lensed_parameters(unlensed_parameters):
     return plus_image_params, minus_image_params
 
 
-def convert_simple_PML_to_flexible_model_parameters(parameters):
+def convert_simple_PML_to_general_lensed_parameters(parameters):
     output_params = parameters.copy()
     luminosity_distance = output_params.pop("dL")
 

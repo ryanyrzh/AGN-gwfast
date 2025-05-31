@@ -78,7 +78,7 @@ class AGNLensedGWSignal(GeneralLensedGWSignal):
         :rtype: array or float
 
         """
-        model_parameters = self.convert_to_flexible_model_parameters(parameters)
+        model_parameters = self.convert_to_general_lensed_parameters(parameters)
 
         return super().GWstrain(
             freqs, model_parameters, rot=rot, return_single_comp=return_single_comp)
@@ -86,7 +86,7 @@ class AGNLensedGWSignal(GeneralLensedGWSignal):
     def _analytical_derivatives(self):
         raise NotImplementedError('Lensed waveforms have no well-defined analytical derivatives (yet)')
 
-    def convert_to_flexible_model_parameters(self, agn_lensed_params):
+    def convert_to_general_lensed_parameters(self, agn_lensed_params):
         """
         Convert the AGN lensed parameters to parameters of the flexible model.
 
