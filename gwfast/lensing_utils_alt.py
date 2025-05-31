@@ -265,6 +265,25 @@ def get_agn_lensed_parameters(unlensed_parameters):
     return plus_image_params, minus_image_params
 
 
+def convert_simple_PML_to_flexible_model_parameters(parameters):
+    output_params = parameters.copy()
+    luminosity_distance = output_params.pop("dL")
+
+    theta_E, beta, lens_mass_src = get_agn_lens_angles(
+        output_params['M_lz'], output_params['R_orbit'], 
+        output_params['src_pos'], luminosity_distance
+    )
+    time_delay, mag_1, mag_2 = PML_time_delay_magnification(beta_src=beta, theta_E=theta_E)
+
+    output_params['delta_time'] = time_delay * lens_mass_src * MTSUN_SI / DAY_TO_SEC  # Days (tcoal)
+    output_params['dL_1'] = luminosity_distance / np.sqrt(np.abs(mag_1))
+    output_params['dL_2'] = luminosity_distance / np.sqrt(np.abs(mag_2))
+    output_params['delta_iota'] = np.zeros_like(mag_1)  # No change in iota
+    output_params['delta_phase'] = np.zeros_like(mag_1)  # No change in phi
+    output_params['relative_mass'] = np.ones_like(mag_1)  # No change in phi
+    return output_params
+
+
 def compute_lensed_angles_approx(
         agn_bbh_system_params, angular_distances=False):
     parameters = agn_bbh_system_params.copy()

@@ -484,7 +484,7 @@ class BasicGWSignal(object):
 
         if "tcoal" in jacobian_dict.keys():
             # Change the units of the tcoal derivative from days to seconds (this improves conditioning)
-            # Not sure if this matches with description tho.
+            # dh/dt = dh/dtcoal * (1 / DAY_TO_SEC)
             jacobian_dict["tcoal"] /= DAY_TO_SEC
 
         return jacobian_dict
