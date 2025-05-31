@@ -10,10 +10,10 @@ config.update("jax_enable_x64", True)
 
 from gwfast.gwfastUtils import get_model_parameters
 from gwfast.lensing_utils_alt import get_agn_lensed_parameters
-from gwfast.signals import FlexibleLensedGWSignal
+from gwfast.signals import GeneralLensedGWSignal
 
 
-class AGNLensedGWSignal(FlexibleLensedGWSignal):
+class AGNLensedGWSignal(GeneralLensedGWSignal):
     """
     Class to compute the GW signal emitted by a coalescing binary system as seen by a detector on Earth.
 
@@ -54,7 +54,7 @@ class AGNLensedGWSignal(FlexibleLensedGWSignal):
             'src_pos': 0.1
         }
         # Use the base class constructor
-        super(FlexibleLensedGWSignal, self).__init__(**kwargs, init_params=additional_params)
+        super(GeneralLensedGWSignal, self).__init__(**kwargs, init_params=additional_params)
         self.additional_params = additional_params
         self.strain_model_keys = list(
             self.wf_model.ParNums.keys() | self.additional_params.keys()

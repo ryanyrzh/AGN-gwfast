@@ -1,3 +1,3 @@
 from .new_signal import BasicGWSignal
-from .flexible_lensed_signal import FlexibleLensedGWSignal
+from .flexible_lensed_signal import GeneralLensedGWSignal
 from .AGN_lensed_signal import AGNLensedGWSignal

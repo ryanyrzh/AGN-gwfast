@@ -14,7 +14,7 @@ from gwfast.gwfastUtils import get_model_parameters
 from gwfast.signals import BasicGWSignal
 
 
-class FlexibleLensedGWSignal(BasicGWSignal):
+class GeneralLensedGWSignal(BasicGWSignal):
     """
     Class to compute the lensed GW signal emitted by a coalescing binary system as seen by a detector on Earth.
     This assumes the point-mass lens model, splitting the GW signal into two, each with a phenomenological change 
