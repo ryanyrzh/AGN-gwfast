@@ -2,10 +2,8 @@ from pathlib import Path
 
 from jax import config
 import jax.numpy as np
-from scipy.interpolate import interp1d
-
-# Enable 64bit on JAX, fundamental
 config.update("jax_enable_x64", True)
+from scipy.interpolate import interp1d
 
 import numpy as onp
 from gwfast.gwfastGlobals import TWOPI, DAY_TO_SEC, DEG_TO_RAD, clight, REarth

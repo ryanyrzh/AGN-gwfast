@@ -6,7 +6,6 @@
 
 from jax import config
 import jax.numpy as jnp
-
 config.update("jax_enable_x64", True)
 
 import os
