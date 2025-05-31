@@ -184,6 +184,61 @@ def line_of_sight_unit_vec(iota, phase):
     ])
 
 
+def get_agn_lens_angles(redshifted_lens_mass, r_orbit, source_position, 
+                        luminosity_distance, angular_distances=False):
+    '''
+    Computes the Einstein angle, the source position angle, and the lens mass.
+
+    Parameters
+    ----------
+    redshifted_lens_mass: float / array-like
+        The redshifted lens mass in the detector frame, in solar masses.
+    r_orbit: float / array-like
+        The orbital radius of the binary BHs around the lens, in R_Sch.
+    source_position: float / array-like
+        The source position angle, in units of r_orbit.
+        It should be in the range [-1, 1].
+    luminosity_distance: float / array-like
+        The unperturbed luminosity distance to the source, in Gpc.
+    angular_distances: bool, optional
+        When True, convert to angular distances when computing theta_E;
+        otherwise, luminosity distances are used instead.
+        Default is False.
+
+    Returns
+    -------
+    theta_E: float / array-like
+        The Einstein angle in radian.
+    beta: float / array-like
+        The source position angle in radian.
+    lens_mass_source: float / array-like
+        The lens mass in the source frame, in solar masses.
+    '''
+    d_LS = r_orbit * np.sqrt(1 - source_position**2)  # R_Sch
+    _source_position = source_position * r_orbit  # R_Sch
+
+    # Schwarschild radius
+    # A small, but necessary assumption, that the lens is at dL
+    z = np.interp(luminosity_distance, dLGridGlob, zGridGlob)
+    lens_mass_source = redshifted_lens_mass / (1 + z)
+    R_Sch = 2 * lens_mass_source * MRSUN_SI  # m
+    delta = R_Sch / uGpc
+
+    if angular_distances:
+        # For most practical purposes, ang_lum_dist = ang_D_S
+        ang_lum_dist = luminosity_distance / integer_pow(1 + z, 2)  # Gpc
+        beta = np.arcsin(_source_position / ang_lum_dist * delta)  # Radian
+        ang_D_S = ang_lum_dist * np.cos(beta)   # Gpc
+    else:
+        beta = _source_position / luminosity_distance * delta  # Radian
+        ang_D_S = luminosity_distance
+
+    ang_D_L = ang_D_S / (1 + d_LS * delta)  # Gpc
+    theta_E = einstein_angle(lens_mass_source, ang_D_L, d_LS)  # Radian
+
+    return theta_E, beta, lens_mass_source
+
+
 def get_agn_lensed_parameters(unlensed_parameters):
     plus_image_params = unlensed_parameters.copy()
     minus_image_params = unlensed_parameters.copy()
@@ -213,36 +268,18 @@ def get_agn_lensed_parameters(unlensed_parameters):
 
 def compute_lensed_angles_approx(
         agn_bbh_system_params, angular_distances=False):
-    iota = agn_bbh_system_params["iota"]
-    phase = agn_bbh_system_params["phase"]
-    r_orbit = agn_bbh_system_params["R_orbit"]  # R_Sch
-    luminosity_distance = agn_bbh_system_params["dL"]  # Gpc
-    lens_mass = agn_bbh_system_params["M_lz"]  # Gpc
-    y_src = agn_bbh_system_params["src_pos"]  # R_orbit
+    parameters = agn_bbh_system_params.copy()
+    iota = parameters["iota"]
+    phase = parameters["phase"]
+    r_orbit = parameters["R_orbit"]  # R_Sch
+    y_src = parameters["src_pos"]  # R_orbit
 
     # Useful constructs
     phi_N = np.pi / 2 - phase
-    d_LS = r_orbit * np.sqrt(1 - y_src**2)  # R_Sch
-    _y_src = y_src * r_orbit  # R_Sch
 
-    # Schwarschild radius
-    # A small, but necessary assumption, that the lens is at dL
-    z = np.interp(luminosity_distance, dLGridGlob, zGridGlob)
-    lens_mass_src = lens_mass / (1 + z)
-    R_Sch = 2 * lens_mass_src * MRSUN_SI  # m
-    delta = R_Sch / uGpc
-
-    if angular_distances:
-        # For most practical purposes, ang_lum_dist = ang_D_S
-        ang_lum_dist = luminosity_distance / integer_pow(1 + z, 2)  # Gpc
-        beta = np.arcsin(_y_src / ang_lum_dist * delta)  # Radian
-        ang_D_S = ang_lum_dist * np.cos(beta)   # Gpc
-    else:
-        beta = _y_src / luminosity_distance * delta  # Radian
-        ang_D_S = luminosity_distance
-
-    ang_D_L = ang_D_S / (1 + d_LS * delta)  # Gpc
-    theta_E = einstein_angle(lens_mass_src, ang_D_L, d_LS)  # Radian
+    theta_E, beta, lens_mass_src = get_agn_lens_angles(
+        parameters["M_lz"], r_orbit, y_src, parameters["dL"], 
+        angular_distances=angular_distances)
 
     # Image positions
     img_pos_1, img_pos_2 = PML_image_position(beta, theta_E)  # Radian
@@ -252,7 +289,7 @@ def compute_lensed_angles_approx(
     theta_bar_p = alpha_hat - (img_pos_1 - beta)
     theta_bar_m = alpha_hat - (img_pos_2 + beta)
 
-    # Setting phi_N = 0 gives delta_phi
+    # Setting phi_N = 0 gives - delta_phi
     delta_phi = - get_phi_L(iota, y_src, 0)
 
     inv_Delta = (np.cos(iota)**2 + np.sin(iota)**2 * np.sin(delta_phi)**2)**-0.5
@@ -307,34 +344,19 @@ def compute_exact_lensed_angles_SourceFrame(agn_bbh_system_params):
     - Source frame: `_src`
     - Lens plane frame: `_lens`
     '''
-    iota = agn_bbh_system_params["iota"]
-    phase = agn_bbh_system_params["phase"]
-    r_orbit = agn_bbh_system_params["R_orbit"]  # R_Sch
-    luminosity_distance = agn_bbh_system_params["dL"]  # Gpc
-    lens_mass = agn_bbh_system_params["M_lz"]  # Gpc
-    y_src = agn_bbh_system_params["src_pos"]  # R_orbit
+    parameters = agn_bbh_system_params.copy()
+    iota = parameters["iota"]
+    phase = parameters["phase"]
+    r_orbit = parameters["R_orbit"]  # R_Sch
+    luminosity_distance = parameters["dL"]  # Gpc
+    y_src = parameters["src_pos"]  # R_orbit
     zeros = np.zeros_like(iota)
     L_hat_src = np.array([zeros, zeros, zeros + 1])
 
     # Useful constructs
     phi_N = np.pi / 2 - phase
-    d_LS = r_orbit * np.sqrt(1 - y_src**2)  # R_Sch
-    _y_src = y_src * r_orbit  # R_Sch
-
-    # Schwarschild radius
-    # A small, but necessary assumption, that the lens is at dL
-    z = np.interp(luminosity_distance, dLGridGlob, zGridGlob)
-    lens_mass_src = lens_mass / (1 + z)
-    R_Sch = 2 * lens_mass_src * MRSUN_SI  # m
-    delta = R_Sch / uGpc
-
-    # Angular distances and Source position
-    # For most practical purposes, ang_lum_dist = ang_D_S
-    ang_lum_dist = luminosity_distance / integer_pow(1 + z, 2)  # Gpc
-    beta = np.arcsin(_y_src / ang_lum_dist * delta)  # Radian
-    ang_D_S = ang_lum_dist * np.cos(beta)   # Gpc
-    ang_D_L = ang_D_S / (1 + d_LS * delta)  # Gpc
-    theta_E = einstein_angle(lens_mass_src, ang_D_L, d_LS)  # Radian
+    theta_E, beta, lens_mass_src = get_agn_lens_angles(
+        parameters["M_lz"], r_orbit, y_src, parameters["dL"])
 
     # Image positions
     img_pos_1, img_pos_2 = PML_image_position(beta, theta_E)  # Radian
@@ -358,6 +380,8 @@ def compute_exact_lensed_angles_SourceFrame(agn_bbh_system_params):
     lens_pln_frame = np.array([lens_pln_x, lens_pln_y, lens_pln_z])
 
     # Compute phi_L from vectors:
+    R_Sch = 2 * lens_mass_src * MRSUN_SI  # m
+    delta = R_Sch / uGpc
     optical_axis = obs_pos - r_orbit / luminosity_distance * delta * lens_pos
     optical_axis /= np.linalg.norm(optical_axis, axis=0)
 
