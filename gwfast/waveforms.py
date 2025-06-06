@@ -13,6 +13,7 @@ config.update("jax_enable_x64", True)
 import numpy as onp
 import jax.numpy as np
 from jax import custom_jvp
+from jax.lax import integer_pow
 
 from abc import ABC, abstractmethod
 import sys
@@ -23,7 +24,7 @@ SCRIPT_DIR = os.path.dirname(os.path.realpath(os.path.join(os.getcwd(), os.path.
 sys.path.append(SCRIPT_DIR)
 
 
-from gwfast import gwfastGlobals as glob
+from gwfast import gwfastGlobals as glob, TWOPI
 from gwfast import gwfastUtils as utils
 
 try:
@@ -2510,9 +2511,36 @@ class IMRPhenomHM(WaveFormModel):
         def SpinWeighted_SphericalHarmonic(theta, phi=0.):
             # Taken from arXiv:0709.0093v3 eq. (II.7), (II.8) and LALSimulation for the s=-2 case and up to l=4.
             # We assume already phi=0 and s=-2 to simplify the function
+            
+            sin_theta = np.sin(theta)
+            cos_theta = np.cos(theta)
+            sin_half_theta = np.sin(theta * 0.5)
+            cos_half_theta = np.cos(theta * 0.5)
 
-            Ylm    = np.where(modes==21, np.sqrt( 5.0 / ( 16.0 * np.pi ) ) * np.sin( theta )*( 1.0 + np.cos( theta )), np.where(modes==22, np.sqrt( 5.0 / ( 64.0 * np.pi ) ) * ( 1.0 + np.cos( theta ))*( 1.0 + np.cos( theta )), np.where(modes==32, np.sqrt(7.0/np.pi)*((np.cos(theta*0.5))**(4.0))*(-2.0 + 3.0*np.cos(theta))*0.5, np.where(modes==33, -np.sqrt(21.0/(2.0*np.pi))*((np.cos(theta/2.0))**(5.0))*np.sin(theta*0.5), np.where(modes==43, -3.0*np.sqrt(7.0/(2.0*np.pi))*((np.cos(theta*0.5))**5.0)*(-1.0 + 2.0*np.cos(theta))*np.sin(theta*0.5), 3.0*np.sqrt(7.0/np.pi)*((np.cos(theta*0.5))**6.0)*(np.sin(theta*0.5)*np.sin(theta*0.5)))))))
-            Ylminm = np.where(modes==21, np.sqrt( 5.0 / ( 16.0 * np.pi ) ) * np.sin( theta )*( 1.0 - np.cos( theta )), np.where(modes==22, np.sqrt( 5.0 / ( 64.0 * np.pi ) ) * ( 1.0 - np.cos( theta ))*( 1.0 - np.cos( theta )), np.where(modes==32, np.sqrt(7.0/(4.0*np.pi))*(2.0 + 3.0*np.cos(theta))*((np.sin(theta*0.5))**(4.0)), np.where(modes==33, np.sqrt(21.0/(2.0*np.pi))*np.cos(theta*0.5)*((np.sin(theta*0.5))**(5.)), np.where(modes==43, 3.0*np.sqrt(7.0/(2.0*np.pi))*np.cos(theta*0.5)*(1.0 + 2.0*np.cos(theta))*((np.sin(theta*0.5))**5.0), 3.0*np.sqrt(7.0/np.pi)*(np.cos(theta*0.5)*np.cos(theta*0.5))*((np.sin(theta*0.5))**6.0))))))
+            Ylm    = np.where(
+                modes==21, np.sqrt( 5.0 / ( 16.0 * np.pi ) ) * sin_theta * (1.0 + cos_theta), 
+                np.where(
+                    modes==22, np.sqrt( 5.0 / ( 64.0 * np.pi ) ) * integer_pow(1.0 + cos_theta, 2), 
+                    np.where(
+                        modes==32, 0.5 * np.sqrt(7.0/np.pi) * integer_pow(cos_half_theta, 4) * (-2.0 + 3.0 * cos_theta), 
+                        np.where(
+                            modes==33, -np.sqrt(21.0/TWOPI) * integer_pow(cos_half_theta, 5) * sin_half_theta, 
+                            np.where(
+                                modes==43, -3.0*np.sqrt(7.0/TWOPI)* integer_pow(cos_half_theta, 5) * (-1.0 + 2.0 * cos_theta) * sin_half_theta, 
+                                3.0*np.sqrt(7.0/np.pi)* integer_pow(cos_half_theta, 6) * integer_pow(sin_half_theta, 2)
+                                )))))
+            Ylminm = np.where(
+                modes==21, np.sqrt( 5.0 / ( 16.0 * np.pi ) ) * sin_theta * ( 1.0 - cos_theta), 
+                np.where(
+                    modes==22, np.sqrt( 5.0 / ( 64.0 * np.pi ) ) * integer_pow(1.0 - cos_theta, 2), 
+                    np.where(
+                        modes==32, 0.5 * np.sqrt(7.0/np.pi) * (2.0 + 3.0 * cos_theta) * integer_pow(sin_half_theta, 4),
+                        np.where(
+                            modes==33, np.sqrt(21.0/TWOPI) * cos_half_theta * integer_pow(sin_half_theta, 5), 
+                            np.where(
+                                modes==43, 3.0*np.sqrt(7.0/TWOPI) * cos_half_theta * (1.0 + 2.0*cos_theta) * integer_pow(sin_half_theta, 5), 
+                                3.0*np.sqrt(7.0/np.pi) * integer_pow(cos_half_theta, 2) * integer_pow(sin_half_theta, 6)
+                                )))))
 
             return Ylm, Ylminm
 
