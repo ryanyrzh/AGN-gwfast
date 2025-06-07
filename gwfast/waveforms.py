@@ -13,7 +13,7 @@ config.update("jax_enable_x64", True)
 import numpy as onp
 import jax.numpy as np
 from jax import custom_jvp
-from jax.lax import integer_pow
+from jax.lax import integer_pow, broadcast_in_dim
 
 from abc import ABC, abstractmethod
 import sys
@@ -24,8 +24,8 @@ SCRIPT_DIR = os.path.dirname(os.path.realpath(os.path.join(os.getcwd(), os.path.
 sys.path.append(SCRIPT_DIR)
 
 
-from gwfast import gwfastGlobals as glob, TWOPI, SQPI
-from gwfast import gwfastUtils as utils
+from gwfast import gwfastGlobals as glob, gwfastUtils as utils
+from gwfast.gwfastGlobals import TWOPI, SQPI
 
 try:
     import lal
@@ -1133,7 +1133,7 @@ class IMRPhenomD(WaveFormModel):
         Acoeffs['one'] = ((chi1*(81.*SetaPlus1 - 44.*eta) + chi2*(81. - 81.*Seta - 44.*eta))*np.pi)/48.
         Acoeffs['four_thirds'] = ((-27312085.0 - 10287648.*chi22 - 10287648.*chi12*SetaPlus1 + 10287648.*chi22*Seta+ 24.*(-1975055. + 857304.*chi12 - 994896.*chi1*chi2 + 857304.*chi22)*eta+ 35371056*eta2)* (np.pi**(4./3.)))/8.128512e6
         Acoeffs['five_thirds'] = ((np.pi**(5./3.)) * (chi2*(-285197.*(-1. + Seta) + 4.*(-91902. + 1579.*Seta)*eta - 35632.*eta2) + chi1*(285197.*SetaPlus1 - 4.*(91902. + 1579.*Seta)*eta - 35632.*eta2) + 42840.*(-1.0 + 4.*eta)*np.pi)) / 32256.
-        Acoeffs['two'] = - ((np.pi**2.)*(-336.*(-3248849057.0 + 2943675504.*chi12 - 3339284256.*chi1*chi2 + 2943675504.*chi22)*eta2 - 324322727232.*eta2*eta - 7.*(-177520268561. + 107414046432.*chi22 + 107414046432.*chi12*SetaPlus1 - 107414046432.*chi22*Seta + 11087290368.*(chi1 + chi2 + chi1*Seta - chi2*Seta)*np.pi ) + 12.*eta*(-545384828789. - 176491177632.*chi1*chi2 + 202603761360.*chi22 + 77616.*chi12*(2610335. + 995766.*Seta) - 77287373856.*chi22*Seta + 5841690624.*(chi1 + chi2)*np.pi + 21384760320.*SQPI)))/6.0085960704e10
+        Acoeffs['two'] = - (SQPI*(-336.*(-3248849057.0 + 2943675504.*chi12 - 3339284256.*chi1*chi2 + 2943675504.*chi22)*eta2 - 324322727232.*eta2*eta - 7.*(-177520268561. + 107414046432.*chi22 + 107414046432.*chi12*SetaPlus1 - 107414046432.*chi22*Seta + 11087290368.*(chi1 + chi2 + chi1*Seta - chi2*Seta)*np.pi ) + 12.*eta*(-545384828789. - 176491177632.*chi1*chi2 + 202603761360.*chi22 + 77616.*chi12*(2610335. + 995766.*Seta) - 77287373856.*chi22*Seta + 5841690624.*(chi1 + chi2)*np.pi + 21384760320.*SQPI)))/6.0085960704e10
         Acoeffs['seven_thirds'] = rho1
         Acoeffs['eight_thirds'] = rho2
         Acoeffs['three'] = rho3
@@ -1502,7 +1502,8 @@ class IMRPhenomD_NRTidalv2(WaveFormModel):
         chi_s = 0.5 * (chi1 + chi2)
         chi_a = 0.5 * (chi1 - chi2)
         # We work in dimensionless frequency M*f, not f
-        fgrid = M*glob.GMsun_over_c3*f
+        M_sec = M * glob.GMsun_over_c3  # Geometric mass, seconds
+        fgrid = M_sec * f
         # As in arXiv:1508.07253 eq. (4) and LALSimIMRPhenomD_internals.c line 97
         chiPN = (chi_s * (1.0 - eta * 76.0 / 113.0) + Seta * chi_a)
         xi = -1.0 + chiPN
@@ -1534,7 +1535,7 @@ class IMRPhenomD_NRTidalv2(WaveFormModel):
         Acoeffs['one'] = ((chi1*(81.*SetaPlus1 - 44.*eta) + chi2*(81. - 81.*Seta - 44.*eta))*np.pi)/48.
         Acoeffs['four_thirds'] = ((-27312085.0 - 10287648.*chi22 - 10287648.*chi12*SetaPlus1 + 10287648.*chi22*Seta+ 24.*(-1975055. + 857304.*chi12 - 994896.*chi1*chi2 + 857304.*chi22)*eta+ 35371056*eta2)* (np.pi**(4./3.)))/8.128512e6
         Acoeffs['five_thirds'] = ((np.pi**(5./3.)) * (chi2*(-285197.*(-1. + Seta) + 4.*(-91902. + 1579.*Seta)*eta - 35632.*eta2) + chi1*(285197.*SetaPlus1 - 4.*(91902. + 1579.*Seta)*eta - 35632.*eta2) + 42840.*(-1.0 + 4.*eta)*np.pi)) / 32256.
-        Acoeffs['two'] = - ((np.pi**2.)*(-336.*(-3248849057.0 + 2943675504.*chi12 - 3339284256.*chi1*chi2 + 2943675504.*chi22)*eta2 - 324322727232.*eta2*eta - 7.*(-177520268561. + 107414046432.*chi22 + 107414046432.*chi12*SetaPlus1 - 107414046432.*chi22*Seta + 11087290368.*(chi1 + chi2 + chi1*Seta - chi2*Seta)*np.pi ) + 12.*eta*(-545384828789. - 176491177632.*chi1*chi2 + 202603761360.*chi22 + 77616.*chi12*(2610335. + 995766.*Seta) - 77287373856.*chi22*Seta + 5841690624.*(chi1 + chi2)*np.pi + 21384760320.*SQPI)))/6.0085960704e10
+        Acoeffs['two'] = - (SQPI*(-336.*(-3248849057.0 + 2943675504.*chi12 - 3339284256.*chi1*chi2 + 2943675504.*chi22)*eta2 - 324322727232.*eta2*eta - 7.*(-177520268561. + 107414046432.*chi22 + 107414046432.*chi12*SetaPlus1 - 107414046432.*chi22*Seta + 11087290368.*(chi1 + chi2 + chi1*Seta - chi2*Seta)*np.pi ) + 12.*eta*(-545384828789. - 176491177632.*chi1*chi2 + 202603761360.*chi22 + 77616.*chi12*(2610335. + 995766.*Seta) - 77287373856.*chi22*Seta + 5841690624.*(chi1 + chi2)*np.pi + 21384760320.*SQPI)))/6.0085960704e10
         Acoeffs['seven_thirds'] = rho1
         Acoeffs['eight_thirds'] = rho2
         Acoeffs['three'] = rho3
@@ -1572,7 +1573,7 @@ class IMRPhenomD_NRTidalv2(WaveFormModel):
         delta4 = -((d2*f13*f2 - d1*f12*f22 - 2*d2*f12*f22 + d1*f1*f23 + d2*f1*f23 - d2*f13*f3 + 2.*d1*f12*f2*f3 + d2*f12*f2*f3 - d1*f1*f22*f3 + d2*f1*f22*f3 - d1*f23*f3 - d2*f23*f3 - d1*f12*f32 + d2*f12*f32 - d1*f1*f2*f32 - 2*d2*f1*f2*f32 + 2*d1*f22*f32 + d2*f22*f32 + d1*f1*f33 - d1*f2*f33 + 3*f1*f22*v1 - 2*f23*v1 - 6*f1*f2*f3*v1 + 3*f22*f3*v1 + 3*f1*f32*v1 - f33*v1 - f13*v2 + 3*f12*f3*v2 - 3*f1*f32*v2 + f33*v2 + f13*v3 - 3*f1*f22*v3 + 2*f23*v3 - 3*f12*f3*v3 + 6*f1*f2*f3*v3 - 3*f22*f3*v3) / ((f1 - f2)*(f1 - f2)*(f1 - f3)*(f1 - f3)*(f1 - f3)*(f3 - f2)*(f3 - f2)))
 
         # Defined as in LALSimulation - LALSimIMRPhenomD.c line 332. Final units are correctly Hz^-1
-        Overallamp = 2. * np.sqrt(5./(64.*np.pi)) * M * glob.GMsun_over_c2_Gpc * M * glob.GMsun_over_c3 / kwargs['dL']
+        Overallamp = 2. * np.sqrt(5./(64.*np.pi)) * M * glob.GMsun_over_c2_Gpc * M_sec / kwargs['dL']
 
         amplitudeIMR = np.where(fgrid < self.AMP_fJoin_INS, 1. + (fgrid**(2./3.))*Acoeffs['two_thirds'] + (fgrid**(4./3.)) * Acoeffs['four_thirds'] + (fgrid**(5./3.)) *  Acoeffs['five_thirds'] + (fgrid**(7./3.)) * Acoeffs['seven_thirds'] + (fgrid**(8./3.)) * Acoeffs['eight_thirds'] + fgrid * (Acoeffs['one'] + fgrid * Acoeffs['two'] + fgrid*fgrid * Acoeffs['three']), np.where(fgrid < fpeak, delta0 + fgrid*delta1 + fgrid*fgrid*(delta2 + fgrid*delta3 + fgrid*fgrid*delta4), np.where(fgrid < self.fcutPar,np.exp(-(fgrid - fring)*gamma2/(fdamp*gamma3))* (fdamp*gamma3*gamma1) / ((fgrid - fring)*(fgrid - fring) + fdamp*gamma3*fdamp*gamma3), 0.)))
 
@@ -1786,7 +1787,8 @@ class IMRPhenomHM(WaveFormModel):
         m1ByM = 0.5 * (1.0 + Seta)
         m2ByM = 0.5 * (1.0 - Seta)
         # We work in dimensionless frequency M*f, not f
-        fgrid = M*glob.GMsun_over_c3*f
+        M_sec = M * glob.GMsun_over_c3  # Geometric mass, seconds
+        fgrid = M_sec * f
         # This is MfRef, needed to recover LAL, which sets fRef to f_min if fRef=0
         fRef  = np.amin(fgrid, axis=0)
         if self.fRef is not None:
@@ -1981,7 +1983,8 @@ class IMRPhenomHM(WaveFormModel):
         chi_s = 0.5 * (chi1 + chi2)
         chi_a = 0.5 * (chi1 - chi2)
         # We work in dimensionless frequency M*f, not f
-        fgrid = M*glob.GMsun_over_c3*f
+        M_sec = M * glob.GMsun_over_c3  # Geometric mass, seconds
+        fgrid = M_sec * f
         # As in arXiv:1508.07253 eq. (4) and LALSimIMRPhenomD_internals.c line 97
         chiPN = (chi_s * (1.0 - eta * 76.0 / 113.0) + Seta * chi_a)
         xi = -1.0 + chiPN
@@ -2014,7 +2017,7 @@ class IMRPhenomHM(WaveFormModel):
         Acoeffs['one'] = ((chi1*(81.*SetaPlus1 - 44.*eta) + chi2*(81. - 81.*Seta - 44.*eta))*np.pi)/48.
         Acoeffs['four_thirds'] = ((-27312085.0 - 10287648.*chi22 - 10287648.*chi12*SetaPlus1 + 10287648.*chi22*Seta+ 24.*(-1975055. + 857304.*chi12 - 994896.*chi1*chi2 + 857304.*chi22)*eta+ 35371056*eta2)* (np.pi**(4./3.)))/8.128512e6
         Acoeffs['five_thirds'] = ((np.pi**(5./3.)) * (chi2*(-285197.*(-1. + Seta) + 4.*(-91902. + 1579.*Seta)*eta - 35632.*eta2) + chi1*(285197.*SetaPlus1 - 4.*(91902. + 1579.*Seta)*eta - 35632.*eta2) + 42840.*(-1.0 + 4.*eta)*np.pi)) / 32256.
-        Acoeffs['two'] = - ((np.pi**2.)*(-336.*(-3248849057.0 + 2943675504.*chi12 - 3339284256.*chi1*chi2 + 2943675504.*chi22)*eta2 - 324322727232.*eta2*eta - 7.*(-177520268561. + 107414046432.*chi22 + 107414046432.*chi12*SetaPlus1 - 107414046432.*chi22*Seta + 11087290368.*(chi1 + chi2 + chi1*Seta - chi2*Seta)*np.pi ) + 12.*eta*(-545384828789. - 176491177632.*chi1*chi2 + 202603761360.*chi22 + 77616.*chi12*(2610335. + 995766.*Seta) - 77287373856.*chi22*Seta + 5841690624.*(chi1 + chi2)*np.pi + 21384760320.*SQPI)))/6.0085960704e10
+        Acoeffs['two'] = - (SQPI*(-336.*(-3248849057.0 + 2943675504.*chi12 - 3339284256.*chi1*chi2 + 2943675504.*chi22)*eta2 - 324322727232.*eta2*eta - 7.*(-177520268561. + 107414046432.*chi22 + 107414046432.*chi12*SetaPlus1 - 107414046432.*chi22*Seta + 11087290368.*(chi1 + chi2 + chi1*Seta - chi2*Seta)*np.pi ) + 12.*eta*(-545384828789. - 176491177632.*chi1*chi2 + 202603761360.*chi22 + 77616.*chi12*(2610335. + 995766.*Seta) - 77287373856.*chi22*Seta + 5841690624.*(chi1 + chi2)*np.pi + 21384760320.*SQPI)))/6.0085960704e10
         Acoeffs['seven_thirds'] = rho1
         Acoeffs['eight_thirds'] = rho2
         Acoeffs['three'] = rho3
@@ -2053,7 +2056,7 @@ class IMRPhenomHM(WaveFormModel):
 
         # Defined as in LALSimulation - LALSimIMRPhenomUtils.c line 70. Final units are correctly Hz^-1
         # there is a 2 * sqrt(5/(64*pi)) missing w.r.t the standard coefficient, which comes from the (2,2) shperical harmonic
-        Overallamp = M * glob.GMsun_over_c2_Gpc * M * glob.GMsun_over_c3 / kwargs['dL']
+        Overallamp = M * glob.GMsun_over_c2_Gpc * M_sec / kwargs['dL']
 
         def completeAmpl(infreqs):
             if self.apply_fcut:
@@ -2064,26 +2067,27 @@ class IMRPhenomHM(WaveFormModel):
         def OnePointFiveSpinPN(infreqs, l, m, ChiS, ChiA):
             # PN amplitudes function, needed to scale
 
+            lm = (l, m)
             v  = (TWOPI*infreqs/m)**(1./3.)
             v2 = v*v
             v3 = v2*v
 
-            if (2 == l) and (2 == m):
+            if lm == (2, 2):
                 Hlm = 1.
 
-            elif (2 == l) and (1 == m):
+            elif lm == (2, 1):
                 Hlm = (np.sqrt(2.0) / 3.0) * (v * Seta - v2 * 1.5 * (ChiA + Seta * ChiS) + v3 * Seta * ((335.0 / 672.0) + (eta * 117.0 / 56.0)) + v3*v * (ChiA * (3427.0 / 1344. - eta * 2101.0 / 336.) + Seta * ChiS * (3427.0 / 1344 - eta * 965 / 336) + Seta * (-1j * 0.5 - np.pi - 2 * 1j * 0.69314718056)))
 
-            elif (3 == l) and (3 == m):
+            elif lm == (3, 3):
                 Hlm = 0.75 * np.sqrt(5.0 / 7.0) * (v * Seta)
 
-            elif (3 == l) and (2 == m):
+            elif lm == (3, 2):
                 Hlm = (1.0 / 3.0) * np.sqrt(5.0 / 7.0) * (v2 * (1.0 - 3.0 * eta))
 
-            elif (4 == l) and (4 == m):
+            elif lm == (4, 4):
                 Hlm = (4.0 / 9.0) * np.sqrt(10.0 / 7.0) * v2 * (1.0 - 3.0 * eta)
 
-            elif (4 == l) and (3 == m):
+            elif lm == (4, 3):
                 Hlm = 0.75 * np.sqrt(3.0 / 35.0) * v3 * Seta * (1.0 - 2.0 * eta)
 
             else:
@@ -2149,7 +2153,6 @@ class IMRPhenomHM(WaveFormModel):
         M = kwargs['Mc']/(kwargs['eta']**(3./5.))
         eta = kwargs['eta']
         eta2 = eta*eta # These can speed up a bit, we call them multiple times
-        etaInv = 1./eta
         chi1, chi2 = kwargs['chi1z'], kwargs['chi2z']
         iota = kwargs['iota']
         QuadMon1, QuadMon2 = np.ones(M.shape), np.ones(M.shape)
@@ -2161,19 +2164,19 @@ class IMRPhenomHM(WaveFormModel):
         SetaPlus1 = 1.0 + Seta
         chi_s = 0.5 * (chi1 + chi2)
         chi_a = 0.5 * (chi1 - chi2)
-        q = 0.5*(1.0 + Seta - 2.0*eta)/eta
-        chi_s2, chi_a2 = chi_s*chi_s, chi_a*chi_a
         chi1dotchi2    = chi1*chi2
-        chi_sdotchi_a  = chi_s*chi_a
         # These are m1/Mtot and m2/Mtot
         m1ByM = 0.5 * (1.0 + Seta)
         m2ByM = 0.5 * (1.0 - Seta)
         # We work in dimensionless frequency M*f, not f
-        fgrid = M*glob.GMsun_over_c3*f
+        # At this point, we assume the shape of f is: (N_freq_bin, *param_shape). 
+        # e.g.: (1000, 2, 3), (2, 3) is the shape of eta
+        M_sec = M * glob.GMsun_over_c3  # Geometric mass, second
+        fgrid = M_sec * f
         # This is MfRef, needed to recover LAL, which sets fRef to f_min if fRef=0
         fRef  = np.amin(fgrid, axis=0)
         if self.fRef is not None:
-            fRef = M*glob.GMsun_over_c3*self.fRef
+            fRef = M_sec * self.fRef
         # As in arXiv:1508.07253 eq. (4) and LALSimIMRPhenomD_internals.c line 97
         chiPN = (chi_s * (1.0 - eta * 76.0 / 113.0) + Seta * chi_a)
         xi = - 1.0 + chiPN
@@ -2184,14 +2187,14 @@ class IMRPhenomHM(WaveFormModel):
 
         # Compute the real and imag parts of the complex ringdown frequency for the (l,m) mode as in LALSimIMRPhenomHM.c line 189
         # These are all fits of the different modes. We directly exploit the fact that the relevant HM in this WF are 6
-        modes = np.array([21,22,32,33,43,44])
+        modes = np.array([21, 22, 32, 33, 43, 44])
         ells = np.floor(modes/10).astype('int')
         mms = modes - ells*10
         # Domain mapping for dimnesionless BH spin
         alphaRDfr = np.log(2. - aeff) / np.log(3.)
         # beta = 1. / (2. + l - abs(m))
-        betaRDfr = np.where(modes==21, 1./3., np.where(modes==22, 0.5, np.where(modes==32, 1./3., np.where(modes==33, 0.5, np.where(modes==43, 1./3., 0.5)))))
-        kappaRDfr  = np.expand_dims(alphaRDfr,len(alphaRDfr.shape))**betaRDfr
+        betaRDfr_lm = np.array([1./3., 0.5, 1./3., 0.5, 1./3., 0.5])
+        kappaRDfr  = np.expand_dims(alphaRDfr, -1)**betaRDfr_lm  # shape: (*N_params, N_modes)
         kappaRDfr2 = kappaRDfr*kappaRDfr
         kappaRDfr3 = kappaRDfr*kappaRDfr2
         kappaRDfr4 = kappaRDfr*kappaRDfr3
@@ -2208,9 +2211,11 @@ class IMRPhenomHM(WaveFormModel):
                             modes==43, 1.5 + kappaRDfr * (0.205046 * np.exp(0.595328 * 1j) + 3.10333396 * np.exp(3.016200 * 1j) * kappaRDfr + 4.23612166 * np.exp(6.038842 * 1j) * kappaRDfr2 + 3.02890198 * np.exp(2.826239 * 1j) * kappaRDfr3 + 0.90843949 * np.exp(5.915164 * 1j) * kappaRDfr4), 
                             2.0 + kappaRDfr * (2.658908 * np.exp(3.002787 * 1j) + 2.97825567 * np.exp(6.050955 * 1j) * kappaRDfr + 3.21842350 * np.exp(2.877514 * 1j) * kappaRDfr2 + 2.12764967 * np.exp(5.989669 * 1j) * kappaRDfr3 + 0.60338186 * np.exp(2.830031 * 1j) * kappaRDfr4)
                             )))))
+        # tmpRDfr shape: (*N_params, N_modes)
+        tmpRDfr = np.moveaxis(tmpRDfr, -1, 0)  # shape: (N_modes, *N_params)
 
-        fringlm = (np.real(tmpRDfr) / (TWOPI / np.expand_dims(finMass, len(finMass.shape))))
-        fdamplm = (np.imag(tmpRDfr) / (TWOPI / np.expand_dims(finMass, len(finMass.shape))))
+        fringlm = np.real(tmpRDfr) / (TWOPI / np.expand_dims(finMass, 0))  # shape: (N_modes, *N_params)
+        fdamplm = np.imag(tmpRDfr) / (TWOPI / np.expand_dims(finMass, 0))  # shape: (N_modes, *N_params)
 
         # This recomputation is needed for JAX derivatives
         betaRDfr = 0.5
@@ -2221,8 +2226,8 @@ class IMRPhenomHM(WaveFormModel):
 
         tmpRDfr = 1.0 + kappaRDfr * (1.557847 * np.exp(2.903124 * 1j) + 1.95097051 * np.exp(5.920970 * 1j) * kappaRDfr + 2.09971716 * np.exp(2.760585 * 1j) * kappaRDfr2 + 1.41094660 * np.exp(5.914340 * 1j) * kappaRDfr3 + 0.41063923 * np.exp(2.795235 * 1j) * kappaRDfr4)
 
-        fring = np.real(tmpRDfr) / (TWOPI*finMass)
-        fdamp = np.imag(tmpRDfr) / (TWOPI*finMass)
+        fring = np.real(tmpRDfr) / (TWOPI*finMass)  # shape: (*N_params)
+        fdamp = np.imag(tmpRDfr) / (TWOPI*finMass)  # shape: (*N_params)
 
         # Compute sigma coefficients appearing in arXiv:1508.07253 eq. (28)
         # They derive from a fit, whose numerical coefficients are in arXiv:1508.07253 Tab. 5
@@ -2284,9 +2289,10 @@ class IMRPhenomHM(WaveFormModel):
         PhiInspcoeffs['two'] = sigma4 * 0.5
 
         #Now compute the coefficients to align the three parts
-
         fInsJoinPh = self.PHI_fJoin_INS
         fMRDJoinPh = 0.5 * fring
+        pi_fInsJoinPh = np.pi * fInsJoinPh
+        log_pi_fInsJoinPh = np.log(pi_fInsJoinPh) / 3.
 
         # First the Inspiral - Intermediate: we compute C1Int and C2Int coeffs
         # Equations to solve for to get C(1) continuous join
@@ -2295,18 +2301,16 @@ class IMRPhenomHM(WaveFormModel):
         # PhiIns (fInsJoin)  =   PhiInt (fInsJoin) + C1Int + C2Int fInsJoin
         # PhiIns'(fInsJoin)  =   PhiInt'(fInsJoin) + C2Int
         # This is the first derivative wrt f of the inspiral phase computed at fInsJoin, first add the PN contribution and then the higher order calibrated terms
-        DPhiIns = (2.0*TF2coeffs['seven']*TF2OverallAmpl*((np.pi*fInsJoinPh)**(7./3.)) + (TF2coeffs['six']*TF2OverallAmpl + TF2coeffs['six_log']*TF2OverallAmpl * (1.0 + np.log(np.pi*fInsJoinPh)/3.))*((np.pi*fInsJoinPh)**(2.)) + TF2coeffs['five_log']*TF2OverallAmpl*((np.pi*fInsJoinPh)**(5./3.)) - TF2coeffs['four']*TF2OverallAmpl*((np.pi*fInsJoinPh)**(4./3.)) - 2.*TF2coeffs['three']*TF2OverallAmpl*(np.pi*fInsJoinPh) - 3.*TF2coeffs['two']*TF2OverallAmpl*((np.pi*fInsJoinPh)**(2./3.)) - 4.*TF2coeffs['one']*TF2OverallAmpl*((np.pi*fInsJoinPh)**(1./3.)) - 5.*TF2coeffs['zero']*TF2OverallAmpl)*np.pi/(3.*((np.pi*fInsJoinPh)**(8./3.)))
+        DPhiIns = (2.0*TF2coeffs['seven']*TF2OverallAmpl*(pi_fInsJoinPh**(7./3.)) + (TF2coeffs['six']*TF2OverallAmpl + TF2coeffs['six_log']*TF2OverallAmpl * (1.0 + log_pi_fInsJoinPh))*integer_pow(pi_fInsJoinPh, 2) + TF2coeffs['five_log']*TF2OverallAmpl*(pi_fInsJoinPh**(5./3.)) - TF2coeffs['four']*TF2OverallAmpl*(pi_fInsJoinPh**(4./3.)) - 2.*TF2coeffs['three']*TF2OverallAmpl*pi_fInsJoinPh - 3.*TF2coeffs['two']*TF2OverallAmpl*(pi_fInsJoinPh**(2./3.)) - 4.*TF2coeffs['one']*TF2OverallAmpl*(pi_fInsJoinPh**(1./3.)) - 5.*TF2coeffs['zero']*TF2OverallAmpl)*np.pi/(3.*(pi_fInsJoinPh**(8./3.)))
         DPhiIns = DPhiIns + (sigma1 + sigma2*(fInsJoinPh**(1./3.)) + sigma3*(fInsJoinPh**(2./3.)) + sigma4*fInsJoinPh)/eta
         # This is the first derivative of the Intermediate phase computed at fInsJoin
         DPhiInt = (beta1 + beta3 / integer_pow(fInsJoinPh, 4) + beta2/fInsJoinPh)/eta
-
         C2Int = DPhiIns - DPhiInt
 
         # This is the inspiral phase computed at fInsJoin
-        PhiInsJoin = PhiInspcoeffs['initial_phasing'] + PhiInspcoeffs['two_thirds']*(fInsJoinPh**(2./3.)) + PhiInspcoeffs['third']*(fInsJoinPh**(1./3.)) + PhiInspcoeffs['third_log']*(fInsJoinPh**(1./3.))*np.log(np.pi*fInsJoinPh)/3. + PhiInspcoeffs['log']*np.log(np.pi*fInsJoinPh)/3. + PhiInspcoeffs['min_third']*(fInsJoinPh**(-1./3.)) + PhiInspcoeffs['min_two_thirds']*(fInsJoinPh**(-2./3.)) + PhiInspcoeffs['min_one']/fInsJoinPh + PhiInspcoeffs['min_four_thirds']*(fInsJoinPh**(-4./3.)) + PhiInspcoeffs['min_five_thirds']*(fInsJoinPh**(-5./3.)) + (PhiInspcoeffs['one']*fInsJoinPh + PhiInspcoeffs['four_thirds']*(fInsJoinPh**(4./3.)) + PhiInspcoeffs['five_thirds']*(fInsJoinPh**(5./3.)) + PhiInspcoeffs['two']*fInsJoinPh*fInsJoinPh)/eta
+        PhiInsJoin = PhiInspcoeffs['initial_phasing'] + PhiInspcoeffs['two_thirds']*(fInsJoinPh**(2./3.)) + PhiInspcoeffs['third']*(fInsJoinPh**(1./3.)) + PhiInspcoeffs['third_log']*(fInsJoinPh**(1./3.))*log_pi_fInsJoinPh + PhiInspcoeffs['log']*log_pi_fInsJoinPh + PhiInspcoeffs['min_third']*(fInsJoinPh**(-1./3.)) + PhiInspcoeffs['min_two_thirds']*(fInsJoinPh**(-2./3.)) + PhiInspcoeffs['min_one']/fInsJoinPh + PhiInspcoeffs['min_four_thirds']*(fInsJoinPh**(-4./3.)) + PhiInspcoeffs['min_five_thirds']*(fInsJoinPh**(-5./3.)) + (PhiInspcoeffs['one']*fInsJoinPh + PhiInspcoeffs['four_thirds']*(fInsJoinPh**(4./3.)) + PhiInspcoeffs['five_thirds']*(fInsJoinPh**(5./3.)) + PhiInspcoeffs['two']*fInsJoinPh*fInsJoinPh)/eta
         # This is the Intermediate phase computed at fInsJoin
-        PhiIntJoin = beta1*fInsJoinPh - beta3/(3.*fInsJoinPh*fInsJoinPh*fInsJoinPh) + beta2*np.log(fInsJoinPh)
-
+        PhiIntJoin = beta1*fInsJoinPh - beta3/(3.*integer_pow(fInsJoinPh, 3)) + beta2*np.log(fInsJoinPh)
         C1Int = PhiInsJoin - PhiIntJoin/eta - C2Int*fInsJoinPh
 
         # Now the same for Intermediate - Merger-Ringdown: we also need a temporary Intermediate Phase function
@@ -2340,7 +2344,7 @@ class IMRPhenomHM(WaveFormModel):
         Acoeffs['one'] = ((chi1*(81.*SetaPlus1 - 44.*eta) + chi2*(81. - 81.*Seta - 44.*eta))*np.pi)/48.
         Acoeffs['four_thirds'] = ((-27312085.0 - 10287648.*chi22 - 10287648.*chi12*SetaPlus1 + 10287648.*chi22*Seta+ 24.*(-1975055. + 857304.*chi12 - 994896.*chi1*chi2 + 857304.*chi22)*eta+ 35371056*eta2)* (np.pi**(4./3.)))/8.128512e6
         Acoeffs['five_thirds'] = ((np.pi**(5./3.)) * (chi2*(-285197.*(-1. + Seta) + 4.*(-91902. + 1579.*Seta)*eta - 35632.*eta2) + chi1*(285197.*SetaPlus1 - 4.*(91902. + 1579.*Seta)*eta - 35632.*eta2) + 42840.*(-1.0 + 4.*eta)*np.pi)) / 32256.
-        Acoeffs['two'] = - ((np.pi**2.)*(-336.*(-3248849057.0 + 2943675504.*chi12 - 3339284256.*chi1*chi2 + 2943675504.*chi22)*eta2 - 324322727232.*eta2*eta - 7.*(-177520268561. + 107414046432.*chi22 + 107414046432.*chi12*SetaPlus1 - 107414046432.*chi22*Seta + 11087290368.*(chi1 + chi2 + chi1*Seta - chi2*Seta)*np.pi ) + 12.*eta*(-545384828789. - 176491177632.*chi1*chi2 + 202603761360.*chi22 + 77616.*chi12*(2610335. + 995766.*Seta) - 77287373856.*chi22*Seta + 5841690624.*(chi1 + chi2)*np.pi + 21384760320.*SQPI)))/6.0085960704e10
+        Acoeffs['two'] = - (SQPI*(-336.*(-3248849057.0 + 2943675504.*chi12 - 3339284256.*chi1*chi2 + 2943675504.*chi22)*eta2 - 324322727232.*eta2*eta - 7.*(-177520268561. + 107414046432.*chi22 + 107414046432.*chi12*SetaPlus1 - 107414046432.*chi22*Seta + 11087290368.*(chi1 + chi2 + chi1*Seta - chi2*Seta)*np.pi ) + 12.*eta*(-545384828789. - 176491177632.*chi1*chi2 + 202603761360.*chi22 + 77616.*chi12*(2610335. + 995766.*Seta) - 77287373856.*chi22*Seta + 5841690624.*(chi1 + chi2)*np.pi + 21384760320.*SQPI)))/6.0085960704e10
         Acoeffs['seven_thirds'] = rho1
         Acoeffs['eight_thirds'] = rho2
         Acoeffs['three'] = rho3
@@ -2358,17 +2362,17 @@ class IMRPhenomHM(WaveFormModel):
         f1  = f1Interm
         f2  = f2Interm
         f3  = f3Interm
-        f12 = f1Interm*f1Interm
-        f13 = f1Interm*f12;
-        f14 = f1Interm*f13;
-        f15 = f1Interm*f14;
-        f22 = f2Interm*f2Interm;
-        f23 = f2Interm*f22;
-        f24 = f2Interm*f23;
-        f32 = f3Interm*f3Interm;
-        f33 = f3Interm*f32;
-        f34 = f3Interm*f33;
-        f35 = f3Interm*f34;
+        f12 = f1Interm * f1Interm
+        f13 = f1Interm * f12
+        f14 = f1Interm * f13
+        f15 = f1Interm * f14
+        f22 = f2Interm * f2Interm
+        f23 = f2Interm * f22
+        f24 = f2Interm * f23
+        f32 = f3Interm * f3Interm
+        f33 = f3Interm * f32
+        f34 = f3Interm * f33
+        f35 = f3Interm * f34
         # Finally conpute the deltas
         delta0 = -((d2*f15*f22*f3 - 2.*d2*f14*f23*f3 + d2*f13*f24*f3 - d2*f15*f2*f32 + d2*f14*f22*f32 - d1*f13*f23*f32 + d2*f13*f23*f32 + d1*f12*f24*f32 - d2*f12*f24*f32 + d2*f14*f2*f33 + 2.*d1*f13*f22*f33 - 2.*d2*f13*f22*f33 - d1*f12*f23*f33 + d2*f12*f23*f33 - d1*f1*f24*f33 - d1*f13*f2*f34 - d1*f12*f22*f34 + 2.*d1*f1*f23*f34 + d1*f12*f2*f35 - d1*f1*f22*f35 + 4.*f12*f23*f32*v1 - 3.*f1*f24*f32*v1 - 8.*f12*f22*f33*v1 + 4.*f1*f23*f33*v1 + f24*f33*v1 + 4.*f12*f2*f34*v1 + f1*f22*f34*v1 - 2.*f23*f34*v1 - 2.*f1*f2*f35*v1 + f22*f35*v1 - f15*f32*v2 + 3.*f14*f33*v2 - 3.*f13*f34*v2 + f12*f35*v2 - f15*f22*v3 + 2.*f14*f23*v3 - f13*f24*v3 + 2.*f15*f2*f3*v3 - f14*f22*f3*v3 - 4.*f13*f23*f3*v3 + 3.*f12*f24*f3*v3 - 4.*f14*f2*f32*v3 + 8.*f13*f22*f32*v3 - 4.*f12*f23*f32*v3) / ((f1 - f2)*(f1 - f2)*(f1 - f3)*(f1 - f3)*(f1 - f3)*(f3 - f2)*(f3 - f2)))
         delta0 = -((d2*f15*f22*f3 - 2.*d2*f14*f23*f3 + d2*f13*f24*f3 - d2*f15*f2*f32 + d2*f14*f22*f32 - d1*f13*f23*f32 + d2*f13*f23*f32 + d1*f12*f24*f32 - d2*f12*f24*f32 + d2*f14*f2*f33 + 2*d1*f13*f22*f33 - 2*d2*f13*f22*f33 - d1*f12*f23*f33 + d2*f12*f23*f33 - d1*f1*f24*f33 - d1*f13*f2*f34 - d1*f12*f22*f34 + 2*d1*f1*f23*f34 + d1*f12*f2*f35 - d1*f1*f22*f35 + 4*f12*f23*f32*v1 - 3*f1*f24*f32*v1 - 8*f12*f22*f33*v1 + 4*f1*f23*f33*v1 + f24*f33*v1 + 4*f12*f2*f34*v1 + f1*f22*f34*v1 - 2*f23*f34*v1 - 2*f1*f2*f35*v1 + f22*f35*v1 - f15*f32*v2 + 3*f14*f33*v2 - 3*f13*f34*v2 + f12*f35*v2 - f15*f22*v3 + 2*f14*f23*v3 - f13*f24*v3 + 2*f15*f2*f3*v3 - f14*f22*f3*v3 - 4*f13*f23*f3*v3 + 3*f12*f24*f3*v3 - 4*f14*f2*f32*v3 + 8*f13*f22*f32*v3 - 4*f12*f23*f32*v3) / ((f1 - f2)*(f1 - f2)*(f1 - f3)*(f1 - f3)*(f1 - f3)*(f3-f2)*(f3-f2)))
@@ -2379,7 +2383,7 @@ class IMRPhenomHM(WaveFormModel):
 
         # Defined as in LALSimulation - LALSimIMRPhenomUtils.c line 70. Final units are correctly Hz^-1
         # there is a 2 * sqrt(5/(64*pi)) missing w.r.t the standard coefficient, which comes from the (2,2) shperical harmonic
-        Overallamp = M * glob.GMsun_over_c2_Gpc * M * glob.GMsun_over_c3 / kwargs['dL']
+        Overallamp = M * glob.GMsun_over_c2_Gpc * M_sec / kwargs['dL']
 
         def completeAmpl(infreqs):
             if self.apply_fcut:
@@ -2394,39 +2398,43 @@ class IMRPhenomHM(WaveFormModel):
                 return np.where(infreqs < self.PHI_fJoin_INS, PhiInspcoeffs['initial_phasing'] + PhiInspcoeffs['two_thirds']*(infreqs**(2./3.)) + PhiInspcoeffs['third']*(infreqs**(1./3.)) + PhiInspcoeffs['third_log']*(infreqs**(1./3.))*np.log(np.pi*infreqs)/3. + PhiInspcoeffs['log']*np.log(np.pi*infreqs)/3. + PhiInspcoeffs['min_third']*(infreqs**(-1./3.)) + PhiInspcoeffs['min_two_thirds']*(infreqs**(-2./3.)) + PhiInspcoeffs['min_one']/infreqs + PhiInspcoeffs['min_four_thirds']*(infreqs**(-4./3.)) + PhiInspcoeffs['min_five_thirds']*(infreqs**(-5./3.)) + (PhiInspcoeffs['one']*infreqs + PhiInspcoeffs['four_thirds']*(infreqs**(4./3.)) + PhiInspcoeffs['five_thirds']*(infreqs**(5./3.)) + PhiInspcoeffs['two']*infreqs*infreqs)/eta, np.where(infreqs<fMRDJoinPh, (beta1*infreqs - beta3/(3.*infreqs*infreqs*infreqs) + beta2*np.log(infreqs))/eta + C1Int + C2Int*infreqs, (-(alpha2/infreqs) + (4.0/3.0) * (alpha3 * (infreqs**(3./4.))) + alpha1 * infreqs + alpha4 * RhoUse * np.arctan((infreqs - alpha5 * fring)/(fdamp * RhoUse * TauUse)))/eta + C1MRDuse + C2MRDuse*infreqs))
 
         def OnePointFiveSpinPN(infreqs, ChiS, ChiA):
+            '''
+            `infreqs` should have shape: (N_freq, N_modes, *N_params)
+            '''
             # PN amplitudes function, needed to scale
 
-            v  = np.moveaxis((TWOPI * infreqs/mms)**(1./3.), len(infreqs.shape)-1, len(infreqs.shape) - 2)
+            v  = (TWOPI * infreqs/_mms)**(1./3.)
             v2 = v*v
             v3 = v2*v
 
-            reshModes = np.expand_dims(modes, len(modes.shape))
+            _modes = broadcast_in_dim(modes, v.shape, (1,))
             Hlm = np.where(
-                    reshModes==21, (np.sqrt(2.0) / 3.0) * (v * Seta - v2 * 1.5 * (ChiA + Seta * ChiS) + v3 * Seta * ((335.0 / 672.0) + (eta * 117.0 / 56.0)) + v3*v * (ChiA * (3427.0 / 1344. - eta * 2101.0 / 336.) + Seta * ChiS * (3427.0 / 1344 - eta * 965 / 336) + Seta * (-1j * 0.5 - np.pi - 2 * 1j * 0.69314718056))), 
+                    _modes==21, (np.sqrt(2.0) / 3.0) * (v * Seta - v2 * 1.5 * (ChiA + Seta * ChiS) + v3 * Seta * ((335.0 / 672.0) + (eta * 117.0 / 56.0)) + v3*v * (ChiA * (3427.0 / 1344. - eta * 2101.0 / 336.) + Seta * ChiS * (3427.0 / 1344 - eta * 965 / 336) + Seta * (-1j * 0.5 - np.pi - 2 * 1j * 0.69314718056))), 
                     np.where(
-                        reshModes==22, 1., 
+                        _modes==22, 1., 
                          np.where(
-                            reshModes==32, np.sqrt(5.0 / 7.0) / 3.0 * (v2 * (1.0 - 3.0 * eta)), 
+                            _modes==32, np.sqrt(5.0 / 7.0) / 3.0 * (v2 * (1.0 - 3.0 * eta)), 
                             np.where(
-                                reshModes==33, 0.75 * np.sqrt(5.0 / 7.0) * (v * Seta), 
+                                _modes==33, 0.75 * np.sqrt(5.0 / 7.0) * (v * Seta), 
                                 np.where(
-                                    reshModes==43, 0.75 * np.sqrt(3.0 / 35.0) * v3 * Seta * (1.0 - 2.0 * eta), 
+                                    _modes==43, 0.75 * np.sqrt(3.0 / 35.0) * v3 * Seta * (1.0 - 2.0 * eta), 
                                     (4.0 / 9.0) * np.sqrt(10.0 / 7.0) * v2 * (1.0 - 3.0 * eta)
                                     )))))
 
             # Compute the final PN Amplitude at Leading Order in Mf
-
             return np.pi * np.sqrt(eta * 2. / 3.) * (v**(-3.5)) * abs(Hlm)
 
-        def SpinWeighted_SphericalHarmonic(theta, phi=0.):
+        def SpinWeighted_SphericalHarmonic(modes, theta, phi=0.):
             # Taken from arXiv:0709.0093v3 eq. (II.7), (II.8) and LALSimulation for the s=-2 case and up to l=4.
             # We assume already phi=0 and s=-2 to simplify the function
             
-            sin_theta = np.sin(theta)
-            cos_theta = np.cos(theta)
-            sin_half_theta = np.sin(theta * 0.5)
-            cos_half_theta = np.cos(theta * 0.5)
+            _theta = np.expand_dims(theta, -1)  # shape: (*N_params, N_modes)
+            sin_theta = np.sin(_theta)
+            cos_theta = np.cos(_theta)
+            sin_half_theta = np.sin(_theta * 0.5)
+            cos_half_theta = np.cos(_theta * 0.5)
 
+            # modes = broadcast_in_dim(modes, sin_theta.shape, (0,))  # shape: (N_modes, *N_params)
             Ylm    = np.where(
                 modes==21, np.sqrt( 5.0 / ( 16.0 * np.pi ) ) * sin_theta * (1.0 + cos_theta), 
                 np.where(
@@ -2455,46 +2463,55 @@ class IMRPhenomHM(WaveFormModel):
             return Ylm, Ylminm
 
         # Time shift so that peak amplitude is approximately at t=0
-        t0 = (alpha1 + alpha2/(fpeak*fpeak) + alpha3/(fpeak**(1./4.)) + alpha4/(fdamp*(1. + (fpeak - alpha5*fring)*(fpeak - alpha5*fring)/(fdamp*fdamp))))/eta
+        t0 = (alpha1 + alpha2/(fpeak*fpeak) + alpha3/(fpeak**(1./4.)) + alpha4/(fdamp*(1. + (fpeak - alpha5*fring)*(fpeak - alpha5*fring)/(fdamp*fdamp))))/eta  # shape: (*N_params)
 
         phiRef = completePhase(fRef, C1MRD, C2MRD, 1., 1.)
         phi0   = 0.5*phiRef
 
         # Now compute all the modes, they are 6, we parallelize
-
-        Rholm, Taulm = (fring/fringlm.T), (fdamplm.T/fdamp)
+        Rholm, Taulm = (fring/fringlm), (fdamplm/fdamp)  # shape: (N_modes, *N_params)
         # Rholm and Taulm only figure in the MRD part, the rest of the coefficients is the same, recompute only this
-        DPhiMRDVal    = (alpha1 + alpha2/(fMRDJoinPh*fMRDJoinPh) + alpha3/(fMRDJoinPh**(1./4.)) + alpha4/(fdamp*Taulm*(1. + (fMRDJoinPh - alpha5*fring)*(fMRDJoinPh - alpha5*fring)/(fdamp*Taulm*Rholm*fdamp*Taulm*Rholm))))/eta
-        PhiMRJoinTemp = -(alpha2/fMRDJoinPh) + (4.0/3.0) * (alpha3 * (fMRDJoinPh**(3./4.))) + alpha1 * fMRDJoinPh + alpha4 * Rholm* np.arctan((fMRDJoinPh - alpha5 * fring)/(fdamp*Rholm*Taulm))
+        DPhiMRDVal    = (
+            alpha1 
+            + alpha2/(fMRDJoinPh*fMRDJoinPh) 
+            + alpha3/(fMRDJoinPh**(1./4.)) 
+            + alpha4/(fdamp*Taulm*(1. + integer_pow((fMRDJoinPh - alpha5*fring) / (fdamp*Taulm*Rholm), 2)))
+            ) / eta
+        PhiMRJoinTemp = (
+            - (alpha2/fMRDJoinPh) 
+            + (4.0/3.0) * (alpha3 * (fMRDJoinPh**(3./4.))) 
+            + alpha1 * fMRDJoinPh 
+            + alpha4 * Rholm* np.arctan((fMRDJoinPh - alpha5 * fring)/(fdamp*Rholm*Taulm))
+            )
         C2MRDHM = DPhiIntTempVal - DPhiMRDVal
-        C1MRDHM = (PhiIntTempVal - PhiMRJoinTemp/eta - C2MRDHM*fMRDJoinPh).T
-        Rholm, Taulm, DPhiMRDVal, PhiMRJoinTemp, C2MRDHM = Rholm.T, Taulm.T, DPhiMRDVal.T, PhiMRJoinTemp.T, C2MRDHM.T
+        C1MRDHM = (PhiIntTempVal - PhiMRJoinTemp/eta - C2MRDHM*fMRDJoinPh)
 
         # Scale input frequencies according to PhenomHM model
         # Compute mapping coefficinets
-        Map_flPhi = self.PHI_fJoin_INS
-        Map_fiPhi = Map_flPhi / Rholm
-        Map_flAmp = self.AMP_fJoin_INS
-        Map_fiAmp = Map_flAmp / Rholm
-        Map_fr = fringlm
+        Map_fiPhi = self.PHI_fJoin_INS / Rholm
+        Map_fiAmp = self.AMP_fJoin_INS / Rholm
+        Map_fr = fringlm  # shape: (N_modes, *N_params)
 
-        Map_ai, Map_bi = 2./mms, 0.
+        _mms = broadcast_in_dim(mms, Map_fr.shape, (0,))  # shape: (N_modes, *N_params)
+        Map_ai, Map_bi = 2./_mms, 0.
 
-        Map_TrdAmp = Map_fr - fringlm + np.expand_dims(fring, len(fring.shape))
-        Map_TiAmp  = 2. * Map_fiAmp / mms
+        Map_TrdAmp = Map_fr - fringlm + np.expand_dims(fring, 0)  # shape: (N_modes, *N_params)
+        Map_TiAmp  = 2. * Map_fiAmp / _mms
         Map_amAmp  = (Map_TrdAmp - Map_TiAmp) / (Map_fr - Map_fiAmp)
         Map_bmAmp  = Map_TiAmp - Map_fiAmp * Map_amAmp
 
-        Map_TrdPhi = Map_fr * Rholm
-        Map_TiPhi  = 2. * Map_fiPhi / mms
+        Map_TrdPhi = Map_fr * Rholm  # shape: (N_modes, *N_params)
+        Map_TiPhi  = 2. * Map_fiPhi / _mms 
         Map_amPhi  = (Map_TrdPhi - Map_TiPhi) / (Map_fr - Map_fiPhi)
         Map_bmPhi  = Map_TiPhi - Map_fiPhi * Map_amPhi
 
-        Map_arAmp, Map_brAmp = 1., - Map_fr + np.expand_dims(fring, len(fring.shape))
+        Map_arAmp, Map_brAmp = 1., - Map_fr + np.expand_dims(fring, 0)  # shape: (N_modes, *N_params)
         Map_arPhi, Map_brPhi = Rholm, 0.
 
         # Now scale as f -> f*a+b for each regime
-        fgrid = np.expand_dims(fgrid, len(fgrid.shape))# Need a new axis to do all the 6 calculations together
+        fgrid = np.expand_dims(fgrid, 1)  # shape: (N_freq, 1, *N_params)
+        # Need a new axis to do all the 6 modes calculations together
+        # fgrid shape (now): (N_freq, ..., 1), "..." is the shape of input parameters
 
         fgridScaled = np.where(
             fgrid < Map_fiAmp, fgrid*Map_ai + Map_bi, 
@@ -2502,52 +2519,48 @@ class IMRPhenomHM(WaveFormModel):
                 fgrid < Map_fr, fgrid*Map_amAmp + Map_bmAmp, 
                 fgrid*Map_arAmp + Map_brAmp
                 ))
+        # shape: (N_freq, N_modes, *N_params)
+
         # Map the ampliude's range
         # We divide by the leading order l=m=2 behavior, and then scale in the expected PN behavior for the multipole of interest.
-
-        beta_term1  = OnePointFiveSpinPN(fgrid, chi_s, chi_a)
-        beta_term2  = OnePointFiveSpinPN(2.*fgrid/mms, chi_s, chi_a)
-        HMamp_term1 = OnePointFiveSpinPN(fgridScaled, chi_s, chi_a)
-        fgridScaled = np.moveaxis(fgridScaled, len(fgridScaled.shape)-1, len(fgridScaled.shape) - 2)
-        #fgridScaled = fgridScaled.transpose(0,2,1)
+        beta_term1  = OnePointFiveSpinPN(fgrid, chi_s, chi_a)          # shape: (N_freq, N_modes, *N_params)
+        beta_term2  = OnePointFiveSpinPN(2.*fgrid/_mms, chi_s, chi_a)  # shape: (N_freq, N_modes, *N_params)
+        HMamp_term1 = OnePointFiveSpinPN(fgridScaled, chi_s, chi_a)    # shape: (N_freq, N_modes, *N_params)
         HMamp_term2 = np.pi * np.sqrt(eta * 2. / 3.) * ((np.pi*fgridScaled)**(-7./6.))
 
         # The (3,3) and (4,3) modes vanish if eta=0.25 (equal mass case) and the (2,1) mode vanishes if both eta=0.25 and chi1z=chi2z
         # This results in NaNs having 0/0, correct for this using np.nan_to_num()
-
         AmplsAllModes = np.nan_to_num(completeAmpl(fgridScaled) * (beta_term1 / beta_term2) * HMamp_term1 / HMamp_term2)
-        AmplsAllModes = np.moveaxis(AmplsAllModes, len(AmplsAllModes.shape)-1, len(AmplsAllModes.shape) - 2)
-        #AmplsAllModes = AmplsAllModes.transpose(0,2,1)
-        C1MRDHM, C2MRDHM, Rholm, Taulm = C1MRDHM.T, C2MRDHM.T, Rholm.T, Taulm.T
+        # shape: (N_freq, N_modes, *N_params)
+        del beta_term1, beta_term2, HMamp_term1, HMamp_term2  # Free memory
 
         tmpMf = Map_amPhi * Map_fiPhi + Map_bmPhi
-        PhDBconst = (completePhase(tmpMf.T, C1MRDHM, C2MRDHM, Rholm, Taulm) / Map_amPhi.T)
+        PhDBconst = completePhase(tmpMf, C1MRDHM, C2MRDHM, Rholm, Taulm) / Map_amPhi
 
         tmpMf = Map_arPhi * Map_fr + Map_brPhi
-        PhDCconst = (completePhase(tmpMf.T, C1MRDHM, C2MRDHM, Rholm, Taulm) / Map_arPhi.T)
+        PhDCconst = completePhase(tmpMf, C1MRDHM, C2MRDHM, Rholm, Taulm) / Map_arPhi
 
         tmpMf = Map_ai * Map_fiPhi + Map_bi
-        PhDBAterm = (completePhase(tmpMf.T, C1MRDHM, C2MRDHM, Rholm, Taulm).T / Map_ai).T
+        PhDBAterm = completePhase(tmpMf, C1MRDHM, C2MRDHM, Rholm, Taulm) / Map_ai
 
         tmpMf = Map_amPhi * Map_fr + Map_bmPhi
-        tmpphaseC = (- PhDBconst + PhDBAterm + completePhase(tmpMf.T, C1MRDHM, C2MRDHM, Rholm, Taulm) / Map_amPhi.T)
+        tmpphaseC = - PhDBconst + PhDBAterm + completePhase(tmpMf, C1MRDHM, C2MRDHM, Rholm, Taulm) / Map_amPhi
 
-        tmpGridShape = len((fgrid*Map_ai + Map_bi).shape)
+        PhisAllModes = np.where(
+            fgrid < Map_fiPhi, completePhase((fgrid*Map_ai + Map_bi), C1MRDHM, C2MRDHM, Rholm, Taulm)/Map_ai, 
+            np.where(
+                fgrid < Map_fr, - PhDBconst + PhDBAterm + completePhase((fgrid*Map_amPhi + Map_bmPhi), C1MRDHM, C2MRDHM, Rholm, Taulm)/Map_amPhi,
+                - PhDCconst + tmpphaseC + completePhase((fgrid*Map_arPhi + Map_brPhi), C1MRDHM, C2MRDHM, Rholm, Taulm)/Map_arPhi))
 
-        if len(AmplsAllModes.shape)==3:
-            PhisAllModes = np.where(fgrid < Map_fiPhi, np.moveaxis(completePhase(np.moveaxis((fgrid*Map_ai + Map_bi), tmpGridShape-1, tmpGridShape-2), C1MRDHM, C2MRDHM, Rholm, Taulm), len(AmplsAllModes.shape)-1, len(AmplsAllModes.shape)-2)/Map_ai, np.where(fgrid < Map_fr, np.moveaxis(- PhDBconst + PhDBAterm + completePhase(np.moveaxis((fgrid*Map_amPhi + Map_bmPhi), tmpGridShape-1, tmpGridShape-2), C1MRDHM, C2MRDHM, Rholm, Taulm)/Map_amPhi.T, len(AmplsAllModes.shape)-1, len(AmplsAllModes.shape)-2), np.moveaxis(- PhDCconst + tmpphaseC + completePhase(np.moveaxis((fgrid*Map_arPhi + Map_brPhi), tmpGridShape-1, tmpGridShape-2), C1MRDHM, C2MRDHM, Rholm, Taulm)/Map_arPhi.T, len(AmplsAllModes.shape)-1, len(AmplsAllModes.shape)-2)))
-        else:
-            C1MRDHM, C2MRDHM, Rholm, Taulm = C1MRDHM.T, C2MRDHM.T, Rholm.T, Taulm.T
-            PhDBconst, PhDCconst, PhDBAterm, tmpphaseC = PhDBconst.T, PhDCconst.T, PhDBAterm.T, tmpphaseC.T
-            PhisAllModes = np.where(fgrid < Map_fiPhi, completePhase((fgrid*Map_ai + Map_bi), C1MRDHM, C2MRDHM, Rholm, Taulm)/Map_ai, np.where(fgrid < Map_fr, - PhDBconst + PhDBAterm + completePhase((fgrid*Map_amPhi + Map_bmPhi), C1MRDHM, C2MRDHM, Rholm, Taulm)/Map_amPhi, - PhDCconst + tmpphaseC + completePhase((fgrid*Map_arPhi + Map_brPhi), C1MRDHM, C2MRDHM, Rholm, Taulm)/Map_arPhi))
+        PhisAllModes = PhisAllModes - np.expand_dims(t0, 0) *(fgrid - np.expand_dims(fRef, 0)) - _mms*phi0 + self.complShiftm[_mms]
+        Y, Ymstar = SpinWeighted_SphericalHarmonic(modes, iota)  # shape: (*N_params, N_modes)
+        Ymstar = np.conj(Ymstar)
 
-        PhisAllModes = PhisAllModes - np.expand_dims(t0, len(t0.shape))*(fgrid - np.expand_dims(fRef, len(fRef.shape))) - mms*np.expand_dims(phi0, len(phi0.shape)) + self.complShiftm[mms]
-        modes = np.expand_dims(modes, len(modes.shape))
-        Y, Ymstar = SpinWeighted_SphericalHarmonic(iota)
-        Y, Ymstar = Y.T, np.conj(Ymstar).T
+        AmplsAllModes = np.moveaxis(AmplsAllModes, 1, -1)  # shape: (N_freq, *N_params, N_modes)
+        PhisAllModes = np.moveaxis(PhisAllModes, 1, -1)  # shape: (N_freq, *N_params, N_modes)
 
-        hp = np.sum(AmplsAllModes*np.exp(-1j*PhisAllModes)*(0.5*(Y + ((-1)**ells)*Ymstar)), axis=-1)
-        hc = -np.sum(AmplsAllModes*np.exp(-1j*PhisAllModes)*(-1j* 0.5 * (Y - ((-1)**ells)* Ymstar)), axis=-1)
+        hp = np.sum(AmplsAllModes*np.exp(-1j*PhisAllModes)*(0.5*(Y + (-1)**ells * Ymstar)), axis=-1)
+        hc = -np.sum(AmplsAllModes*np.exp(-1j*PhisAllModes)*(-1j* 0.5 * (Y - (-1)**ells * Ymstar)), axis=-1)
 
         return hp, hc
 
@@ -2739,6 +2752,8 @@ class IMRPhenomNSBH(WaveFormModel):
         chi1dotchi2 = chi1*chi2
 
         Lambda1, Lambda = kwargs['Lambda1'], kwargs['Lambda2']
+        log_Lambda = np.log(Lambda)
+        sq_Lambda = Lambda * Lambda
 
         #if np.any(Lambda1 != 0.): # This if does not work in JAX jacrev
         #    print('WARNING: BH tidal deformability cannot be different from 0, discarding it')
@@ -2746,7 +2761,7 @@ class IMRPhenomNSBH(WaveFormModel):
         del Lambda1
         # A non-zero tidal deformability induces a quadrupole moment (for BBH it is 1).
         # Taken from arXiv:1303.1528 eq. (54) and Tab. I
-        QuadMon1, QuadMon2 = 1., np.where(Lambda<1e-5, 1., np.exp(0.194 + 0.0936*np.log(Lambda) + 0.0474*np.log(Lambda)*np.log(Lambda) - 0.00421*np.log(Lambda)*np.log(Lambda)*np.log(Lambda) + 0.000123*np.log(Lambda)*np.log(Lambda)*np.log(Lambda)*np.log(Lambda)))
+        QuadMon1, QuadMon2 = 1., np.where(Lambda<1e-5, 1., np.exp(0.194 + 0.0936*log_Lambda + 0.0474 * integer_pow(log_Lambda, 2) - 0.00421 * integer_pow(log_Lambda, 3) + 0.000123 * integer_pow(log_Lambda, 4)))
 
         # This is needed to stabilize JAX derivatives
         Seta = np.sqrt(np.where(eta<0.25, 1.0 - 4.0*eta, 0.))
@@ -2768,7 +2783,7 @@ class IMRPhenomNSBH(WaveFormModel):
         p2_remSp = ((-8.56844797e-07*chi1 - 2.81727682e-06) + (6.61290966e-06*chi1 + 4.28979016e-05)*eta)*eta
         p3_remSp = ((-3.04174272e-02*chi1 + 2.54889050e-01) + (1.47549350e-01*chi1 - 4.27905832e-01)*eta)*eta
 
-        modelRemSp = (1. + Lambda * p1_remSp + Lambda*Lambda * p2_remSp) / ((1. + Lambda*p3_remSp*p3_remSp)*(1. + Lambda*p3_remSp*p3_remSp))
+        modelRemSp = (1. + Lambda * p1_remSp + sq_Lambda * p2_remSp) / integer_pow(1. + Lambda*p3_remSp*p3_remSp, 2)
 
         modelRemSp = np.where((chi1 < 0.) & (eta < 0.188), 1., modelRemSp)
         modelRemSp = np.where(chi1 < -0.5, 1., modelRemSp)
@@ -2864,7 +2879,7 @@ class IMRPhenomNSBH(WaveFormModel):
         DPhiIns = (2.0*TF2coeffs['seven']*TF2OverallAmpl*((np.pi*fInsJoin)**(7./3.)) + (TF2coeffs['six']*TF2OverallAmpl + TF2coeffs['six_log']*TF2OverallAmpl * (1.0 + np.log(np.pi*fInsJoin)/3.))*((np.pi*fInsJoin)**(2.)) + TF2coeffs['five_log']*TF2OverallAmpl*((np.pi*fInsJoin)**(5./3.)) - TF2coeffs['four']*TF2OverallAmpl*((np.pi*fInsJoin)**(4./3.)) - 2.*TF2coeffs['three']*TF2OverallAmpl*(np.pi*fInsJoin) - 3.*TF2coeffs['two']*TF2OverallAmpl*((np.pi*fInsJoin)**(2./3.)) - 4.*TF2coeffs['one']*TF2OverallAmpl*((np.pi*fInsJoin)**(1./3.)) - 5.*TF2coeffs['zero']*TF2OverallAmpl)*np.pi/(3.*((np.pi*fInsJoin)**(8./3.)))
         DPhiIns = DPhiIns + (sigma1 + sigma2*(fInsJoin**(1./3.)) + sigma3*(fInsJoin**(2./3.)) + sigma4*fInsJoin)/eta
         # This is the first derivative of the Intermediate phase computed at fInsJoin
-        DPhiInt = (beta1 + beta3/(fInsJoin**4) + beta2/fInsJoin)/eta
+        DPhiInt = (beta1 + beta3/integer_pow(fInsJoin, 4) + beta2/fInsJoin)/eta
 
         C2Int = DPhiIns - DPhiInt
 
@@ -2947,6 +2962,8 @@ class IMRPhenomNSBH(WaveFormModel):
         chi12, chi22 = chi1*chi1, chi2*chi2
 
         Lambda1, Lambda = kwargs['Lambda1'], kwargs['Lambda2']
+        log_Lambda = np.log(Lambda)
+        sq_Lambda = Lambda * Lambda
 
         #if np.any(Lambda1 != 0.): # This if does not work in JAX jacrev
         #    print('WARNING: BH tidal deformability cannot be different from 0, discarding it')
@@ -2956,8 +2973,10 @@ class IMRPhenomNSBH(WaveFormModel):
         # This is needed to stabilize JAX derivatives
         Seta = np.sqrt(np.where(eta<0.25, 1.0 - 4.0*eta, 0.))
         q = 0.5*(1.0 + Seta - 2.0*eta)/eta
+        inv_q = 1.0 / q
         # We work in dimensionless frequency M*f, not f
-        fgrid = M*glob.GMsun_over_c3*f
+        M_sec = M * glob.GMsun_over_c3  # Geometric mass, seconds
+        fgrid = M_sec * f
         # These are m1/Mtot and m2/Mtot
         m1ByM = 0.5 * (1.0 + Seta)
         m2ByM = 0.5 * (1.0 - Seta)
@@ -3010,7 +3029,7 @@ class IMRPhenomNSBH(WaveFormModel):
         a1Comp = -0.0355
         a2Comp = 0.000705
 
-        Comp = np.where(Lambda > 1., a0Comp + a1Comp*np.log(Lambda) + a2Comp*np.log(Lambda)*np.log(Lambda), 0.5 + (3.*a0Comp-a1Comp-1.5)*Lambda*Lambda + (-2.*a0Comp+a1Comp+1.)*Lambda*Lambda*Lambda)
+        Comp = np.where(Lambda > 1., a0Comp + a1Comp*log_Lambda + a2Comp*integer_pow(log_Lambda, 2), 0.5 + (3.*a0Comp-a1Comp-1.5)*sq_Lambda + (-2.*a0Comp+a1Comp+1.)*integer_pow(Lambda, 3))
 
         # Get baryonic mass of the torus remnant of a BH-NS merger in units of the NS baryonic mass,
         # see arXiv:1509.00512 eq. (11)
@@ -3023,8 +3042,8 @@ class IMRPhenomNSBH(WaveFormModel):
         xiTide = self.xiTide_interp(np.asarray((np.asarray(Comp), np.asarray(q), np.asarray(chi1))).T)
 
         # Compute Kerr BH ISCO radius
-        Z1_ISCO = 1.0 + ((1.0 - chi1*chi1)**(1./3.))*((1.0+chi1)**(1./3.) + (1.0-chi1)**(1./3.))
-        Z2_ISCO = np.sqrt(3.0*chi1*chi1 + Z1_ISCO*Z1_ISCO)
+        Z1_ISCO = 1.0 + ((1.0 - chi12)**(1./3.))*((1.0 + chi1)**(1./3.) + (1.0 - chi1)**(1./3.))
+        Z2_ISCO = np.sqrt(3.0*chi12 + Z1_ISCO*Z1_ISCO)
         r_ISCO  = np.where(chi1>0., 3.0 + Z2_ISCO - np.sqrt((3.0 - Z1_ISCO)*(3.0 + Z1_ISCO + 2.0*Z2_ISCO)), 3.0 + Z2_ISCO + np.sqrt((3.0 - Z1_ISCO)*(3.0 + Z1_ISCO + 2.0*Z2_ISCO)))
 
         tmpMtorus = alphaTor * xiTide * (1.0-2.0*Comp) - betaTor * q*Comp * r_ISCO
@@ -3039,7 +3058,7 @@ class IMRPhenomNSBH(WaveFormModel):
         p2_remSp = ((-8.56844797e-07*chi1 - 2.81727682e-06) + (6.61290966e-06*chi1 + 4.28979016e-05)*eta)*eta
         p3_remSp = ((-3.04174272e-02*chi1 + 2.54889050e-01) + (1.47549350e-01*chi1 - 4.27905832e-01)*eta)*eta
 
-        modelRemSp = (1. + Lambda * p1_remSp + Lambda*Lambda * p2_remSp) / ((1. + Lambda*p3_remSp*p3_remSp)*(1. + Lambda*p3_remSp*p3_remSp))
+        modelRemSp = (1. + Lambda * p1_remSp + sq_Lambda * p2_remSp) / integer_pow(1. + Lambda*p3_remSp*p3_remSp, 2)
 
         modelRemSp = np.where((chi1 < 0.) & (eta < 0.188), 1., modelRemSp)
         modelRemSp = np.where(chi1 < -0.5, 1., modelRemSp)
@@ -3062,7 +3081,7 @@ class IMRPhenomNSBH(WaveFormModel):
         p2_remM = ((2.33868869e-07*chi1 - 8.28090025e-07) + (-1.64315549e-06*chi1 + 8.08340931e-06)*eta)*eta
         p3_remM = ((-2.00726981e-02*chi1 + 1.31986011e-01) + (6.50754064e-02*chi1 - 1.42749961e-01)*eta)*eta
 
-        modelRemM = (1. + Lambda * p1_remM + Lambda*Lambda * p2_remM) / ((1. + Lambda*p3_remM*p3_remM)*(1. + Lambda*p3_remM*p3_remM))
+        modelRemM = (1. + Lambda * p1_remM + sq_Lambda * p2_remM) / integer_pow(1. + Lambda*p3_remM*p3_remM, 2)
         modelRemM = np.where((chi1 < 0.) & (eta < 0.188), 1., modelRemM)
         modelRemM = np.where(chi1 < -0.5, 1., modelRemM)
         modelRemM = np.where(modelRemM > 1., 1., modelRemM)
@@ -3075,7 +3094,7 @@ class IMRPhenomNSBH(WaveFormModel):
 
         # Compute 22 quasi-normal mode dimensionless frequency
         kappaOm = np.sqrt(np.log(2.-chif)/np.log(3.))
-        omega_tilde = (1.0 + kappaOm*(1.5578*np.exp(1j*2.9031) + 1.9510*np.exp(1j*5.9210)*kappaOm + 2.0997*np.exp(1j*2.7606)*kappaOm*kappaOm + 1.4109*np.exp(1j*5.9143)*kappaOm*kappaOm*kappaOm + 0.4106*np.exp(1j*2.7952)*(kappaOm**4)))
+        omega_tilde = (1.0 + kappaOm*(1.5578*np.exp(1j*2.9031) + 1.9510*np.exp(1j*5.9210)*kappaOm + 2.0997*np.exp(1j*2.7606)*kappaOm*kappaOm + 1.4109*np.exp(1j*5.9143)*integer_pow(kappaOm, 3) + 0.4106*np.exp(1j*2.7952)*integer_pow(kappaOm, 4)))
 
         fring = 0.5*np.real(omega_tilde)/np.pi/finalMass
 
@@ -3083,13 +3102,13 @@ class IMRPhenomNSBH(WaveFormModel):
 
         q_factor = 0.5*np.real(omega_tilde)/np.imag(omega_tilde)
 
-        ftide = abs(1.0/(np.pi*(chi1 + np.sqrt(rtide*rtide*rtide)))*(1.0 + 1.0 / q))
+        ftide = abs(1.0/(np.pi*(chi1 + np.sqrt(rtide*rtide*rtide)))*(1.0 + inv_q))
 
         # Now compute last amplitude quantities
         fring_tilde = 0.99 * 0.98 * fring
 
-        gamma_correction = np.where(Lambda > 1.0, 1.25, 1.0 + 0.5*Lambda - 0.25*Lambda*Lambda)
-        delta_2_prime = np.where(Lambda > 1.0, 1.62496*0.25*(1. + np.tanh(4.0*((ftide/fring_tilde - 1.)-0.0188092)/0.338737)), del2 - 2.*(del2 - 0.81248)*Lambda + (del2 - 0.81248)*Lambda*Lambda)
+        gamma_correction = np.where(Lambda > 1.0, 1.25, 1.0 + 0.5*Lambda - 0.25*sq_Lambda)
+        delta_2_prime = np.where(Lambda > 1.0, 1.62496*0.25*(1. + np.tanh(4.0*((ftide/fring_tilde - 1.)-0.0188092)/0.338737)), del2 - 2.*(del2 - 0.81248)*Lambda + (del2 - 0.81248)*sq_Lambda)
 
         sigma = delta_2_prime * fring / q_factor
 
@@ -3100,22 +3119,27 @@ class IMRPhenomNSBH(WaveFormModel):
 
         sigma_tide   = np.where(ftide < fring, np.where(Mtorus>0., 0.137722 - 0.293237*(Mtorus - 0.132754*Comp + 0.576669*np.sqrt(eta) - 0.0603749*chi1 - 0.0601185*chi1*chi1 - 0.0729134*chi1*chi1*chi1), 0.5*(0.137722 - 0.293237*(Mtorus - 0.132754*Comp + 0.576669*np.sqrt(eta) - 0.0603749*chi1 - 0.0601185*chi1*chi1 - 0.0729134*chi1*chi1*chi1) + 0.5*(1. - np.tanh(4.0*(((ftide/fring_tilde - 1.)*(ftide/fring_tilde - 1.) - 0.657424*Comp - 0.0259977*chi1)+0.206465)/0.226844)))),0.5*(1. - np.tanh(4.0*(((ftide/fring_tilde - 1.)*(ftide/fring_tilde - 1.) - 0.657424*Comp - 0.0259977*chi1)+0.206465)/0.226844)))
 
-        f0_tilde_PN  = np.where(ftide < fring, np.where(Mtorus>0., ftide / (M*glob.GMsun_over_c3), ((1.0 - 1.0 / q) * fring_tilde + epsilon_ins * ftide / q)/(M*glob.GMsun_over_c3)), np.where(Lambda>1., fring_tilde/(M*glob.GMsun_over_c3), ((1.0 - 0.02*Lambda + 0.01*Lambda*Lambda)*0.98*fring)/(M*glob.GMsun_over_c3)))
+        f0_tilde_PN  = np.where(ftide < fring, np.where(Mtorus>0., ftide / M_sec, ((1.0 - inv_q) * fring_tilde + epsilon_ins * ftide * inv_q) / M_sec), np.where(Lambda>1., fring_tilde/M_sec, ((1.0 - 0.02*Lambda + 0.01*sq_Lambda)*0.98*fring) / M_sec))
 
-        f0_tilde_PM  = np.where(ftide < fring, np.where(Mtorus>0., ftide / (M*glob.GMsun_over_c3), ((1.0 - 1.0 / q) * fring_tilde + ftide/q)/(M*glob.GMsun_over_c3)), np.where(Lambda>1., fring_tilde/(M*glob.GMsun_over_c3), ((1.0 - 0.02*Lambda + 0.01*Lambda*Lambda)*0.98*fring)/(M*glob.GMsun_over_c3)))
+        f0_tilde_PM  = np.where(ftide < fring, np.where(Mtorus>0., ftide / M_sec, ((1.0 - inv_q) * fring_tilde + ftide * inv_q) / M_sec), np.where(Lambda>1., fring_tilde/M_sec, ((1.0 - 0.02*Lambda + 0.01*sq_Lambda)*0.98*fring)/M_sec))
 
-        f0_tilde_RD  = np.where(ftide < fring, 0., np.where(Lambda>1., fring_tilde/(M*glob.GMsun_over_c3), ((1.0 - 0.02*Lambda + 0.01*Lambda*Lambda)*0.98*fring)/(M*glob.GMsun_over_c3)))
+        f0_tilde_RD  = np.where(ftide < fring, 0., np.where(Lambda>1., fring_tilde/M_sec, ((1.0 - 0.02*Lambda + 0.01*sq_Lambda)*0.98*fring)/M_sec))
 
         # This can be used to output the merger type if needed
         #merger_type = onp.where(ftide < fring, onp.where(Mtorus>0., 'DISRUPTIVE', 'MILDLY_DISRUPTIVE_NO_TORUS_REMNANT'), onp.where(Mtorus>0.,'MILDLY_DISRUPTIVE_TORUS_REMNANT', 'NON_DISRUPTIVE'))
 
-        v = (fgrid*np.pi)**(1./3.)
+        v3 = np.pi * fgrid
+        v6 = v3 * v3
+        v = v3**(1./3.)
+        v2 = v * v
+        v4 = v2 * v2
+        v5 = v2 * v3
 
-        xdot = xdotaN*(v**10)*(1. + xdota2*v*v + xdota3 * fgrid*np.pi + xdota4 * fgrid*np.pi*v + xdota5 * v*v*fgrid*np.pi + (xdota6 + xdota6log * 2.*np.log(v)) * fgrid*np.pi*fgrid*np.pi + xdota7 * v*fgrid*np.pi*fgrid*np.pi)
+        xdot = xdotaN*(v2**5)*(1. + xdota2 * v2 + xdota3 * v3 + xdota4 * v4 + xdota5 * v5 + (xdota6 + xdota6log * 2.*np.log(v)) * v6 + xdota7 * v*v6)
         ampfacTime = np.sqrt(abs(np.pi / (1.5 * v * xdot)))
 
-        AmpPNre = ampfacTime * AN * v*v * (1. + A2*v*v + A3 * fgrid*np.pi + A4 * v*fgrid*np.pi + A5 * v*v*fgrid*np.pi + (A6 + A6log * 2.*np.log(v)) * fgrid*np.pi*fgrid*np.pi)
-        AmpPNim = ampfacTime * AN * v*v * (A5imag * v*v*fgrid*np.pi + A6imag * fgrid*np.pi*fgrid*np.pi)
+        AmpPNre = ampfacTime * AN * v2 * (1. + A2 * v2 + A3 * v3 + A4 * v4 + A5 * v5 + (A6 + A6log * 2.*np.log(v)) * v6)
+        AmpPNim = ampfacTime * AN * v2 * (A5imag * v5 + A6imag * v6)
 
         aPN = np.sqrt(AmpPNre * AmpPNre + AmpPNim * AmpPNim)
         aPM = (gamma_correction * g1 * (fgrid**(5./6.)))
@@ -3123,9 +3147,9 @@ class IMRPhenomNSBH(WaveFormModel):
         LRD = sigma*sigma / ((fgrid - fring) * (fgrid - fring) + sigma*sigma*0.25)
         aRD = epsilon_tide * del1 * LRD * (fgrid**(-7./6.))
 
-        wMinusf0_PN = 0.5 * (1. - np.tanh(4.*(fgrid - (epsilon_ins * f0_tilde_PN)*M*glob.GMsun_over_c3)/(d0 + sigma_tide)))
-        wMinusf0_PM = 0.5 * (1. - np.tanh(4.*(fgrid - f0_tilde_PM*M*glob.GMsun_over_c3)/(d0 + sigma_tide)))
-        wPlusf0     = 0.5 * (1. + np.tanh(4.*(fgrid - f0_tilde_RD*M*glob.GMsun_over_c3)/(d0 + sigma_tide)))
+        wMinusf0_PN = 0.5 * (1. - np.tanh(4.*(fgrid - (epsilon_ins * f0_tilde_PN)*M_sec)/(d0 + sigma_tide)))
+        wMinusf0_PM = 0.5 * (1. - np.tanh(4.*(fgrid - f0_tilde_PM*M_sec)/(d0 + sigma_tide)))
+        wPlusf0     = 0.5 * (1. + np.tanh(4.*(fgrid - f0_tilde_RD*M_sec)/(d0 + sigma_tide)))
 
         if self.apply_fcut:
             amplitudeIMR = np.where(fgrid < self.fcutPar, (aPN * wMinusf0_PN + aPM * wMinusf0_PM + aRD * wPlusf0), 0.)
@@ -3133,7 +3157,7 @@ class IMRPhenomNSBH(WaveFormModel):
             amplitudeIMR = (aPN * wMinusf0_PN + aPM * wMinusf0_PM + aRD * wPlusf0)
 
         # Defined as in LALSimulation - LALSimIMRPhenomD.c line 332. Final units are correctly Hz^-1
-        Overallamp = 2. * np.sqrt(5./(64.*np.pi)) * M * glob.GMsun_over_c2_Gpc * M * glob.GMsun_over_c3 / kwargs['dL']
+        Overallamp = np.sqrt(5./(16.*np.pi)) * M * glob.GMsun_over_c2_Gpc * M_sec / kwargs['dL']
 
         return Overallamp*amplitudeIMR
 
