@@ -612,28 +612,34 @@ class BasicGWSignal(object):
         """
         Forget about analytic derivatives or finite differencing, just use JAX.
 
-        Assuming shape of freq_grid is (N_freq, N_params).
+        Assuming shape of freq_grid is (N_freq, *N_params).
+
+        Limited by the use of vmap, we will first flatten and then reshape in final output.
         """
+        _freq_grid = np.moveaxis(freq_grid, 0, -1)  # Move freq to last axis
+        flat_freq_grid = _freq_grid.reshape(-1, _freq_grid.shape[-1])  # Flatten parameters axis
+        flat_params = {key: arr.reshape(-1) for key, arr in parameters.items()}
         if self.wf_model.is_holomorphic:
-            cplx_freq_grid = freq_grid.astype("complex128")
-            cplx_parameters = {
-                key: val.astype("complex128") for key, val in parameters.items()
-            }
-            return vmap(
+            cplx_freq_grid = flat_freq_grid.astype("complex128")
+            cplx_parameters = {key: val.astype("complex128") for key, val in flat_params.items()}
+            
+            jacobian_dict = vmap(
                 jacrev(partial(self.GWstrain, rot=rot), argnums=1, holomorphic=True)
-            )(cplx_freq_grid.T, cplx_parameters)
+            )(cplx_freq_grid, cplx_parameters)
+        else:
+            def real_strain(freqs, params):
+                return self.GWstrain(freqs, params, rot).real
 
-        def real_strain(freqs, params):
-            return self.GWstrain(freqs, params, rot).real
+            def imag_strain(freqs, params):
+                return self.GWstrain(freqs, params, rot).imag
 
-        def imag_strain(freqs, params):
-            return self.GWstrain(freqs, params, rot).imag
-
-        real_deriv = vmap(jacrev(real_strain, argnums=1))(freq_grid.T, parameters)
-        imag_deriv = vmap(jacrev(imag_strain, argnums=1))(freq_grid.T, parameters)
-        return OrderedDict(
-            {key: real_deriv[key] + 1j * imag_deriv[key] for key in parameters.keys()}
-        )
+            real_deriv = vmap(jacrev(real_strain, argnums=1))(flat_freq_grid, flat_params)
+            imag_deriv = vmap(jacrev(imag_strain, argnums=1))(flat_freq_grid, flat_params)
+            jacobian_dict = {key: real_deriv[key] + 1j * imag_deriv[key] for key in parameters.keys()}
+        
+        return OrderedDict({
+            key: jacobian_dict[key].reshape(*_freq_grid.shape) for key in parameters.keys()})
+        
 
     def _GWstrain_wrapper(self, param_values, param_keys, freqs, rot=0.0):
         parameters = dict(zip(param_keys, param_values))
@@ -657,28 +663,26 @@ class BasicGWSignal(object):
             )
         )
         if len(jacobian.shape) == 2:  # len(Mc) == 1:
-            jacobian = jacobian[:, :, None]
-        jacobian = jacobian.transpose(1, 2, 0)
+            jacobian = np.expand_dims(jacobian, -1)
+        # jacobian = jacobian.transpose(1, 2, 0)
+        jacobian = np.moveaxis(jacobian, 0, -1)  # This line has not been tested.
 
         return OrderedDict(dict(zip(parameters.keys(), jacobian)))
 
     def convert_Jacobian_to_Fisher(self, jacobian_dict, freqs_grid):
-        # The matrix has shape: (N_params, param_len, N_freq)
+        # The matrix has shape: (N_keys, *N_params, N_freq)
         jacobian_mat = np.array(tree.leaves(jacobian_dict))
 
-        pre_fisher_mat = jacobian_mat[:, :, None, :].conj() * jacobian_mat.transpose(
-            1, 0, 2
-        )
-        pre_fisher_mat = np.swapaxes(pre_fisher_mat, 1, 2)
+        pre_fisher_mat = np.expand_dims(jacobian_mat, 1).conj() * jacobian_mat
 
         fisher_shape = pre_fisher_mat.shape[:-1]
         fisher_mat = onp.zeros(fisher_shape)
 
-        freqs_grid_T = freqs_grid.T
+        freqs_grid_T = np.moveaxis(freqs_grid, 0, -1)
         psd_grids = self.detector.psd_interp(freqs_grid_T)
         for row, col in zip(*np.triu_indices(fisher_shape[0])):
             fisher_mat[row, col] = np.trapezoid(
-                pre_fisher_mat[row, col] / psd_grids, freqs_grid_T, axis=1
+                pre_fisher_mat[row, col] / psd_grids, freqs_grid_T, axis=-1
             ).real
             fisher_mat[row, col] *= 4.0
 
