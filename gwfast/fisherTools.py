@@ -4,7 +4,6 @@
 #    All rights reserved. Use of this source code is governed by the
 #    license that can be found in the LICENSE file.
 
-
 import os
 os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=8"
 from functools import partial
@@ -35,6 +34,9 @@ DEFAULT_SVD = {
     "svals_thresh": 1e-15,
 }
 
+absmax = lambda ndarray: np.max(np.abs(ndarray))
+absmin = lambda ndarray: np.min(np.abs(ndarray))
+
 ##############################################################################
 # INVERSION AND SANITY CHECKS
 ##############################################################################
@@ -49,7 +51,7 @@ def compute_single_svd(
     S_diag = np.array(sing_vals.tolist(), dtype=typeuse)
 
     if (truncate) and (np.abs(condition) > condition_max):
-        max_sing_val = mpmath.absmax(sing_vals)
+        max_sing_val = absmax(S_diag)
         S_inv = mpmath.matrix(
             np.where(
                 np.abs(S_diag) / max_sing_val > svals_thresh,
@@ -103,9 +105,9 @@ def compute_single_covariance_mat(
 
     ## Check positive definiteness
     try:
-        eigv, _ = mpmath.eigh(mp_fisher)
+        eigv = np.array(mpmath.eigh(mp_fisher)[0], dtype=typeuse)
         # Check positive definiteness
-        cond = mpmath.absmax(eigv) / mpmath.absmin(eigv)
+        cond = absmax(eigv) / absmin(eigv)
         positive_definite = min(eigv) >= 0
     except Exception as e:
         # Eigenvalue decomposition failed
@@ -117,8 +119,8 @@ def compute_single_covariance_mat(
         weights = mpmath.inverse(mpmath.diag(np.sqrt(np.diag(fisher_mat))))
         _mp_fisher = weights * mp_fisher * weights
         # Conditioning of the new Fisher
-        new_eigv, _ = mpmath.eigh(_mp_fisher)
-        cond = mpmath.absmax(new_eigv) / mpmath.absmin(new_eigv)
+        new_eigv = np.array(mpmath.eigh(_mp_fisher)[0], dtype=typeuse)
+        cond = absmax(new_eigv) / absmin(new_eigv)
         reweighted = True
     except ZeroDivisionError:
         print(
@@ -160,7 +162,7 @@ def compute_single_covariance_mat(
             )
         case "lu":
             P, L, U = mpmath.lu(_mp_fisher)
-            ll = P * L
+            ll = P.T * L
             llinv = ll**-1
             uinv = U**-1
             cc = uinv * llinv
@@ -170,8 +172,10 @@ def compute_single_covariance_mat(
 
     if reweighted:
         # Undo the reweighting
-        return weights * cov_mat * weights
-    return cov_mat
+        mp_cov_mat = weights * cov_mat * weights
+    else:
+        mp_cov_mat = cov_mat
+    return np.asarray(mp_cov_mat.tolist(), dtype=typeuse)
 
 def compute_covariance_matrix(
     fisher_matrix,
@@ -186,15 +190,14 @@ def compute_covariance_matrix(
 ):
     orig_shape = fisher_matrix.shape
     flat_fisher_mat = fisher_matrix.reshape(orig_shape[0], orig_shape[1], -1)
-
-    tmp_fisher_matrix = copy.deepcopy(flat_fisher_mat)
-
-    flat_fisher_mat = flat_fisher_mat.astype(typeuse)
+    flat_fisher_mat = np.asarray(flat_fisher_mat, dtype=typeuse)
     fisher_mat_loop = np.moveaxis(flat_fisher_mat, -1, 0)
+    tmp_fisher_matrix = copy.deepcopy(flat_fisher_mat)
 
     if cores is None:
         available_cores = cpu_count()
         cores = max(1, available_cores - 4)
+        cores = min(cores, flat_fisher_mat.shape[-1])
 
     if cores > 1:
         _compute_single_covariance_mat = partial(
@@ -211,7 +214,8 @@ def compute_covariance_matrix(
     else:
         cov_matrix_list = [
             compute_single_covariance_mat(
-                fisher_mat, inv_method=inv_method, alt_method=alt_method
+                fisher_mat, inv_method=inv_method, 
+                alt_method=alt_method, svd_kwargs=svd_kwargs
             )
             for fisher_mat in fisher_mat_loop
         ]
@@ -409,7 +413,7 @@ def CovMatr(
 
         elif invMethod == "lu":
             P, L, U = mpmath.lu(FisherM_)
-            ll = P * L
+            ll = P.T * L
             llinv = ll**-1
             uinv = U**-1
             cc = uinv * llinv

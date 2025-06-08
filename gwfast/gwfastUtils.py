@@ -1372,8 +1372,6 @@ def dist_btw_dets_Chord(det1, det2):
 ##############################################################################
 # OTHERS
 ##############################################################################
-
-
 def check_evparams(evParams):
     """
     Check the format of the events parameters and make the needed conversions.
