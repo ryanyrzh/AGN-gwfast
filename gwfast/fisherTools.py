@@ -6,11 +6,12 @@
 
 
 import os
-
 os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=8"
-import jax
-jax.devices("cpu")
-from jax import config
+from functools import partial
+from multiprocessing import Pool, cpu_count
+
+from jax import config, devices
+devices("cpu")
 config.update("jax_enable_x64", True)
 
 import numpy as np
@@ -18,8 +19,6 @@ import copy
 import mpmath
 from scipy.stats import norm
 from scipy.linalg import eigh
-
-from multiprocessing import Pool, cpu_count
 
 try:
     np.float128(1.0)
@@ -30,13 +29,203 @@ except AttributeError:
     )
     typeuse = "float64"
 
+DEFAULT_SVD = {
+    "condition_max": 1e50,
+    "truncate": False,
+    "svals_thresh": 1e-15,
+}
 
 ##############################################################################
 # INVERSION AND SANITY CHECKS
 ##############################################################################
-def compute_single_covariance_mat(fisher_mat):
+def compute_single_svd(
+        mpm_fisher_mat, condition, svd_kwargs={}
+        ):
+    condition_max = svd_kwargs.get("condition_max", DEFAULT_SVD["condition_max"])
+    truncate = svd_kwargs.get("truncate", DEFAULT_SVD["truncate"])
+    svals_thresh = svd_kwargs.get("svals_thresh", DEFAULT_SVD["svals_thresh"])
+    
+    U, sing_vals, V = mpmath.svd_r(mpm_fisher_mat)
+    S_diag = np.array(sing_vals.tolist(), dtype=typeuse)
+
+    if (truncate) and (np.abs(condition) > condition_max):
+        max_sing_val = mpmath.absmax(sing_vals)
+        S_inv = mpmath.matrix(
+            np.where(
+                np.abs(S_diag) / max_sing_val > svals_thresh,
+                1 / S_diag,
+                1 / (max_sing_val * svals_thresh)
+            ).astype(typeuse)
+        )
+        S_trunc = mpmath.matrix(
+            np.where(
+                np.abs(S_diag) / max_sing_val > svals_thresh,
+                S_diag,
+                max_sing_val * svals_thresh
+            ).astype(typeuse)
+        )
+
+        # Also copute truncated Fisher to quantify inversion error consistently
+        trunc_fisher = U * mpmath.diag(S_trunc) * V
+        trunc_fisher = (trunc_fisher + trunc_fisher.T) / 2
+        trunc_fisher = np.array(trunc_fisher.tolist(), dtype=typeuse)
+
+    else:
+        S_inv = mpmath.matrix(1 / S_diag)
+
+    cc = V.T * mpmath.diag(S_inv) * U.T
+    return cc
+
+def compute_single_svd_reg(mpm_fisher_mat, svd_kwargs={}):
+    U, Sm, V = mpmath.svd_r(mpm_fisher_mat)
+
+    S = np.squeeze(np.array(Sm.tolist(), dtype=typeuse))
+    Um = np.array(U.tolist(), dtype=typeuse)
+    Vm = np.array(V.tolist(), dtype=typeuse)
+
+    svals_thresh = svd_kwargs.get("svals_thresh", DEFAULT_SVD["svals_thresh"])
+    kVal = sum(S > svals_thresh)
+
+    # Sinv = mpmath.matrix(np.array([1 / s for s in S]).astype(typeuse))
+    return mpmath.matrix(
+        Um[:, 0:kVal] @ np.diag(1.0 / S[0:kVal]) @ Vm[0:kVal, :]
+    )
+
+
+def compute_single_covariance_mat(
+        fisher_mat, inv_method='cho', alt_method='svd', svd_kwargs={}):
     if np.all(np.isnan(fisher_mat)):
         return np.full(fisher_mat.shape, np.nan)
+
+    reweighted = False
+    positive_definite = True
+    mp_fisher = mpmath.matrix(fisher_mat)
+
+    ## Check positive definiteness
+    try:
+        eigv, _ = mpmath.eigh(mp_fisher)
+        # Check positive definiteness
+        cond = mpmath.absmax(eigv) / mpmath.absmin(eigv)
+        positive_definite = min(eigv) >= 0
+    except Exception as e:
+        # Eigenvalue decomposition failed
+        print(e + "\n" + "Inversion failed (Eigenvalue decomposition failed)!")
+        return np.full(fisher_mat.shape, np.nan)
+
+    try:
+        # Normalize by the diagonal
+        weights = mpmath.inverse(mpmath.diag(np.sqrt(np.diag(fisher_mat))))
+        _mp_fisher = weights * mp_fisher * weights
+        # Conditioning of the new Fisher
+        new_eigv, _ = mpmath.eigh(_mp_fisher)
+        cond = mpmath.absmax(new_eigv) / mpmath.absmin(new_eigv)
+        reweighted = True
+    except ZeroDivisionError:
+        print(
+            "The Fisher matrix has a zero element on the diagonal. \n" + 
+            "The normalization procedure will not be applied. Consider using a prior."
+        )
+        _mp_fisher = mp_fisher
+    else:
+        positive_definite = min(new_eigv) >= 0
+
+    if inv_method == 'cho':
+        if not positive_definite:
+            inv_method = alt_method
+        else:
+            try:
+            # In rare cases, the choleski decomposition still fails even if the eigenvalues are positive...
+            # likely for very small eigenvalues
+                c = (mpmath.cholesky(_mp_fisher)) ** -1
+            except Exception as e:
+                invMethod = alt_method
+                print(e + "\n" + 
+                    "Cholesky decomposition not usable. Eigenvalues seem ok but cholesky decomposition failed. Using method %s"
+                    % invMethod
+                )
+
+    match inv_method:
+        case "inv":
+            cc = _mp_fisher ** -1
+        case "cho":
+            # c = cF**-1
+            cc = c.T * c
+        case "svd":
+            cc = compute_single_svd(
+                _mp_fisher, cond, svd_kwargs
+                )
+        case "svd_reg":
+            cc = compute_single_svd_reg(
+                _mp_fisher, svd_kwargs
+            )
+        case "lu":
+            P, L, U = mpmath.lu(_mp_fisher)
+            ll = P * L
+            llinv = ll**-1
+            uinv = U**-1
+            cc = uinv * llinv
+
+    # Enforce symmetry.
+    cov_mat = (cc + cc.T) / 2
+
+    if reweighted:
+        # Undo the reweighting
+        return weights * cov_mat * weights
+    return cov_mat
+
+def compute_covariance_matrix(
+    fisher_matrix,
+    inv_method='cho',
+    alt_method='svd',
+    cores=None,
+    svd_kwargs=dict(
+        condition_max=1e50,
+        truncate=False,
+        svals_thresh=1e-15,
+    )
+):
+    orig_shape = fisher_matrix.shape
+    flat_fisher_mat = fisher_matrix.reshape(orig_shape[0], orig_shape[1], -1)
+
+    tmp_fisher_matrix = copy.deepcopy(flat_fisher_mat)
+
+    flat_fisher_mat = flat_fisher_mat.astype(typeuse)
+    fisher_mat_loop = np.moveaxis(flat_fisher_mat, -1, 0)
+
+    if cores is None:
+        available_cores = cpu_count()
+        cores = max(1, available_cores - 4)
+
+    if cores > 1:
+        _compute_single_covariance_mat = partial(
+            compute_single_covariance_mat, 
+            inv_method=inv_method,
+            alt_method=alt_method,
+            svd_kwargs=svd_kwargs
+        )
+        with Pool(processes=cores) as pool:
+            cov_matrix_list = pool.map(
+                _compute_single_covariance_mat, 
+                fisher_mat_loop
+            )
+    else:
+        cov_matrix_list = [
+            compute_single_covariance_mat(
+                fisher_mat, inv_method=inv_method, alt_method=alt_method
+            )
+            for fisher_mat in fisher_mat_loop
+        ]
+
+    cov_matrices = np.array(cov_matrix_list, dtype=typeuse)
+    cov_matrices = np.moveaxis(cov_matrices, 0, -1)
+
+    eps = compute_inversion_error(tmp_fisher_matrix, cov_matrices)
+
+    ## Restore to the original input shape:
+    cov_matrices = cov_matrices.reshape(*orig_shape)
+    eps = eps.reshape(orig_shape[2:])
+    return cov_matrices, eps
+
 
 def CovMatr(
     FisherMatrix,
