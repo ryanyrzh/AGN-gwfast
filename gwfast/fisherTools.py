@@ -268,7 +268,7 @@ def CovMatr(
         if np.all(np.isnan(fisher_mat)):
             if verbose:
                 print("Fisher is nan at position %s. " % k)
-            CovMatr[:, :, k] = np.full(fisher_mat, np.nan)
+            CovMatr[:, :, k] = np.full(fisher_mat.shape, np.nan)
             continue
         # go to mpmath
         ff = mpmath.matrix(fisher_mat.astype(typeuse))
