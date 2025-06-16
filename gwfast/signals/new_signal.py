@@ -874,7 +874,7 @@ class BasicGWSignal(object):
 
         def tcoal_par_deriv():
             afac_dtime, bfac_dtime, deltat_dtime = self.detector._compute_ab_factors(
-                ras, decs, t, rot_rad, dtheta=True
+                ras, decs, t, rot_rad, dtime=True
             )
 
             Fpc = apply_psi_rotation(psi, afac_dtime, bfac_dtime) * sin_angbtwArms

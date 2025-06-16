@@ -449,6 +449,24 @@ def CovMatr(
     eps = eps.reshape(orig_shape[2:])
     return CovMatr, eps
 
+def print_single_matrix(matrix, parameters:dict):
+    keys = list(parameters.keys())
+    max_len = len(max(keys, key=len)) + 1
+    col_len = max(11, max_len)
+    row = f'{"":{max_len}}   ' + '  '.join([f'{col_key:^{col_len}}' for col_key in keys])
+    print(row)
+    for rdx, row_key in enumerate(keys):
+        row = f'{row_key:>{max_len}}  '
+        for cdx, _ in enumerate(keys):
+            row += f'{matrix[rdx][cdx]:+{col_len}.3e}  '
+        print(row)
+
+def print_matrices(matrices, parameters:dict):
+    # Swapping the axes so that it can be iterated over the different sets of parameters.
+    fisher_mats_iter = np.moveaxis(matrices, 2, 0)
+    for matrix in fisher_mats_iter:
+        print_single_matrix(matrix, parameters)
+        print('--------------------')
 
 def compute_inversion_error(Fisher, Cov):
     """
