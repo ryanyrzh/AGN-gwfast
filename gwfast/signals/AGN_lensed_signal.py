@@ -10,41 +10,24 @@ config.update("jax_enable_x64", True)
 
 from gwfast.gwfastUtils import get_model_parameters
 from gwfast.lensing_utils_alt import get_agn_lensed_parameters
-from gwfast.signals import GeneralLensedGWSignal
+from gwfast.signals import BasicGWSignal, GeneralLensedGWSignal
 
 
 class AGNLensedGWSignal(GeneralLensedGWSignal):
     """
-    Class to compute the GW signal emitted by a coalescing binary system as seen by a detector on Earth.
+    This class is built on top of the :py:class:`GeneralLensedGWSignal` class, and is specifically designed for 
+    lensed GW signals from BBH that are embeded within the AGN accretion disk, with the assumption that the binary's orbital angular momentum is aligned with that of the disk.
 
-    The functions defined within this class allow to get e.g. the amplitude of the signal, its phase, SNR and Fisher matrix elements.
+    Other than the standard binary parameters, this class adds the following parameters:
+    * ``R_orbit``: orbital radius of the binary, in :math:`\\rm R_{\\odot}` 
+    * ``M_lz``: mass of the AGN, in :math:`\\rm M_{\\odot}` 
+    * ``src_pos``: position of the source in the accretion disk, in :math:`\\rm R_{\\odot}` 
 
-    :param WaveFormModel wf_model: Object containing the waveform model.
-    :param str psd_path: Full path to the file containing the detector's *Power Spectral Density*, PSD, or *Amplitude Spectral Density*, ASD, including the file extension. The file is assumed to have two columns, the first containing the frequencies (in :math:`\\rm Hz`) and the second containing the detector's PSD/ASD at each frequency.
-    :param str optional detector_shape: The shape of the detector, to be chosen among ``'L'`` for an L-shaped detector (90°-arms) and ``'T'`` for a triangular detector (3 nested detectors with 60°-arms).
-    :param float optional det_lat: Latitude of the detector, in degrees.
-    :param float optional det_long: Longitude of the detector, in degrees.
-    :param float optional det_xax: Angle between the bisector of the detector's arms (the first detector in the case of a triangle) and local East, in degrees.
-    :param bool, optional verbose: Boolean specifying if the code has to print additional details during execution.
-    :param bool, optional is_ASD: Boolean specifying if the provided file is a PSD or an ASD.
-    :param bool, optional useEarthMotion: Boolean specifying if the effect of the Earth rotation has to be included in the analysis.
-    :param bool, optional noMotion: Boolean specifying if the Earth should be considered fixed at ``tcoal=0``. In the case ``useEarthMotion=False`` the system is rotated depending on ``tcoal`` and then left fixed. This was needed for checks and is not to be used.
-    :param float fmin: Minimum frequency to use for the grid in the analysis, in :math:`\\rm Hz`.
-    :param float fmax: Maximum frequency to use for the grid in the analysis, in :math:`\\rm Hz`. The cut frequency of the waveform (which depends on the events parameters) will be used as maximum frequency if ``fmax=None`` or if it is smaller than ``fmax``.
-    :param Detector optional detector: A detector object, once specified, it overrides the specified lat, long, and xax above.
-    :param float detector.duty_cycle: Duty factor of the detector, between 0 and 1, representing the percentage of time the detector (each detector independently in the case of a triangular detector) is supposed to be operational.
-    :param bool, optional compute2arms: Boolean specifying if, in the case of a triangular detector, the computation can be performed only in two of the instruments, using the null-stream to get the signal in the third instrument, speeding up the computation by 1/3.
-    :param bool, optional jitCompileDerivs: Boolean specifying if the derivatives function has to be jit compiled. NOTE: This only works with JAX derivatives.
+    Other than the additional parameters, the rest of this class behaves like a standard GW signal class:
 
     """
 
-    """
-    Inputs are an object containing the waveform model, the coordinates of the detector (latitude and longitude in deg),
-    its shape (L or T), the angle with respect to East of the bisector of the arms (deg)
-    and its ASD or PSD (given in a .txt file containing two columns: one with the frequencies and one with the ASD or PSD values,
-    remember ASD=sqrt(PSD))
-
-    """
+    __doc__ += BasicGWSignal.__doc__
 
     def __init__(self, **kwargs):
 
@@ -67,17 +50,6 @@ class AGNLensedGWSignal(GeneralLensedGWSignal):
         raise NotImplementedError("Yeah, someone should work on this.")
 
     def GWstrain(self, freqs, parameters, rot=0.0, return_single_comp=None):
-        """
-        Compute the full GW strain (complex) as a function of the parameters, at given frequencies.
-
-        :param array or float f: The frequency(ies) at which to perform the calculation, in :math:`\\rm Hz`.
-        :param dict parameters: The parameters dictionary to evaluate the strain at.
-        :param float rot: Further rotation of the interferometer with respect to the :py:data:`self.xax` orientation, in degrees, needed for the triangular geometry.
-        :param str return_single_comp: String specifying if a single component of the signal should be returned, to be chosen among ``Ap`` and ``Ac``, to return the plus and cross amplitude, :math:`A_+` and :math:`A_{\\times}`, respectively, and ``Psip`` and ``Psic``, to return the plus and cross phase, :math:`\Phi_+` and :math:`\Phi_{\\times}`, respectively.
-        :return: Complete signal strain (complex), evaluated at the given parameters and frequency(ies).
-        :rtype: array or float
-
-        """
         model_parameters = self.convert_to_general_lensed_parameters(parameters)
 
         return super().GWstrain(

@@ -38,21 +38,21 @@ class BasicGWSignal(object):
     The functions defined within this class allow to get e.g. the amplitude of the signal, its phase, SNR and Fisher matrix elements.
 
     :param WaveFormModel wf_model: Object containing the waveform model.
-    :param str psd_path: Full path to the file containing the detector's *Power Spectral Density*, PSD, or *Amplitude Spectral Density*, ASD, including the file extension. The file is assumed to have two columns, the first containing the frequencies (in :math:`\\rm Hz`) and the second containing the detector's PSD/ASD at each frequency.
+    :param Detector optional detector: A detector object, once specified, it will ignore all other given detector parameters.
+    :param str optional psd_path: Full path to the file containing the detector's *Power Spectral Density*, PSD, or *Amplitude Spectral Density*, ASD, including the file extension. The file is assumed to have two columns, the first containing the frequencies (in :math:`\\rm Hz`) and the second containing the detector's PSD/ASD at each frequency.
     :param str optional detector_shape: The shape of the detector, to be chosen among ``'L'`` for an L-shaped detector (90°-arms) and ``'T'`` for a triangular detector (3 nested detectors with 60°-arms).
     :param float optional det_lat: Latitude of the detector, in degrees.
     :param float optional det_long: Longitude of the detector, in degrees.
     :param float optional det_xax: Angle between the bisector of the detector's arms (the first detector in the case of a triangle) and local East, in degrees.
     :param bool, optional verbose: Boolean specifying if the code has to print additional details during execution.
-    :param bool, optional is_ASD: Boolean specifying if the provided file is a PSD or an ASD.
     :param bool, optional useEarthMotion: Boolean specifying if the effect of the Earth rotation has to be included in the analysis.
     :param bool, optional noMotion: Boolean specifying if the Earth should be considered fixed at ``tcoal=0``. In the case ``useEarthMotion=False`` the system is rotated depending on ``tcoal`` and then left fixed. This was needed for checks and is not to be used.
     :param float fmin: Minimum frequency to use for the grid in the analysis, in :math:`\\rm Hz`.
-    :param float fmax: Maximum frequency to use for the grid in the analysis, in :math:`\\rm Hz`. The cut frequency of the waveform (which depends on the events parameters) will be used as maximum frequency if ``fmax=None`` or if it is smaller than ``fmax``.
-    :param Detector optional detector: A detector object, once specified, it overrides the specified lat, long, and xax above.
-    :param float detector.duty_cycle: Duty factor of the detector, between 0 and 1, representing the percentage of time the detector (each detector independently in the case of a triangular detector) is supposed to be operational.
+    :param float optional fmax: Maximum frequency to use for the grid in the analysis, in :math:`\\rm Hz`. The cut frequency of the waveform (which depends on the events parameters) will be used as maximum frequency if ``fmax=None`` or if it is smaller than ``fmax``.
+    :param float optional DutyFactor: Duty factor of the detector, between 0 and 1, representing the percentage of time the detector (each detector independently in the case of a triangular detector) is supposed to be operational.
     :param bool, optional compute2arms: Boolean specifying if, in the case of a triangular detector, the computation can be performed only in two of the instruments, using the null-stream to get the signal in the third instrument, speeding up the computation by 1/3.
     :param bool, optional jitCompileDerivs: Boolean specifying if the derivatives function has to be jit compiled. NOTE: This only works with JAX derivatives.
+    :param dict optional init_params: The parameters to use for the JAX-initialisation of the Signal object. A partial dictionary can be provided, which will be filled up with default values. Most users need not concern about this, it is most useful for creating child classes.
 
     """
 
@@ -67,6 +67,7 @@ class BasicGWSignal(object):
     def __init__(
         self,
         wf_model,
+        detector=None,
         psd_path=None,
         detector_shape="T",
         det_lat=40.44,
@@ -77,11 +78,10 @@ class BasicGWSignal(object):
         noMotion=False,  # use only for checks
         fmin=2.0,
         fmax=None,
-        detector=None,
-        init_params = {},
         DutyFactor=None,
         compute2arms=True,
         jitCompileDerivs=False,
+        init_params={},
     ):
 
         if (useEarthMotion) and (wf_model.objType == "BBH") and (verbose):
@@ -205,8 +205,7 @@ class BasicGWSignal(object):
     @property
     def need_HM(self):
         """
-        Dynamically evaluate whether the waveform model needs
-        higher harmonics
+        (Dynamically) evaluate whether the waveform model needs higher harmonics
         """
         return (self.wf_model.is_HigherModes) or (self.wf_model.is_Precessing)
 
@@ -241,7 +240,6 @@ class BasicGWSignal(object):
         :param float rot: Further rotation of the interferometer with respect to the :py:data:`self.xax` orientation, in degrees, needed for the triangular geometry.
         :return: Plus and cross amplitudes at the detector, evaluated at the given parameters and frequency(ies).
         :rtype: tuple(array, array) or tuple(float, float)
-
         """
         # evParams are all the parameters characterizing the event(s) under exam. It has to be a dictionary containing the entries:
         # Mc -> chirp mass (Msun), dL -> luminosity distance (Gpc), theta & phi -> sky position (rad), iota -> inclination angle of orbital angular momentum to l.o.s toward the detector,

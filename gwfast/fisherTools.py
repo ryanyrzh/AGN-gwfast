@@ -8,6 +8,7 @@ import os
 os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=8"
 from functools import partial
 from multiprocessing import Pool, cpu_count
+from typing import Union
 
 from jax import config, devices
 devices("cpu")
@@ -177,6 +178,7 @@ def compute_single_covariance_mat(
         mp_cov_mat = cov_mat
     return np.asarray(mp_cov_mat.tolist(), dtype=typeuse)
 
+
 def compute_covariance_matrix(
     fisher_matrix,
     inv_method='cho',
@@ -188,6 +190,21 @@ def compute_covariance_matrix(
         svals_thresh=1e-15,
     )
 ):
+    """
+    Obtain the covariance matrix(ces) by inverting the Fisher matrix(ces).
+
+    :param array fisher_matrix: Array containing the Fisher matrix(ces) to invert, of shape :math:`(N_{\\rm parameters}`, :math:`N_{\\rm parameters}`, :math:`N_{\\rm events}, ...)`, :math:`N_{\\rm events}` can be more than one-dimension.
+    :param str inv_method: Inversion method to use. To be chosen among ``'inv'``, ``'cho'``, ``'svd'``, ``'svd_reg'`` and ``'lu'``.
+    :param str alt_method: Inversion method to use in case the inverison with ``invMethodIn`` fails. To be chosen among ``'inv'``, ``'cho'``, ``'svd'``, ``'svd_reg'`` and ``'lu'``. It has to be different from ``invMethodIn``.
+    :param int Optional cores: Number of cores to use for parallel computation. If not specified, it will use all available cores minus 4, or the number of events if smaller.
+    :param dict svd_kwargs: Dictionary containing the parameters for the SVD inversion method. It can contain the following keys:
+        :param float condNumbMax: Maximum allowed condition number, above which the inverse matrix is not computed. The default value is 1e50, so the code will try to invert every matrix, irrespectively of the conditioning.
+        :param bool, optional truncate: Boolean specifying if, when using the ``'svd'`` method, the function has to truncate the smallest singular values to the minimum allowed numerical precision.
+        :param float svals_thresh: Threshold value to truncate the singular values when using the ``'svd'`` method, or to exclude the singular values from the inversion when using the ``'svd_reg'`` method.
+    :return: Covariance matrix(ces) ((2+N)-D array) and inversion error(s) (N-D array), ``N`` being the number of dimensions of the parameters. The covariance matrix(ces) have the same shape of ``FisherMatrix``, i.e. :math:`(N_{\\rm parameters}`, :math:`N_{\\rm parameters}`, :math:`N_{\\rm events}, ...)`.
+    :rtype: tuple(array, array)
+
+    """
     orig_shape = fisher_matrix.shape
     flat_fisher_mat = fisher_matrix.reshape(orig_shape[0], orig_shape[1], -1)
     flat_fisher_mat = np.asarray(flat_fisher_mat, dtype=typeuse)
@@ -449,8 +466,25 @@ def CovMatr(
     eps = eps.reshape(orig_shape[2:])
     return CovMatr, eps
 
-def print_single_matrix(matrix, parameters:dict):
-    keys = list(parameters.keys())
+
+def print_single_matrix(matrix, parameters:Union[dict, list]):
+    """
+    A helper function to print a Fisher/Covariance matrices nicely.
+
+    :param array matrix: Array containing one matrix for prining, must be 2D.
+    :param dict/list parameters: Dictionary or list containing the parameters names to be printed as headers.
+
+    """
+    assert matrix.ndim == 2, "Single matrix should be 2D."
+    if isinstance(parameters, dict):
+        keys = list(parameters.keys())
+    elif isinstance(parameters, list):
+        keys = parameters
+    else:
+        raise TypeError(
+            "Parameters should be a dictionary or a list, got %s." % type(parameters)
+        )
+
     max_len = len(max(keys, key=len)) + 1
     col_len = max(11, max_len)
     row = f'{"":{max_len}}   ' + '  '.join([f'{col_key:^{col_len}}' for col_key in keys])
@@ -461,12 +495,27 @@ def print_single_matrix(matrix, parameters:dict):
             row += f'{matrix[rdx][cdx]:+{col_len}.3e}  '
         print(row)
 
-def print_matrices(matrices, parameters:dict):
+
+def print_matrices(matrices, parameters:Union[dict, list]):
+    """
+    A helper function to print array of Fisher/Covariance matrices nicely.
+
+    :param array matrices: Array containing the matrix(ces) for prining, of shape :math:`(N_{\\rm parameters}`, :math:`N_{\\rm parameters}`, :math:`N_{\\rm events})`.
+    :param dict/list parameters: Dictionary or list containing the parameters names to be printed as headers.
+
+    """
+    if matrices.ndim > 3:
+        print("The parameter axis of the input matrices seems to be more than 1D, flattening it for iteration.")
+        orig_shape = matrices.shape
+        flat_matrices = matrices.reshape(orig_shape[0], orig_shape[1], -1)
+    else:
+        flat_matrices = matrices
     # Swapping the axes so that it can be iterated over the different sets of parameters.
-    fisher_mats_iter = np.moveaxis(matrices, 2, 0)
+    fisher_mats_iter = np.moveaxis(flat_matrices, 2, 0)
     for matrix in fisher_mats_iter:
         print_single_matrix(matrix, parameters)
         print('--------------------')
+
 
 def compute_inversion_error(Fisher, Cov):
     """
@@ -1253,7 +1302,6 @@ def plot_corners(
                  should be a dictionary:
                  {parameters: the_labels}
     """
-
     color = kwargs.get("color", "C3")
 
     n_params = len(parameters)

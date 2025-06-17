@@ -1200,8 +1200,7 @@ class GWSignal(object):
 
         return np.squeeze(2 * np.sqrt(allSNRsq), axis=0)
 
-        # The factor of two arises by cutting the integral from 0 to infinity
-
+    # The factor of two arises by cutting the integral from 0 to infinity
     def FisherMatr(
         self,
         evParams,

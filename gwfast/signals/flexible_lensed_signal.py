@@ -22,47 +22,25 @@ class GeneralLensedGWSignal(BasicGWSignal):
     On top of that, a phenomenological redshift is also allowed to apply to the signal (in particular, the chirp mass).
     This could due to the orbital motion of the source around some massive object.
 
-    The functions defined within this class allow to get e.g. the amplitude of the signal, its phase, SNR and Fisher matrix elements.
+    There are 5 additional parameters that are added to the usual BBH waveform:
+    * ``delta_iota``: change in inclination angle, in radians
+    * ``delta_phase``: change in phase, in radians
+    * ``delta_time``: change in coalescence time, in seconds
+    * ``relative_distance``: change in luminosity distance, dimensionless
+    * ``relative_mass``: change in chirp mass, dimensionless
 
-    :param WaveFormModel wf_model: Object containing the waveform model.
-    :param str psd_path: Full path to the file containing the detector's *Power Spectral Density*, PSD, or *Amplitude Spectral Density*, ASD, including the file extension. The file is assumed to have two columns, the first containing the frequencies (in :math:`\\rm Hz`) and the second containing the detector's PSD/ASD at each frequency.
-    :param str optional detector_shape: The shape of the detector, to be chosen among ``'L'`` for an L-shaped detector (90°-arms) and ``'T'`` for a triangular detector (3 nested detectors with 60°-arms).
-    :param float optional det_lat: Latitude of the detector, in degrees.
-    :param float optional det_long: Longitude of the detector, in degrees.
-    :param float optional det_xax: Angle between the bisector of the detector's arms (the first detector in the case of a triangle) and local East, in degrees.
-    :param bool, optional verbose: Boolean specifying if the code has to print additional details during execution.
-    :param bool, optional is_ASD: Boolean specifying if the provided file is a PSD or an ASD.
-    :param bool, optional useEarthMotion: Boolean specifying if the effect of the Earth rotation has to be included in the analysis.
-    :param bool, optional noMotion: Boolean specifying if the Earth should be considered fixed at ``tcoal=0``. In the case ``useEarthMotion=False`` the system is rotated depending on ``tcoal`` and then left fixed. This was needed for checks and is not to be used.
-    :param float fmin: Minimum frequency to use for the grid in the analysis, in :math:`\\rm Hz`.
-    :param float fmax: Maximum frequency to use for the grid in the analysis, in :math:`\\rm Hz`. The cut frequency of the waveform (which depends on the events parameters) will be used as maximum frequency if ``fmax=None`` or if it is smaller than ``fmax``.
-    :param Detector optional detector: A detector object, once specified, it overrides the specified lat, long, and xax above.
-    :param float detector.duty_cycle: Duty factor of the detector, between 0 and 1, representing the percentage of time the detector (each detector independently in the case of a triangular detector) is supposed to be operational.
-    :param bool, optional compute2arms: Boolean specifying if, in the case of a triangular detector, the computation can be performed only in two of the instruments, using the null-stream to get the signal in the third instrument, speeding up the computation by 1/3.
-    :param bool, optional jitCompileDerivs: Boolean specifying if the derivatives function has to be jit compiled. NOTE: This only works with JAX derivatives.
+    Alternatively, the parameters can be given in the form of:
+    * ``iota_1``, ``iota_2``: two different inclination angles, in radians
+    * ``phase_1``, ``phase_2``: two different phases, in radians
+    * ``tGPS_1``, ``tGPS_2``: two different GPS times, in seconds
+    * ``tcoal_1``, ``tcoal_2``: two different coalescence times, in seconds
+    * ``dL_1``, ``dL_2``: two different luminosity distances, in meters
+    * ``Mc_1``, ``Mc_2``: two different chirp masses, in solar masses
 
+    Other than the additional parameters, the rest of this class behaves like a standard GW signal class:
     """
 
-    """
-    Inputs are an object containing the waveform model, the coordinates of the detector (latitude and longitude in deg),
-    its shape (L or T), the angle with respect to East of the bisector of the arms (deg)
-    and its ASD or PSD (given in a .txt file containing two columns: one with the frequencies and one with the ASD or PSD values,
-    remember ASD=sqrt(PSD))
-
-    """
-
-    """
-    Implementation details:
-        The usual BBH waveform has the following 15 parameters:
-        * Intrinsic: (chirp mass, mass ratio, 6 spin components)
-        * Orientation: (inclination, phase, polarisation angle)
-        * Extrinsic: (luminosity distance, coalescence time, RA, DEC)
-
-    This lensed waveform assumes the intrinsic parameters are unchanged, as well as the location of the source in the observer's sky.
-    So effectively, one adds additional five parameters, plus the effective redshift, N + 6 parameters in total.
-
-    
-    """
+    __doc__ += BasicGWSignal.__doc__
 
     def __init__(self, **kwargs):
 
@@ -86,17 +64,6 @@ class GeneralLensedGWSignal(BasicGWSignal):
         raise NotImplementedError("Yeah, someone should work on this.")
 
     def GWstrain(self, freqs, parameters, rot=0.0, return_single_comp=None):
-        """
-        Compute the full GW strain (complex) as a function of the parameters, at given frequencies.
-
-        :param array or float f: The frequency(ies) at which to perform the calculation, in :math:`\\rm Hz`.
-        :param dict parameters: The parameters dictionary to evaluate the strain at.
-        :param float rot: Further rotation of the interferometer with respect to the :py:data:`self.xax` orientation, in degrees, needed for the triangular geometry.
-        :param str return_single_comp: String specifying if a single component of the signal should be returned, to be chosen among ``Ap`` and ``Ac``, to return the plus and cross amplitude, :math:`A_+` and :math:`A_{\\times}`, respectively, and ``Psip`` and ``Psic``, to return the plus and cross phase, :math:`\Phi_+` and :math:`\Phi_{\\times}`, respectively.
-        :return: Complete signal strain (complex), evaluated at the given parameters and frequency(ies).
-        :rtype: array or float
-
-        """
         omega = TWOPI * freqs * DAY_TO_SEC
 
         signal_1_params, signal_2_params = self.get_parameter_sets(parameters)
