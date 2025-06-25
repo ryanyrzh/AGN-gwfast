@@ -15,13 +15,13 @@ from gwfast.signals import BasicGWSignal, GeneralLensedGWSignal
 
 class AGNLensedGWSignal(GeneralLensedGWSignal):
     """
-    This class is built on top of the :py:class:`GeneralLensedGWSignal` class, and is specifically designed for 
+    This class is built on top of the :py:class:`GeneralLensedGWSignal` class, and is specifically designed for
     lensed GW signals from BBH that are embeded within the AGN accretion disk, with the assumption that the binary's orbital angular momentum is aligned with that of the disk.
 
     Other than the standard binary parameters, this class adds the following parameters:
-    * ``R_orbit``: orbital radius of the binary, in :math:`\\rm R_{\\odot}` 
-    * ``M_lz``: mass of the AGN, in :math:`\\rm M_{\\odot}` 
-    * ``src_pos``: position of the source in the accretion disk, in :math:`\\rm R_{\\odot}` 
+    * ``R_orbit``: orbital radius of the binary, in :math:`\\rm R_{\\odot}`
+    * ``M_lz``: mass of the AGN, in :math:`\\rm M_{\\odot}`
+    * ``src_pos``: position of the source in the accretion disk, in :math:`\\rm R_{\\odot}`
 
     Other than the additional parameters, the rest of this class behaves like a standard GW signal class:
 
@@ -50,7 +50,8 @@ class AGNLensedGWSignal(GeneralLensedGWSignal):
         raise NotImplementedError("Yeah, someone should work on this.")
 
     def GWstrain(self, freqs, parameters, rot=0.0, return_single_comp=None):
-        model_parameters = self.convert_to_general_lensed_parameters(parameters)
+        ref_freqs = self.get_reference_frequency(freqs)
+        model_parameters = self.convert_to_general_lensed_parameters(parameters, ref_freqs)
 
         return super().GWstrain(
             freqs, model_parameters, rot=rot, return_single_comp=return_single_comp)
@@ -58,7 +59,7 @@ class AGNLensedGWSignal(GeneralLensedGWSignal):
     def _analytical_derivatives(self):
         raise NotImplementedError('Lensed waveforms have no well-defined analytical derivatives (yet)')
 
-    def convert_to_general_lensed_parameters(self, agn_lensed_params):
+    def convert_to_general_lensed_parameters(self, agn_lensed_params, reference_frequency=None):
         """
         Convert the AGN lensed parameters to parameters of the flexible model.
 
@@ -67,7 +68,7 @@ class AGNLensedGWSignal(GeneralLensedGWSignal):
         agn_lensed_params : dict
             Dictionary containing the AGN lensed parameters.
         """
-        model_params = get_model_parameters(agn_lensed_params, self.strain_model_keys)
+        model_params = get_model_parameters(agn_lensed_params, self.strain_model_keys, reference_frequency)
         params_1, params_2 = get_agn_lensed_parameters(model_params)
 
         output_params = params_1.copy()

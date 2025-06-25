@@ -25,6 +25,7 @@ from gwfast.gwfastUtils import (
     noise_weighted_inner_product,
     optimal_snr,
     get_model_parameters,
+    get_mass_parameters,
     apply_psi_rotation,
     ra_dec_from_th_phi_rad,
 )
@@ -305,7 +306,8 @@ class BasicGWSignal(object):
 
         omega = TWOPI * freqs * DAY_TO_SEC
 
-        model_params = get_model_parameters(parameters, self.strain_model_keys)
+        ref_freqs = self.get_reference_frequency(freqs)
+        model_params = get_model_parameters(parameters, self.strain_model_keys, ref_freqs)
         time, deltaT = self.shifted_time(model_params, freqs)
         phiL = omega * deltaT
 
@@ -401,10 +403,11 @@ class BasicGWSignal(object):
         if self.detector.duty_cycle is not None:
             onp.random.seed(self.seedUse)
 
-        model_params = get_model_parameters(parameters, self.strain_model_keys)
-        params_shape = model_params["Mc"].shape
+        # Get the mass parameters for frequencies estimation
+        with_mass_params = get_mass_parameters(parameters)
+        params_shape = with_mass_params["Mc"].shape
 
-        fcut = self.wf_model.fcut(**model_params)
+        fcut = self.wf_model.fcut(**with_mass_params)
         if self.fmax is not None:
             fcut = np.where(fcut > self.fmax, self.fmax, fcut)
         fminarr = np.full(fcut.shape, self.fmin)
@@ -525,8 +528,8 @@ class BasicGWSignal(object):
             onp.random.seed(self.seedUse)
 
         # Need to compute the model_params once first
-        model_params = get_model_parameters(evParams, self.strain_model_keys)
-        fcut = self.wf_model.fcut(**model_params)
+        with_mass_params = get_mass_parameters(evParams)
+        fcut = self.wf_model.fcut(**with_mass_params)
 
         if self.fmax is not None:
             fcut = np.where(fcut > self.fmax, self.fmax, fcut)
@@ -641,10 +644,18 @@ class BasicGWSignal(object):
         return OrderedDict({
             key: jacobian_dict[key].reshape(*_freq_grid.shape) for key in parameters.keys()})
 
-
     def _GWstrain_wrapper(self, param_values, param_keys, freqs, rot=0.0):
         parameters = dict(zip(param_keys, param_values))
         return self.GWstrain(freqs, parameters, rot)
+
+    def get_reference_frequency(self, frequencies):
+        min_freqs = frequencies[0, ...]
+        ref_freq = self.wf_model.fRef
+
+        if ref_freq is None:
+            return min_freqs
+
+        return np.ones_like(min_freqs) * ref_freq
 
     def _finite_difference(
         self,

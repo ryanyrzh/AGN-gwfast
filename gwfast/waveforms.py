@@ -5,6 +5,7 @@
 #    license that can be found in the LICENSE file.
 
 import os
+import time
 
 from jax import config
 config.update("jax_enable_x64", True)
@@ -1239,10 +1240,10 @@ class IMRPhenomD(WaveFormModel):
         """
         return self.fcutPar/(kwargs['Mc']*glob.GMsun_over_c3/(kwargs['eta']**(3./5.)))
 
+
 ##############################################################################
 # IMRPhenomD_NRTidalv2 WAVEFORM
 ##############################################################################
-
 class IMRPhenomD_NRTidalv2(WaveFormModel):
     """
     IMRPhenomD_NRTidalv2 waveform model.

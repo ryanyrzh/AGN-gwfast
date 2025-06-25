@@ -68,10 +68,12 @@ class GeneralLensedGWSignal(BasicGWSignal):
     def GWstrain(self, freqs, parameters, rot=0.0, return_single_comp=None):
         omega = TWOPI * freqs * DAY_TO_SEC
 
-
+        # We need `chi1,2` for duration checks
+        request_model_keys = self.strain_model_keys + ['chi1', 'chi2']
+        ref_freqs = self.get_reference_frequency(freqs)
         signal_1_params, signal_2_params = self.get_parameter_sets(parameters)
-        signal_1_params = get_model_parameters(signal_1_params, self.strain_model_keys + ('chi1', 'chi2'))
-        signal_2_params = get_model_parameters(signal_2_params, self.strain_model_keys + ('chi1', 'chi2'))
+        signal_1_params = get_model_parameters(signal_1_params, request_model_keys, ref_freqs)
+        signal_2_params = get_model_parameters(signal_2_params, request_model_keys, ref_freqs)
 
         self.check_total_duration(freqs, signal_1_params, signal_2_params)
 
@@ -145,11 +147,13 @@ class GeneralLensedGWSignal(BasicGWSignal):
         else:
             return hp + hc
 
+    @staticmethod
     def check_total_duration(frequencies, params_1, params_2):
         """Check the rough total duration of signal is within the frequency resolution.
         """
         f_min = frequencies[0]
-        T_max = 1 / np.min(np.diff(frequencies))
+        print(frequencies)
+        T_max = 1 / np.min(np.diff(frequencies, axis=0), axis=0)
 
         chirp_time_1 = chirp_time_bound(
                 f_min, params_1['Mc'], params_1['eta'], params_1['chi1'], params_1['chi2'])
