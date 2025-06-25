@@ -6,6 +6,7 @@
 
 from jax import config
 import jax.numpy as jnp
+from jax.lax import integer_pow
 config.update("jax_enable_x64", True)
 
 import os
@@ -14,7 +15,7 @@ import json
 import h5py
 
 from gwfast import gwfastGlobals as glob
-from gwfast.gwfastGlobals import TWOPI, DAY_TO_SEC
+from gwfast.gwfastGlobals import TWOPI, DAY_TO_SEC, MTSUN_SI
 
 spin_angle_keys = ("thetaJN", "phiJL", "tilt1", "tilt2", "phi12", "chi1", "chi2")
 spin_comps_keys = ("iota", "chi1x", "chi1y", "chi1z", "chi2x", "chi2y", "chi2z")
@@ -770,7 +771,7 @@ def TransformPrecessing_angles2comp(
 
     m1, m2 = m1m2_from_Mceta(Mc, eta)
     M = m1 + m2
-    v0 = (M * glob.GMsun_over_c3 * np.pi * fRef) ** (1.0 / 3.0)
+    v0 = np.cbrt(M * glob.GMsun_over_c3 * np.pi * fRef)
 
     # Define S1, S2, J with proper magnitudes
     Lmag = (M * M * eta / v0) * (1.0 + v0 * v0 * (1.5 + eta / 6.0))
@@ -886,16 +887,14 @@ def TransformPrecessing_comp2angles(
     phi1 = np.arctan2(np.real(s1haty), np.real(s1hatx))
     phi2 = np.arctan2(np.real(s2haty), np.real(s2hatx))
 
-    phi12 = np.where(phi2 - phi1 < 0.0, 2.0 * np.pi + (phi2 - phi1), phi2 - phi1)
+    phi12 = np.where(phi2 - phi1 < 0.0, TWOPI + (phi2 - phi1), phi2 - phi1)
 
     tilt1 = np.arccos(s1hatz)
     tilt2 = np.arccos(s2hatz)
 
     m1, m2 = m1m2_from_Mceta(Mc, eta)
     M = m1 + m2
-    v0 = (M * glob.GMsun_over_c3 * np.pi * fRef) ** (
-        1.0 / 3.0
-    )  # np.cbrt(M * glob.GMsun_over_c3 * np.pi * fRef)
+    v0 = np.cbrt(M * glob.GMsun_over_c3 * np.pi * fRef)
     # Define S1, S2, J with proper magnitudes
     Lmag = (M * M * eta / v0) * (1.0 + v0 * v0 * (1.5 + eta / 6.0))
 
@@ -938,7 +937,7 @@ def TransformPrecessing_comp2angles(
     LNhx, LNhy, LNhz = zrot(np.pi / 2.0 - phiN, LNhx, LNhy, LNhz)
 
     phiJL = np.arctan2(np.real(LNhy), np.real(LNhx))
-    phiJL = np.where(phiJL < 0.0, phiJL + 2.0 * np.pi, phiJL)
+    phiJL = np.where(phiJL < 0.0, phiJL + TWOPI, phiJL)
 
     return thetaJN, phiJL, tilt1, tilt2, phi12, chi1, chi2
 
@@ -1287,7 +1286,7 @@ def ang_btw_dets_GC(det1, det2):
         return np.rad2deg(
             np.where(
                 np.isclose(np.cos(lat1), 0.0),
-                np.where(lat1 > 0.0, np.pi, 2.0 * np.pi),
+                np.where(lat1 > 0.0, np.pi, TWOPI),
                 np.arctan2(a, b),
             )
         )
@@ -1304,7 +1303,7 @@ def ang_btw_dets_GC(det1, det2):
         return np.rad2deg(
             np.where(
                 np.isclose(np.cos(lat2), 0.0),
-                np.where(lat2 > 0.0, np.pi, 2.0 * np.pi),
+                np.where(lat2 > 0.0, np.pi, TWOPI),
                 np.arctan2(a, b),
             )
         )
@@ -1655,3 +1654,48 @@ class suppress_stdout_stderr(object):
         # Close all file descriptors
         for fd in self.null_fds + self.save_fds:
             os.close(fd)
+
+
+##############################################################################
+# BBH PN dynamics
+##############################################################################
+def TaylorT2_timing_0PN_coeff(total_mass, eta):
+    total_mass_s = total_mass * MTSUN_SI
+    return -5. * total_mass_s / (256. * eta)
+
+
+def TaylorT2_timing_1PN_coeff(eta):
+    return 7.43 / 2.52 + 11. / 3. * eta
+
+
+def TaylorT2_timing_2PN_coeff(eta):
+    return 30.58673 / 5.08032 + 54.29 / 5.04 * eta + 61.7 / 7.2 * eta * eta
+
+
+def chirp_time_bound(minimum_frequency, chirp_mass, eta, a_1, a_2):
+    """ Compute an overestimate of the inspiral time from a given frequency
+
+    This function is copied from the LALSimulation implementation:
+        https://lscsoft.docs.ligo.org/lalsuite/lalsimulation/_l_a_l_sim_inspiral_8c.html#a037d78d458086482046b5c614db840a4
+
+    :param array or float minimum_frequency: The starting frequency, in Hz.
+    :param array or float mass_1: The mass of the primary compoonent, in solar mass.
+    :param array or float mass_2: The mass of the secondary component, in solar mass.
+    :param array or float a_1: The dimensionless spin magnitude of the primary component.
+    :param array or float a_2: The dimensionless spin magnitude of the secondary component.
+
+    :return: Upper bound of the chirp time (s).
+    :rtype: array or float
+    """
+    total_mass = chirp_mass * eta ** (-3/5)
+    chi = jnp.where(
+            jnp.abs(a_1) > jnp.abs(a_2),
+            jnp.abs(a_1), jnp.abs(a_2)
+            )
+
+    c0 = jnp.abs(TaylorT2_timing_0PN_coeff(total_mass, eta))
+    c2 = TaylorT2_timing_1PN_coeff(eta)
+    c3 = 226.0 / 15.0 * chi
+    c4 = TaylorT2_timing_2PN_coeff(eta)
+    v = jnp.cbrt(jnp.pi * total_mass * MTSUN_SI * minimum_frequency)
+    return c0 * integer_pow(v, -8) * (1.0 + (c2 + (c3 + c4 * v) * v) * v * v)

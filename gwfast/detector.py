@@ -120,7 +120,7 @@ class Detector(object):
         ras, decs = ra_dec_from_th_phi_rad(theta, phi)
 
         # Note the change on 2025/04/21,
-        # Output from second to days, as all subsequent usages are in seconds.
+        # Output from second to days, as all subsequent usages are in days.
         return self._geocentric_deltat(ras, decs, t)
 
     def CoeffsRot(self, ra, dec, psi, rot=0.0):
