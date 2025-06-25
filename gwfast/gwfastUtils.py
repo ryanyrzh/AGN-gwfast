@@ -5,12 +5,11 @@
 #    license that can be found in the LICENSE file.
 
 from jax import config
-import jax.numpy as jnp
+import jax.numpy as np
 from jax.lax import integer_pow
 config.update("jax_enable_x64", True)
 
 import os
-import numpy as np
 import json
 import h5py
 
@@ -174,14 +173,14 @@ def load_population(name, nEventsUse=None, calculate_params=[], keys_skip=[]):
     return events
 
 
-def get_model_parameters(input_params, model_param_keys, use_jit=True):
+def get_model_parameters(input_params, model_param_keys, reference_frequency, use_jit=True):
     input_keys = set(input_params.keys())
     common_keys = input_keys.intersection(model_param_keys)
     missing_keys = set(model_param_keys) - common_keys
 
     for key, val in input_params.items():
         # This is for some transform that requires strictly real inputs
-        # (e.g. tGPS -> tcoal, need jnp.mod)
+        # (e.g. tGPS -> tcoal, need np.mod)
         input_params[key] = val.astype('float64')
     converted_params = input_params.copy()
 
@@ -214,7 +213,7 @@ def get_model_parameters(input_params, model_param_keys, use_jit=True):
             input_params["chi2"],
             input_params["Mc"],
             input_params["eta"],
-            input_params["fRef"],
+            reference_frequency,
             input_params["phase"],
         )
         for key, value in zip(spin_angle_keys, spin_comps):
@@ -231,7 +230,7 @@ def get_model_parameters(input_params, model_param_keys, use_jit=True):
             input_params["chi2z"],
             input_params["Mc"],
             input_params["eta"],
-            input_params["fRef"],
+            reference_frequency,
             input_params["phase"],
         )
         for key, value in zip(spin_angle_keys, spin_angles):
@@ -947,9 +946,9 @@ def psi_rotation_matrix(psi):
     Compute the rotation matrix for the angle psi.
     Return shape: (2, 2, N...)
     """
-    cos_2psi = jnp.cos(2 * psi)
-    sin_2psi = jnp.sin(2 * psi)
-    return jnp.array([[cos_2psi, sin_2psi], [-sin_2psi, cos_2psi]])
+    cos_2psi = np.cos(2 * psi)
+    sin_2psi = np.sin(2 * psi)
+    return np.array([[cos_2psi, sin_2psi], [-sin_2psi, cos_2psi]])
 
 
 def apply_psi_rotation(psi, vector_x, vector_y):
@@ -958,13 +957,13 @@ def apply_psi_rotation(psi, vector_x, vector_y):
     Return shape: (2, N...)
     """
     rotation_matrix = psi_rotation_matrix(psi)
-    vector = jnp.array([vector_x, vector_y])
-    return jnp.einsum("ij...,j...->i...", rotation_matrix, vector)
+    vector = np.array([vector_x, vector_y])
+    return np.einsum("ij...,j...->i...", rotation_matrix, vector)
 
 
 def noise_weighted_inner_product(frequencies, h1, h2, psd, axis=0):
-    integrand = jnp.conjugate(h1) * h2 / psd
-    return 4.0 * jnp.trapezoid(integrand.real, frequencies, axis=axis)
+    integrand = np.conjugate(h1) * h2 / psd
+    return 4.0 * np.trapezoid(integrand.real, frequencies, axis=axis)
 
 
 def optimal_snr(frequencies, h1, psd, axis=0):
@@ -1023,7 +1022,7 @@ def GPSt_to_LMST(t_GPS, lat, long):
     loc = EarthLocation(lat=lat * u.deg, lon=long * u.deg)
     t = aspyt.Time(t_GPS, format="gps", location=(loc))
     LMST = t.sidereal_time("mean").value
-    return jnp.array(LMST / 24.0)
+    return np.array(LMST / 24.0)
 
 
 def GPSt_to_GMST_alt(t_GPS):
@@ -1040,7 +1039,7 @@ def GPSt_to_GMST_alt(t_GPS):
 
     """
 
-    return jnp.mod(9.533088395981618 + (t_GPS - 1126260000.) / 3600. * 24. / glob.siderealDay, 24.) / 24.
+    return np.mod(9.533088395981618 + (t_GPS - 1126260000.) / 3600. * 24. / glob.siderealDay, 24.) / 24.
 
 
 ##############################################################################
@@ -1073,29 +1072,29 @@ def Add_Higher_Modes(Ampl, Phi, iota, phi=0.0):
         if 2 == l:
             if -2 == m:
                 res = (
-                    jnp.sqrt(5.0 / (64.0 * jnp.pi))
-                    * (1.0 - jnp.cos(theta))
-                    * (1.0 - jnp.cos(theta))
+                    np.sqrt(5.0 / (64.0 * np.pi))
+                    * (1.0 - np.cos(theta))
+                    * (1.0 - np.cos(theta))
                 )
             elif -1 == m:
                 res = (
-                    jnp.sqrt(5.0 / (16.0 * jnp.pi))
-                    * jnp.sin(theta)
-                    * (1.0 - jnp.cos(theta))
+                    np.sqrt(5.0 / (16.0 * np.pi))
+                    * np.sin(theta)
+                    * (1.0 - np.cos(theta))
                 )
             elif 0 == m:
-                res = jnp.sqrt(15.0 / (32.0 * jnp.pi)) * jnp.sin(theta) * jnp.sin(theta)
+                res = np.sqrt(15.0 / (32.0 * np.pi)) * np.sin(theta) * np.sin(theta)
             elif 1 == m:
                 res = (
-                    jnp.sqrt(5.0 / (16.0 * jnp.pi))
-                    * jnp.sin(theta)
-                    * (1.0 + jnp.cos(theta))
+                    np.sqrt(5.0 / (16.0 * np.pi))
+                    * np.sin(theta)
+                    * (1.0 + np.cos(theta))
                 )
             elif 2 == m:
                 res = (
-                    jnp.sqrt(5.0 / (64.0 * jnp.pi))
-                    * (1.0 + jnp.cos(theta))
-                    * (1.0 + jnp.cos(theta))
+                    np.sqrt(5.0 / (64.0 * np.pi))
+                    * (1.0 + np.cos(theta))
+                    * (1.0 + np.cos(theta))
                 )
             else:
                 raise ValueError("Invalid m for l = 2.")
@@ -1103,54 +1102,54 @@ def Add_Higher_Modes(Ampl, Phi, iota, phi=0.0):
         elif 3 == l:
             if -3 == m:
                 res = (
-                    jnp.sqrt(21.0 / (2.0 * jnp.pi))
-                    * jnp.cos(theta * 0.5)
-                    * ((jnp.sin(theta * 0.5)) ** (5.0))
+                    np.sqrt(21.0 / (2.0 * np.pi))
+                    * np.cos(theta * 0.5)
+                    * ((np.sin(theta * 0.5)) ** (5.0))
                 )
             elif -2 == m:
                 res = (
-                    jnp.sqrt(7.0 / (4.0 * jnp.pi))
-                    * (2.0 + 3.0 * jnp.cos(theta))
-                    * ((jnp.sin(theta * 0.5)) ** (4.0))
+                    np.sqrt(7.0 / (4.0 * np.pi))
+                    * (2.0 + 3.0 * np.cos(theta))
+                    * ((np.sin(theta * 0.5)) ** (4.0))
                 )
             elif -1 == m:
                 res = (
-                    jnp.sqrt(35.0 / (2.0 * jnp.pi))
+                    np.sqrt(35.0 / (2.0 * np.pi))
                     * (
-                        jnp.sin(theta)
-                        + 4.0 * jnp.sin(2.0 * theta)
-                        - 3.0 * jnp.sin(3.0 * theta)
+                        np.sin(theta)
+                        + 4.0 * np.sin(2.0 * theta)
+                        - 3.0 * np.sin(3.0 * theta)
                     )
                     / 32.0
                 )
             elif 0 == m:
                 res = (
-                    jnp.sqrt(105.0 / (2.0 * jnp.pi))
-                    * jnp.cos(theta)
-                    * (jnp.sin(theta) * jnp.sin(theta))
+                    np.sqrt(105.0 / (2.0 * np.pi))
+                    * np.cos(theta)
+                    * (np.sin(theta) * np.sin(theta))
                 ) * 0.25
             elif 1 == m:
                 res = (
-                    -jnp.sqrt(35.0 / (2.0 * jnp.pi))
+                    -np.sqrt(35.0 / (2.0 * np.pi))
                     * (
-                        jnp.sin(theta)
-                        - 4.0 * jnp.sin(2.0 * theta)
-                        - 3.0 * jnp.sin(3.0 * theta)
+                        np.sin(theta)
+                        - 4.0 * np.sin(2.0 * theta)
+                        - 3.0 * np.sin(3.0 * theta)
                     )
                     / 32.0
                 )
             elif 2 == m:
                 res = (
-                    jnp.sqrt(7.0 / jnp.pi)
-                    * ((jnp.cos(theta * 0.5)) ** (4.0))
-                    * (-2.0 + 3.0 * jnp.cos(theta))
+                    np.sqrt(7.0 / np.pi)
+                    * ((np.cos(theta * 0.5)) ** (4.0))
+                    * (-2.0 + 3.0 * np.cos(theta))
                     * 0.5
                 )
             elif 3 == m:
                 res = (
-                    -jnp.sqrt(21.0 / (2.0 * jnp.pi))
-                    * ((jnp.cos(theta / 2.0)) ** (5.0))
-                    * jnp.sin(theta * 0.5)
+                    -np.sqrt(21.0 / (2.0 * np.pi))
+                    * ((np.cos(theta / 2.0)) ** (5.0))
+                    * np.sin(theta * 0.5)
                 )
             else:
                 raise ValueError("Invalid m for l = 3.")
@@ -1159,71 +1158,71 @@ def Add_Higher_Modes(Ampl, Phi, iota, phi=0.0):
             if -4 == m:
                 res = (
                     3.0
-                    * jnp.sqrt(7.0 / jnp.pi)
-                    * (jnp.cos(theta * 0.5) * jnp.cos(theta * 0.5))
-                    * ((jnp.sin(theta * 0.5)) ** 6.0)
+                    * np.sqrt(7.0 / np.pi)
+                    * (np.cos(theta * 0.5) * np.cos(theta * 0.5))
+                    * ((np.sin(theta * 0.5)) ** 6.0)
                 )
             elif -3 == m:
                 res = (
                     3.0
-                    * jnp.sqrt(7.0 / (2.0 * jnp.pi))
-                    * jnp.cos(theta * 0.5)
-                    * (1.0 + 2.0 * jnp.cos(theta))
-                    * ((jnp.sin(theta * 0.5)) ** 5.0)
+                    * np.sqrt(7.0 / (2.0 * np.pi))
+                    * np.cos(theta * 0.5)
+                    * (1.0 + 2.0 * np.cos(theta))
+                    * ((np.sin(theta * 0.5)) ** 5.0)
                 )
             elif -2 == m:
                 res = (
                     3.0
-                    * (9.0 + 14.0 * jnp.cos(theta) + 7.0 * jnp.cos(2.0 * theta))
-                    * ((jnp.sin(theta / 2.0)) ** 4.0)
-                ) / (4.0 * jnp.sqrt(jnp.pi))
+                    * (9.0 + 14.0 * np.cos(theta) + 7.0 * np.cos(2.0 * theta))
+                    * ((np.sin(theta / 2.0)) ** 4.0)
+                ) / (4.0 * np.sqrt(np.pi))
             elif -1 == m:
                 res = (
                     3.0
                     * (
-                        3.0 * jnp.sin(theta)
-                        + 2.0 * jnp.sin(2.0 * theta)
-                        + 7.0 * jnp.sin(3.0 * theta)
-                        - 7.0 * jnp.sin(4.0 * theta)
+                        3.0 * np.sin(theta)
+                        + 2.0 * np.sin(2.0 * theta)
+                        + 7.0 * np.sin(3.0 * theta)
+                        - 7.0 * np.sin(4.0 * theta)
                     )
-                ) / (32.0 * jnp.sqrt(2.0 * jnp.pi))
+                ) / (32.0 * np.sqrt(2.0 * np.pi))
             elif 0 == m:
                 res = (
                     3.0
-                    * jnp.sqrt(5.0 / (2.0 * jnp.pi))
-                    * (5.0 + 7.0 * jnp.cos(2.0 * theta))
-                    * (jnp.sin(theta) * jnp.sin(theta))
+                    * np.sqrt(5.0 / (2.0 * np.pi))
+                    * (5.0 + 7.0 * np.cos(2.0 * theta))
+                    * (np.sin(theta) * np.sin(theta))
                 ) / 16.0
             elif 1 == m:
                 res = (
                     3.0
                     * (
-                        3.0 * jnp.sin(theta)
-                        - 2.0 * jnp.sin(2.0 * theta)
-                        + 7.0 * jnp.sin(3.0 * theta)
-                        + 7.0 * jnp.sin(4.0 * theta)
+                        3.0 * np.sin(theta)
+                        - 2.0 * np.sin(2.0 * theta)
+                        + 7.0 * np.sin(3.0 * theta)
+                        + 7.0 * np.sin(4.0 * theta)
                     )
-                ) / (32.0 * jnp.sqrt(2.0 * jnp.pi))
+                ) / (32.0 * np.sqrt(2.0 * np.pi))
             elif 2 == m:
                 res = (
                     3.0
-                    * ((jnp.cos(theta * 0.5)) ** 4.0)
-                    * (9.0 - 14.0 * jnp.cos(theta) + 7.0 * jnp.cos(2.0 * theta))
-                ) / (4.0 * jnp.sqrt(jnp.pi))
+                    * ((np.cos(theta * 0.5)) ** 4.0)
+                    * (9.0 - 14.0 * np.cos(theta) + 7.0 * np.cos(2.0 * theta))
+                ) / (4.0 * np.sqrt(np.pi))
             elif 3 == m:
                 res = (
                     -3.0
-                    * jnp.sqrt(7.0 / (2.0 * jnp.pi))
-                    * ((jnp.cos(theta * 0.5)) ** 5.0)
-                    * (-1.0 + 2.0 * jnp.cos(theta))
-                    * jnp.sin(theta * 0.5)
+                    * np.sqrt(7.0 / (2.0 * np.pi))
+                    * ((np.cos(theta * 0.5)) ** 5.0)
+                    * (-1.0 + 2.0 * np.cos(theta))
+                    * np.sin(theta * 0.5)
                 )
             elif 4 == m:
                 res = (
                     3.0
-                    * jnp.sqrt(7.0 / jnp.pi)
-                    * ((jnp.cos(theta * 0.5)) ** 6.0)
-                    * (jnp.sin(theta * 0.5) * jnp.sin(theta * 0.5))
+                    * np.sqrt(7.0 / np.pi)
+                    * ((np.cos(theta * 0.5)) ** 6.0)
+                    * (np.sin(theta * 0.5) * np.sin(theta * 0.5))
                 )
             else:
                 raise ValueError("Invalid m for l = 4.")
@@ -1231,24 +1230,24 @@ def Add_Higher_Modes(Ampl, Phi, iota, phi=0.0):
         else:
             raise ValueError("Multipoles with l > 4 not implemented yet.")
 
-        return res * jnp.exp(1j * m * phi)
+        return res * np.exp(1j * m * phi)
 
-    hp = jnp.zeros(Ampl[list(Ampl)[0]].shape)
-    hc = jnp.zeros(Ampl[list(Ampl)[0]].shape)
+    hp = np.zeros(Ampl[list(Ampl)[0]].shape)
+    hc = np.zeros(Ampl[list(Ampl)[0]].shape)
 
     for key in Ampl.keys():
         if key in Phi.keys():
             l, m = int(key[: 2 // 2]), int(key[2 // 2 :])
             Y = SpinWeighted_SphericalHarmonic(iota, phi, l, m)
             if m:
-                Ymstar = jnp.conj(SpinWeighted_SphericalHarmonic(iota, phi, l, -m))
+                Ymstar = np.conj(SpinWeighted_SphericalHarmonic(iota, phi, l, -m))
             else:
                 Ymstar = 0.0
 
-            hp = hp + Ampl[key] * jnp.exp(-1j * Phi[key]) * (
+            hp = hp + Ampl[key] * np.exp(-1j * Phi[key]) * (
                 0.5 * (Y + ((-1) ** l) * Ymstar)
             )
-            hc = hc + Ampl[key] * jnp.exp(-1j * Phi[key]) * (
+            hc = hc + Ampl[key] * np.exp(-1j * Phi[key]) * (
                 -1j * 0.5 * (Y - ((-1) ** l) * Ymstar)
             )
 
@@ -1482,7 +1481,7 @@ class RegularGridInterpolator_JAX:
     # see https://docs.scipy.org/doc/scipy/reference/generated/scipy.interpolate.RegularGridInterpolator.html
 
     def __init__(
-        self, points, values, method="linear", bounds_error=False, fill_value=jnp.nan
+        self, points, values, method="linear", bounds_error=False, fill_value=np.nan
     ):
         if method not in ["linear", "nearest"]:
             raise ValueError("Method '%s' is not defined" % method)
@@ -1491,7 +1490,7 @@ class RegularGridInterpolator_JAX:
 
         if not hasattr(values, "ndim"):
             # allow reasonable duck-typed values
-            values = jnp.asarray(values)
+            values = np.asarray(values)
 
         if len(points) > values.ndim:
             raise ValueError(
@@ -1500,13 +1499,13 @@ class RegularGridInterpolator_JAX:
             )
 
         if hasattr(values, "dtype") and hasattr(values, "astype"):
-            if not jnp.issubdtype(values.dtype, jnp.inexact):
+            if not np.issubdtype(values.dtype, np.inexact):
                 values = values.astype(float)
 
         self.fill_value = fill_value
         if fill_value is not None:
-            fill_value_dtype = jnp.asarray(fill_value).dtype
-            if hasattr(values, "dtype") and not jnp.can_cast(
+            fill_value_dtype = np.asarray(fill_value).dtype
+            if hasattr(values, "dtype") and not np.can_cast(
                 fill_value_dtype, values.dtype, casting="same_kind"
             ):
                 raise ValueError(
@@ -1515,11 +1514,11 @@ class RegularGridInterpolator_JAX:
                 )
 
         for i, p in enumerate(points):
-            if not jnp.all(jnp.diff(p) > 0.0):
+            if not np.all(np.diff(p) > 0.0):
                 raise ValueError(
                     "The points in dimension %d must be strictly " "ascending" % i
                 )
-            if not jnp.asarray(p).ndim == 1:
+            if not np.asarray(p).ndim == 1:
                 raise ValueError(
                     "The points in dimension %d must be " "1-dimensional" % i
                 )
@@ -1529,7 +1528,7 @@ class RegularGridInterpolator_JAX:
                     "dimension %d" % (len(p), values.shape[i], i)
                 )
 
-        self.grid = tuple([jnp.asarray(p) for p in points])
+        self.grid = tuple([np.asarray(p) for p in points])
         self.values = values
 
     def __call__(self, xi, method=None):
@@ -1561,8 +1560,8 @@ class RegularGridInterpolator_JAX:
 
         if self.bounds_error:
             for i, p in enumerate(xi.T):
-                if not jnp.logical_and(
-                    jnp.all(self.grid[i][0] <= p), jnp.all(p <= self.grid[i][-1])
+                if not np.logical_and(
+                    np.all(self.grid[i][0] <= p), np.all(p <= self.grid[i][-1])
                 ):
                     raise ValueError(
                         "One of the requested xi is out of bounds "
@@ -1575,7 +1574,7 @@ class RegularGridInterpolator_JAX:
         elif method == "nearest":
             result = self._evaluate_nearest(indices, norm_distances, out_of_bounds)
         if not self.bounds_error and self.fill_value is not None:
-            result = jnp.where(out_of_bounds > 0, self.fill_value, result)
+            result = np.where(out_of_bounds > 0, self.fill_value, result)
 
         return result.reshape(xi_shape[:-1] + self.values.shape[ndim:])
 
@@ -1592,14 +1591,14 @@ class RegularGridInterpolator_JAX:
         for edge_indices in edges:
             weight = 1.0
             for ei, i, yi in zip(edge_indices, indices, norm_distances):
-                weight = weight * jnp.where(ei == i, 1 - yi, yi)
-            values = values + jnp.asarray(self.values[edge_indices]) * weight[vslice]
+                weight = weight * np.where(ei == i, 1 - yi, yi)
+            values = values + np.asarray(self.values[edge_indices]) * weight[vslice]
         return values
 
     def _evaluate_nearest(self, indices, norm_distances, out_of_bounds):
         print("nearest method not checked in this implementation")
         idx_res = [
-            jnp.where(yi <= 0.5, i, i + 1) for i, yi in zip(indices, norm_distances)
+            np.where(yi <= 0.5, i, i + 1) for i, yi in zip(indices, norm_distances)
         ]
         return self.values[tuple(idx_res)]
 
@@ -1609,12 +1608,12 @@ class RegularGridInterpolator_JAX:
         # compute distance to lower edge in unity units
         norm_distances = []
         # check for out of bounds xi
-        out_of_bounds = jnp.zeros((xi.shape[1]), dtype=bool)
+        out_of_bounds = np.zeros((xi.shape[1]), dtype=bool)
         # iterate through dimensions
         for x, grid in zip(xi, self.grid):
-            i = jnp.searchsorted(grid, x) - 1
-            i = jnp.where(i < 0, 0, i)
-            i = jnp.where(i > grid.size - 2, grid.size - 2, i)
+            i = np.searchsorted(grid, x) - 1
+            i = np.where(i < 0, 0, i)
+            i = np.where(i > grid.size - 2, grid.size - 2, i)
             indices.append(i)
             norm_distances.append((x - grid[i]) / (grid[i + 1] - grid[i]))
             if not self.bounds_error:
@@ -1688,14 +1687,14 @@ def chirp_time_bound(minimum_frequency, chirp_mass, eta, a_1, a_2):
     :rtype: array or float
     """
     total_mass = chirp_mass * eta ** (-3/5)
-    chi = jnp.where(
-            jnp.abs(a_1) > jnp.abs(a_2),
-            jnp.abs(a_1), jnp.abs(a_2)
+    chi = np.where(
+            np.abs(a_1) > np.abs(a_2),
+            np.abs(a_1), np.abs(a_2)
             )
 
-    c0 = jnp.abs(TaylorT2_timing_0PN_coeff(total_mass, eta))
+    c0 = np.abs(TaylorT2_timing_0PN_coeff(total_mass, eta))
     c2 = TaylorT2_timing_1PN_coeff(eta)
     c3 = 226.0 / 15.0 * chi
     c4 = TaylorT2_timing_2PN_coeff(eta)
-    v = jnp.cbrt(jnp.pi * total_mass * MTSUN_SI * minimum_frequency)
+    v = np.cbrt(np.pi * total_mass * MTSUN_SI * minimum_frequency)
     return c0 * integer_pow(v, -8) * (1.0 + (c2 + (c3 + c4 * v) * v) * v * v)
