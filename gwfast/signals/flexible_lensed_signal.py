@@ -9,15 +9,17 @@ import jax.numpy as np
 # Enable 64bit on JAX, fundamental
 config.update("jax_enable_x64", True)
 
+import logging
+
 from gwfast.gwfastGlobals import TWOPI, DAY_TO_SEC
-from gwfast.gwfastUtils import get_model_parameters
+from gwfast.gwfastUtils import get_model_parameters, chirp_time_bound
 from gwfast.signals import BasicGWSignal
 
 
 class GeneralLensedGWSignal(BasicGWSignal):
     """
     Class to compute the lensed GW signal emitted by a coalescing binary system as seen by a detector on Earth.
-    This assumes the point-mass lens model, splitting the GW signal into two, each with a phenomenological change 
+    This assumes the point-mass lens model, splitting the GW signal into two, each with a phenomenological change
     in (effective) luminosity distance, coalescese time, inclination, phase and polarisation angle.
     On top of that, a phenomenological redshift is also allowed to apply to the signal (in particular, the chirp mass).
     This could due to the orbital motion of the source around some massive object.
@@ -66,9 +68,12 @@ class GeneralLensedGWSignal(BasicGWSignal):
     def GWstrain(self, freqs, parameters, rot=0.0, return_single_comp=None):
         omega = TWOPI * freqs * DAY_TO_SEC
 
+
         signal_1_params, signal_2_params = self.get_parameter_sets(parameters)
-        signal_1_params = get_model_parameters(signal_1_params, self.strain_model_keys)
-        signal_2_params = get_model_parameters(signal_2_params, self.strain_model_keys)
+        signal_1_params = get_model_parameters(signal_1_params, self.strain_model_keys + ('chi1', 'chi2'))
+        signal_2_params = get_model_parameters(signal_2_params, self.strain_model_keys + ('chi1', 'chi2'))
+
+        self.check_total_duration(freqs, signal_1_params, signal_2_params)
 
         # Not sure what does this do, but it was set to zero in both cases
         # (with or without useEarthMotion)
@@ -140,6 +145,25 @@ class GeneralLensedGWSignal(BasicGWSignal):
         else:
             return hp + hc
 
+    def check_total_duration(frequencies, params_1, params_2):
+        """Check the rough total duration of signal is within the frequency resolution.
+        """
+        f_min = frequencies[0]
+        T_max = 1 / np.min(np.diff(frequencies))
+
+        chirp_time_1 = chirp_time_bound(
+                f_min, params_1['Mc'], params_1['eta'], params_1['chi1'], params_1['chi2'])
+        chirp_time_2 = chirp_time_bound(
+                f_min, params_2['Mc'], params_2['eta'], params_2['chi1'], params_2['chi2'])
+        long_chirp = np.maximum(chirp_time_1, chirp_time_2)
+
+        delta_t = np.abs(params_1['tcoal'] - params_2['tcoal']) * DAY_TO_SEC
+
+        if np.any((long_chirp + delta_t) > T_max):
+            logging.warning(
+                    'Some of the input parameters will likely yield waveforms with signal length longer than the maximum duration resolved by the frequencies.'
+                    )
+
     def _analytical_derivatives(self):
         raise NotImplementedError('Lensed waveforms have no well-defined analytical derivatives (yet)')
 
@@ -176,13 +200,14 @@ class GeneralLensedGWSignal(BasicGWSignal):
             * param_1, param_2
             * param, delta_param / relative_param
 
-        `delta` or `relative` depends on the parameter itself, 
+        `delta` or `relative` depends on the parameter itself,
             * iota, phase, and time are `delta`
             * distance and chirp mass are `relative`
         """
         ref_parameters_dict = parameters_dict.copy()
         iota_1, iota_2 = self._get_parameter_pairs('iota', ref_parameters_dict, 'delta')
         phase_1, phase_2 = self._get_parameter_pairs('phase', ref_parameters_dict, 'delta')
+        # Caution: tGPS is in unit of seconds, tcoal is days
         tGPS_1, tGPS_2 = self._get_parameter_pairs('tGPS', ref_parameters_dict, 'delta')
         tcoal_1, tcoal_2 = self._get_parameter_pairs('tcoal', ref_parameters_dict, 'delta')
         distance_1, distance_2 = self._get_parameter_pairs('dL', ref_parameters_dict, 'relative')

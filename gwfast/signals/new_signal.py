@@ -141,7 +141,7 @@ class BasicGWSignal(object):
         self.jitCompileDerivs = jitCompileDerivs
 
         # These are initial parameters that are for general use,
-        # so they can be over-complete. 
+        # so they can be over-complete.
         self.additional_params = {}
         self.init_params = {
             "Mc": 77.23905294, "eta": 0.20586622,
@@ -210,6 +210,8 @@ class BasicGWSignal(object):
         return (self.wf_model.is_HigherModes) or (self.wf_model.is_Precessing)
 
     def shifted_time(self, parameters, frequencies):
+        '''Compute the time shift from geocenter, in unit of day fraction
+        '''
         theta = parameters["theta"]
         phi = parameters["phi"]
         tcoal = parameters["tcoal"]
@@ -222,6 +224,7 @@ class BasicGWSignal(object):
             )
         else:
             time = tcoal
+        # time is in unit of 'days'
         delta_t = self.detector.compute_geocent_deltat(theta, phi, time)
         return time + delta_t, delta_t
 
@@ -620,7 +623,7 @@ class BasicGWSignal(object):
         if self.wf_model.is_holomorphic:
             cplx_freq_grid = flat_freq_grid.astype("complex128")
             cplx_parameters = {key: val.astype("complex128") for key, val in flat_params.items()}
-            
+
             jacobian_dict = vmap(
                 jacrev(partial(self.GWstrain, rot=rot), argnums=1, holomorphic=True)
             )(cplx_freq_grid, cplx_parameters)
@@ -634,10 +637,10 @@ class BasicGWSignal(object):
             real_deriv = vmap(jacrev(real_strain, argnums=1))(flat_freq_grid, flat_params)
             imag_deriv = vmap(jacrev(imag_strain, argnums=1))(flat_freq_grid, flat_params)
             jacobian_dict = {key: real_deriv[key] + 1j * imag_deriv[key] for key in parameters.keys()}
-        
+
         return OrderedDict({
             key: jacobian_dict[key].reshape(*_freq_grid.shape) for key in parameters.keys()})
-        
+
 
     def _GWstrain_wrapper(self, param_values, param_keys, freqs, rot=0.0):
         parameters = dict(zip(param_keys, param_values))
@@ -783,8 +786,6 @@ class BasicGWSignal(object):
         :rtype: tuple(array, array, array, array, array, array, array)
 
         """
-        omega = TWOPI * freqs * DAY_TO_SEC
-
         model_params = get_model_parameters(parameters, self.strain_model_keys)
 
         iota = parameters.get("iota", None)
@@ -815,6 +816,8 @@ class BasicGWSignal(object):
         ras, decs = ra_dec_from_th_phi_rad(theta, phi)
         Fpc = self.detector.compute_antenna_pattern(theta, phi, t, psi, rot)
 
+        # `DAY_TO_SEC` is to compensates for the unit of tcoal
+        omega = TWOPI * freqs * DAY_TO_SEC
         phase = 1j * (omega * tcoal - phase + phiD + phiL)
         _hp = wfhp * np.exp(phase)
         _hc = wfhc * np.exp(phase)
