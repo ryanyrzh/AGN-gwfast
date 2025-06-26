@@ -266,7 +266,7 @@ class BasicGWSignal(object):
             Ap, Ac = abs(hp) * Fp, abs(hc) * Fc
         else:
             wfAmpl = self.wf_model.Ampl(freqs, **parameters)
-            Ap = wfAmpl * Fp * 0.5 * (1.0 + (np.cos(iota)) ** 2)
+            Ap = wfAmpl * Fp * 0.5 * (1.0 + np.cos(iota) ** 2)
             Ac = wfAmpl * Fc * np.cos(iota)
 
         return Ap, Ac
@@ -922,3 +922,65 @@ class BasicGWSignal(object):
             "tcoal": tcoal_par_deriv(),
             "phase": -1j * (hp + hc),
         }
+    
+    def time_domain_GWStrain(self, parameters, duration, sampling_frequency, 
+                             minimum_frequency, maximum_frequency=None, post_merger_duration=None,
+                             return_fd=False):
+        """Compute the time-domain GW Strain for the given parameters.
+
+        :param dict parameters: Dictionary containing the parameters of the event(s).
+        :param float duration: Duration of the time series in seconds.
+        :param float sampling_frequency: Sampling frequency in Hz.
+        :param float or array minimum_frequency: Starting frequency for the frequency-domain signal.
+        :param float or array maximum_frequency: Maximum frequency for the frequency-domain signal, if not given will be default to the Nyquist frequency from the given ``sampling_frequency``.
+
+        Remark:
+            This function expects the ``parameters`` is an N-D arrays, with different values.
+            But the ``duration`` and ``sampling_frequency`` need to be the same for all events, and they should only be scalars.
+            ``minimum/maximum_frequency`` can be either a scalar or an array.
+            If given as a scalar, it will be broadcasted to match the shape of the parameters;
+            for the case of array, it must match the shape of the parameters.
+        """
+        # Check dimensions of duration and sampling_frequency
+        if not np.isscalar(duration) or not np.isscalar(sampling_frequency):
+            raise ValueError("Duration and sampling_frequency must be scalars.")
+        
+        # Check shape of minimum_frequency and maximum_frequency
+        ones = np.ones_like(next(iter(parameters.values())))
+        shape = ones.shape
+        if np.isscalar(minimum_frequency):
+            minimum_frequency = ones * minimum_frequency
+        elif minimum_frequency.shape != shape:
+            raise ValueError("Shape of minimum_frequency must match the shape of parameters.")
+
+        if maximum_frequency is None:
+            maximum_frequency = sampling_frequency / 2.0
+        if np.isscalar(maximum_frequency):
+            maximum_frequency = ones * maximum_frequency
+        elif maximum_frequency.shape != shape:
+            raise ValueError("Shape of maximum_frequency must match the shape of parameters.")
+        
+        n_samples = int(np.round(duration * sampling_frequency))
+        n_freq_bins = int(np.round(n_samples / 2) + 1)
+        freq_grid = np.linspace(0 * ones, sampling_frequency / 2 * ones, n_freq_bins)
+        time_grid = np.linspace(0 * ones, (duration - 1 / sampling_frequency) * ones, n_samples)
+
+        # Evaluate on the frequency bounding box
+        min_idx = np.unique(np.argmin(np.abs(freq_grid - np.min(minimum_frequency)), axis=0))[0]
+        max_idx = np.unique(np.argmin(np.abs(freq_grid - np.max(maximum_frequency)), axis=0))[0]
+        freq_grid_box = freq_grid[min_idx:max_idx]
+        strain_in_box = self.GWstrain(freq_grid_box, parameters)
+        freq_mask_box = (freq_grid_box >= minimum_frequency) & (freq_grid_box <= maximum_frequency)
+        masked_strain = np.where(freq_mask_box, strain_in_box, 0.0 + 1j * 0.0)
+        cplx_zeros = np.zeros_like(freq_grid, dtype=np.complex128)
+        strain = cplx_zeros.at[min_idx:max_idx].set(masked_strain)
+        td_strain = np.fft.irfft(strain, axis=0) * sampling_frequency
+
+        if post_merger_duration is None:
+            post_merger_duration = duration / 2
+        n_index = int(post_merger_duration * sampling_frequency)
+
+        if return_fd:
+            return (time_grid, np.roll(td_strain, n_index, axis=0)), (freq_grid, strain)
+        return time_grid, np.roll(td_strain, n_index, axis=0)
+        
