@@ -965,13 +965,15 @@ class BasicGWSignal(object):
         freq_grid = np.linspace(0 * ones, sampling_frequency / 2 * ones, n_freq_bins)
         time_grid = np.linspace(0 * ones, (duration - 1 / sampling_frequency) * ones, n_samples)
 
-        # Evaluate on the frequency bounding box
+        # Evaluate on the frequency bounding box first
         min_idx = np.unique(np.argmin(np.abs(freq_grid - np.min(minimum_frequency)), axis=0))[0]
         max_idx = np.unique(np.argmin(np.abs(freq_grid - np.max(maximum_frequency)), axis=0))[0]
         freq_grid_box = freq_grid[min_idx:max_idx]
         strain_in_box = self.GWstrain(freq_grid_box, parameters)
+        # Mask the strain using the actual frequency bounds
         freq_mask_box = (freq_grid_box >= minimum_frequency) & (freq_grid_box <= maximum_frequency)
         masked_strain = np.where(freq_mask_box, strain_in_box, 0.0 + 1j * 0.0)
+        # Cast it onto full frequency grid
         cplx_zeros = np.zeros_like(freq_grid, dtype=np.complex128)
         strain = cplx_zeros.at[min_idx:max_idx].set(masked_strain)
         td_strain = np.fft.irfft(strain, axis=0) * sampling_frequency
