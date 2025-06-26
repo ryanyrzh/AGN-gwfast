@@ -202,7 +202,23 @@ def get_model_parameters(input_params, model_param_keys, reference_frequency, us
         converted_params["chi1z"] = converted_params["chiS"] + converted_params["chiA"]
         converted_params["chi2z"] = converted_params["chiS"] - converted_params["chiA"]
 
-    if any([key in missing_keys for key in spin_comps_keys]):
+    # Check for AS case
+    if not (
+        input_keys.intersection({'chi1x', 'chi1y', 'chi2x', 'chi2y'})
+        and
+        input_keys.intersection({'tilt1', 'tilt2', 'phi12', 'phiJL'})
+    ):
+        if ("chi1" in missing_keys) or ("chi2" in missing_keys):
+            converted_params["chi1"] = input_params["chi1z"]
+            converted_params["chi2"] = input_params["chi2z"]
+            missing_keys.discard("chi1")
+            missing_keys.discard("chi2")
+        elif ("chi1z" in missing_keys) or ("chi2z" in missing_keys):
+            converted_params["chi1z"] = input_params["chi1"]
+            converted_params["chi2z"] = input_params["chi2"]
+            missing_keys.discard("chi1z")
+            missing_keys.discard("chi2z")
+    elif any([key in missing_keys for key in spin_comps_keys]):
         spin_comps = TransformPrecessing_angles2comp(
             input_params["thetaJN"],
             input_params["phiJL"],
