@@ -4,12 +4,11 @@
 #    All rights reserved. Use of this source code is governed by the
 #    license that can be found in the LICENSE file.
 
-from jax import config
-import jax.numpy as np
+from jax import config, numpy as np
+from jax.debug import print as jax_print
+from jax.lax import cond
 # Enable 64bit on JAX, fundamental
 config.update("jax_enable_x64", True)
-
-import logging
 
 from gwfast.gwfastGlobals import TWOPI, DAY_TO_SEC
 from gwfast.gwfastUtils import get_model_parameters, chirp_time_bound
@@ -152,7 +151,6 @@ class GeneralLensedGWSignal(BasicGWSignal):
         """Check the rough total duration of signal is within the frequency resolution.
         """
         f_min = frequencies[0]
-        print(frequencies)
         T_max = 1 / np.min(np.diff(frequencies, axis=0), axis=0)
 
         chirp_time_1 = chirp_time_bound(
@@ -162,11 +160,18 @@ class GeneralLensedGWSignal(BasicGWSignal):
         long_chirp = np.maximum(chirp_time_1, chirp_time_2)
 
         delta_t = np.abs(params_1['tcoal'] - params_2['tcoal']) * DAY_TO_SEC
+        signal_length = long_chirp + delta_t
 
-        if np.any((long_chirp + delta_t) > T_max):
-            logging.warning(
-                    'Some of the input parameters will likely yield waveforms with signal length longer than the maximum duration resolved by the frequencies.'
-                    )
+        cond(
+            np.any(signal_length > T_max),
+            lambda *args: jax_print(
+                    "Warning! Some of the input parameters will likely yield waveforms with signal length longer than the maximum duration resolved by the frequencies.\n" + 
+                    "Signal length: {}, Maximum duration: {}.\n",
+                    signal_length, T_max
+                    ),
+            lambda *args: None,
+        )
+            
 
     def _analytical_derivatives(self):
         raise NotImplementedError('Lensed waveforms have no well-defined analytical derivatives (yet)')
