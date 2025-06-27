@@ -165,6 +165,7 @@ def PML_time_delay_magnification(beta_src, theta_E=1):
     delta_t_geom = - _beta * sqrt_term
     delta_t_Shap = 2 * np.log(np.abs(img_m / img_p))
 
+    # The factor of 2 is to account for the later multiplication by GM/c^3
     delta_t = (delta_t_geom + delta_t_Shap) * 2
 
     common_term = _beta / sqrt_term + sqrt_term / _beta
