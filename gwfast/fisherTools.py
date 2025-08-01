@@ -9,8 +9,9 @@ os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=8"
 from functools import partial
 from multiprocessing import Pool, cpu_count
 from typing import Union
+from collections import OrderedDict
 
-from jax import config, devices
+from jax import config, devices, tree, vmap, jacfwd
 devices("cpu")
 config.update("jax_enable_x64", True)
 
@@ -249,6 +250,159 @@ def compute_covariance_matrix(
     return cov_matrices, eps
 
 
+def high_dim_matmul(mat_1, mat_2):
+    """
+    Perform matrix multiplication for high-dimensional arrays.
+    The first two dimensions of the input arrays are treated as matrices.
+    """
+    return np.einsum('ij...,jk...->ik...', mat_1, mat_2)
+
+
+def covariance_change_variable(
+        convariance_matrix, injection_parameters, transform, from_params
+    ):
+    """
+    Transform the covariance matrix according to a change of variable defined by the `transform` function.
+
+    :param array convariance_matrix: Covariance matricies to be transformed, of shape :math:`(N_{\\rm parameters}`, :math:`N_{\\rm parameters}`, :math:`N_{\\rm events} ...)`.
+    :param dict injection_parameters: Dictionary containing the original sets of injected parameters, or the means of the parameters.
+    :param function transform: An N×N transformation function that takes a subset of injection parameters and transforms to a new set of parameters. Both the input and output must be dictionaries with same number of parameters.
+    :param list from_params: Sub-list of keys in `injection_parameters` that will be transformed. 
+    """
+    sub_injection_parameters = OrderedDict(
+        {key: injection_parameters[key] for key in from_params})
+    jacobian_dict = vmap(jacfwd(transform))(sub_injection_parameters)
+    transform_dim = len(from_params)
+    param_shape = convariance_matrix.shape[2:]
+    jacobian_mat = np.array(tree.leaves(jacobian_dict)).reshape(
+        transform_dim, transform_dim, *param_shape)
+
+    matrix_keys = list(injection_parameters.keys())
+    keys_indices = [matrix_keys.index(key) for key in from_params]
+
+    # Compute transformed Fisher matrix
+    full_rank = convariance_matrix.shape[0]
+    full_jacobian_mat = np.zeros_like(convariance_matrix)
+    full_jacobian_mat[np.diag_indices(full_rank)] = 1.0
+    full_jacobian_mat[np.ix_(keys_indices, keys_indices)] = jacobian_mat
+    full_jacobian_mat_T = np.transpose(
+        full_jacobian_mat, axes=(1, 0, *range(2, full_jacobian_mat.ndim)))
+    transform_covar = high_dim_matmul(
+        full_jacobian_mat, high_dim_matmul(
+            convariance_matrix, full_jacobian_mat_T))
+    
+    # Compute transformed parameters and keys, maintaining the original order
+    sub_transformed_parameters = transform(sub_injection_parameters)
+    transform_keys = matrix_keys.copy()
+    for idx, new_key_name in zip(keys_indices, sub_transformed_parameters.keys()):
+        transform_keys[idx] = new_key_name
+    transform_parameters = {}
+    for key in transform_keys:
+        value = injection_parameters.get(key, None)
+        if value is None:
+            value = sub_transformed_parameters.get(key, None)
+        transform_parameters[key] = value
+
+    return transform_covar, transform_parameters, transform_keys
+
+
+def print_single_matrix(matrix, parameters:Union[dict, list]):
+    """
+    A helper function to print a Fisher/Covariance matrices nicely.
+
+    :param array matrix: Array containing one matrix for prining, must be 2D.
+    :param dict/list parameters: Dictionary or list containing the parameters names to be printed as headers.
+
+    """
+    assert matrix.ndim == 2, "Single matrix should be 2D."
+    if isinstance(parameters, dict):
+        keys = list(parameters.keys())
+    elif isinstance(parameters, list):
+        keys = parameters
+    else:
+        raise TypeError(
+            "Parameters should be a dictionary or a list, got %s." % type(parameters)
+        )
+
+    max_len = len(max(keys, key=len)) + 1
+    col_len = max(11, max_len)
+    row = f'{"":{max_len}}   ' + '  '.join([f'{col_key:^{col_len}}' for col_key in keys])
+    print(row)
+    for rdx, row_key in enumerate(keys):
+        row = f'{row_key:>{max_len}}  '
+        for cdx, _ in enumerate(keys):
+            row += f'{matrix[rdx][cdx]:+{col_len}.3e}  '
+        print(row)
+
+
+def print_matrices(matrices, parameters:Union[dict, list]):
+    """
+    A helper function to print array of Fisher/Covariance matrices nicely.
+
+    :param array matrices: Array containing the matrix(ces) for prining, of shape :math:`(N_{\\rm parameters}`, :math:`N_{\\rm parameters}`, :math:`N_{\\rm events})`.
+    :param dict/list parameters: Dictionary or list containing the parameters names to be printed as headers.
+
+    """
+    if matrices.ndim > 3:
+        print("The parameter axis of the input matrices seems to be more than 1D, flattening it for iteration.")
+        orig_shape = matrices.shape
+        flat_matrices = matrices.reshape(orig_shape[0], orig_shape[1], -1)
+    else:
+        flat_matrices = matrices
+    # Swapping the axes so that it can be iterated over the different sets of parameters.
+    fisher_mats_iter = np.moveaxis(flat_matrices, 2, 0)
+    for matrix in fisher_mats_iter:
+        print_single_matrix(matrix, parameters)
+        print('--------------------')
+
+
+def compute_inversion_error(Fisher, Cov):
+    """
+    Compute the inversion error given the Fisher and covariance matrices.
+
+    :param array Fisher: Array containing the Fisher matrix(ces), of shape :math:`(N_{\\rm parameters}`, :math:`N_{\\rm parameters}`, :math:`N_{\\rm events})`.
+    :param array Cov: Array containing the covariance matrix(ces), of shape :math:`(N_{\\rm parameters}`, :math:`N_{\\rm parameters}`, :math:`N_{\\rm events})`.
+
+    :return: Inversion error for the given matrices.
+    :rtype: 1-D array
+
+    """
+    # Assuming the Fisher and Covariance take shape: (N_keys, N_keys, N_params)
+    identity = np.einsum("ijl,jkl->ikl", Cov, Fisher)
+    diff = identity - np.eye(Fisher.shape[0])[..., None]
+    return np.max(np.abs(diff), axis=(0, 1))
+
+
+def reduce_Fisher_matrix(fisher_matrix, keys=None):
+    """
+    **Please use this function with care, and only removes zeroes that are expected.**
+
+    This function remove the columns and rows of the Fisher matrix that gives identically zeroes.
+
+    It will also remove the corresponding keys if provided.
+    """
+    remove_indices = []
+    remove_keys = []
+    for idx, row in enumerate(fisher_matrix):
+        col = fisher_matrix[:, idx, :]
+        zero_row = np.all(row == 0.0)
+        zero_col = np.all(col == 0.0)
+
+        if zero_row and zero_col:
+            remove_indices.append(idx)
+
+    reduced_fisher_mats = np.copy(fisher_matrix)
+    for jdx in reversed(remove_indices):
+        reduced_fisher_mats = np.delete(reduced_fisher_mats, (jdx), axis=0)
+        reduced_fisher_mats = np.delete(reduced_fisher_mats, (jdx), axis=1)
+
+        if keys is not None:
+            rm_key = keys.pop(jdx)
+            remove_keys.append(rm_key)
+
+    return reduced_fisher_mats, remove_keys
+
+
 def CovMatr(
     FisherMatrix,
     invMethodIn="cho",
@@ -466,103 +620,6 @@ def CovMatr(
     CovMatr = CovMatr.reshape(*orig_shape)
     eps = eps.reshape(orig_shape[2:])
     return CovMatr, eps
-
-
-def print_single_matrix(matrix, parameters:Union[dict, list]):
-    """
-    A helper function to print a Fisher/Covariance matrices nicely.
-
-    :param array matrix: Array containing one matrix for prining, must be 2D.
-    :param dict/list parameters: Dictionary or list containing the parameters names to be printed as headers.
-
-    """
-    assert matrix.ndim == 2, "Single matrix should be 2D."
-    if isinstance(parameters, dict):
-        keys = list(parameters.keys())
-    elif isinstance(parameters, list):
-        keys = parameters
-    else:
-        raise TypeError(
-            "Parameters should be a dictionary or a list, got %s." % type(parameters)
-        )
-
-    max_len = len(max(keys, key=len)) + 1
-    col_len = max(11, max_len)
-    row = f'{"":{max_len}}   ' + '  '.join([f'{col_key:^{col_len}}' for col_key in keys])
-    print(row)
-    for rdx, row_key in enumerate(keys):
-        row = f'{row_key:>{max_len}}  '
-        for cdx, _ in enumerate(keys):
-            row += f'{matrix[rdx][cdx]:+{col_len}.3e}  '
-        print(row)
-
-
-def print_matrices(matrices, parameters:Union[dict, list]):
-    """
-    A helper function to print array of Fisher/Covariance matrices nicely.
-
-    :param array matrices: Array containing the matrix(ces) for prining, of shape :math:`(N_{\\rm parameters}`, :math:`N_{\\rm parameters}`, :math:`N_{\\rm events})`.
-    :param dict/list parameters: Dictionary or list containing the parameters names to be printed as headers.
-
-    """
-    if matrices.ndim > 3:
-        print("The parameter axis of the input matrices seems to be more than 1D, flattening it for iteration.")
-        orig_shape = matrices.shape
-        flat_matrices = matrices.reshape(orig_shape[0], orig_shape[1], -1)
-    else:
-        flat_matrices = matrices
-    # Swapping the axes so that it can be iterated over the different sets of parameters.
-    fisher_mats_iter = np.moveaxis(flat_matrices, 2, 0)
-    for matrix in fisher_mats_iter:
-        print_single_matrix(matrix, parameters)
-        print('--------------------')
-
-
-def compute_inversion_error(Fisher, Cov):
-    """
-    Compute the inversion error given the Fisher and covariance matrices.
-
-    :param array Fisher: Array containing the Fisher matrix(ces), of shape :math:`(N_{\\rm parameters}`, :math:`N_{\\rm parameters}`, :math:`N_{\\rm events})`.
-    :param array Cov: Array containing the covariance matrix(ces), of shape :math:`(N_{\\rm parameters}`, :math:`N_{\\rm parameters}`, :math:`N_{\\rm events})`.
-
-    :return: Inversion error for the given matrices.
-    :rtype: 1-D array
-
-    """
-    # Assuming the Fisher and Covariance take shape: (N_keys, N_keys, N_params)
-    identity = np.einsum("ijl,jkl->ikl", Cov, Fisher)
-    diff = identity - np.eye(Fisher.shape[0])[..., None]
-    return np.max(np.abs(diff), axis=(0, 1))
-
-
-def reduce_Fisher_matrix(fisher_matrix, keys=None):
-    """
-    **Please use this function with care, and only removes zeroes that are expected.**
-
-    This function remove the columns and rows of the Fisher matrix that gives identically zeroes.
-
-    It will also remove the corresponding keys if provided.
-    """
-    remove_indices = []
-    remove_keys = []
-    for idx, row in enumerate(fisher_matrix):
-        col = fisher_matrix[:, idx, :]
-        zero_row = np.all(row == 0.0)
-        zero_col = np.all(col == 0.0)
-
-        if zero_row and zero_col:
-            remove_indices.append(idx)
-
-    reduced_fisher_mats = np.copy(fisher_matrix)
-    for jdx in reversed(remove_indices):
-        reduced_fisher_mats = np.delete(reduced_fisher_mats, (jdx), axis=0)
-        reduced_fisher_mats = np.delete(reduced_fisher_mats, (jdx), axis=1)
-
-        if keys is not None:
-            rm_key = keys.pop(jdx)
-            remove_keys.append(rm_key)
-
-    return reduced_fisher_mats, remove_keys
 
 
 def CheckFisher(FisherM, condNumbMax=1.0e15, use_mpmath=True, verbose=False):
