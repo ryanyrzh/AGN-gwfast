@@ -40,7 +40,7 @@ from gwfast.gwfastUtils import (
     noise_weighted_inner_product,
     optimal_snr,
 )
-from gwfast.lensing_utils import (
+from gwfast.old_lensing_utils import (
     get_lensed_parameter_sets,
     get_lensing_time_delay,
     get_mag_factors,

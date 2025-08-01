@@ -9,7 +9,7 @@ from jax import config
 config.update("jax_enable_x64", True)
 
 from gwfast.gwfastUtils import get_model_parameters
-from gwfast.lensing_utils_alt import get_agn_lensed_parameters
+from gwfast.lensing_utils import get_agn_lensed_parameters
 from gwfast.signals import BasicGWSignal, GeneralLensedGWSignal
 
 
