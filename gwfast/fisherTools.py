@@ -112,7 +112,8 @@ def compute_single_covariance_mat(
         positive_definite = min(eigv) >= 0
     except Exception as e:
         # Eigenvalue decomposition failed
-        print(e + "\n" + "Inversion failed (Eigenvalue decomposition failed)!")
+        print(e)
+        print("Inversion failed (Eigenvalue decomposition failed)!")
         return np.full(fisher_mat.shape, np.nan)
 
     try:
@@ -139,12 +140,12 @@ def compute_single_covariance_mat(
             try:
             # In rare cases, the choleski decomposition still fails even if the eigenvalues are positive...
             # likely for very small eigenvalues
-                c = (mpmath.cholesky(_mp_fisher)) ** -1
+                cho = (mpmath.cholesky(_mp_fisher)) ** -1
             except Exception as e:
                 invMethod = alt_method
-                print(e + "\n" + 
-                    "Cholesky decomposition not usable. Eigenvalues seem ok but cholesky decomposition failed. Using method %s"
-                    % invMethod
+                print(e)
+                print(
+                    f"Cholesky decomposition not usable. Eigenvalues seem ok but cholesky decomposition failed. Using method {invMethod}"
                 )
 
     match inv_method:
@@ -152,7 +153,7 @@ def compute_single_covariance_mat(
             cc = _mp_fisher ** -1
         case "cho":
             # c = cF**-1
-            cc = c.T * c
+            cc = cho.T * cho
         case "svd":
             cc = compute_single_svd(
                 _mp_fisher, cond, svd_kwargs
