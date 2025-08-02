@@ -272,6 +272,11 @@ def covariance_change_variable(
     sub_injection_parameters = OrderedDict(
         {key: injection_parameters[key] for key in from_params})
     jacobian_dict = vmap(jacfwd(transform))(sub_injection_parameters)
+    # Need to re-order the output Jacobian dictionary to match with expectation
+    sub_transformed_parameters = transform(sub_injection_parameters)
+    jacobian_dict = OrderedDict(
+        {key: jacobian_dict[key] for key in sub_transformed_parameters.keys()}
+    )
     transform_dim = len(from_params)
     param_shape = convariance_matrix.shape[2:]
     jacobian_mat = np.array(tree.leaves(jacobian_dict)).reshape(
@@ -292,7 +297,6 @@ def covariance_change_variable(
             convariance_matrix, full_jacobian_mat_T))
     
     # Compute transformed parameters and keys, maintaining the original order
-    sub_transformed_parameters = transform(sub_injection_parameters)
     transform_keys = matrix_keys.copy()
     for idx, new_key_name in zip(keys_indices, sub_transformed_parameters.keys()):
         transform_keys[idx] = new_key_name
