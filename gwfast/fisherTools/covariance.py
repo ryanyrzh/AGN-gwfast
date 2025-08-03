@@ -277,24 +277,26 @@ def covariance_change_variable(
     :param function transform: An N×N transformation function that takes a subset of injection parameters and transforms to a new set of parameters. Both the input and output must be dictionaries with same number of parameters.
     :param list from_params: Sub-list of keys in `injection_parameters` that will be transformed. 
     """
+    # Get the basic input and output shapes
+    full_rank = convariance_matrix.shape[0]
+    param_shape = convariance_matrix.shape[2:]
+    transform_dim = len(from_params)
+    matrix_keys = list(injection_parameters.keys())
+    keys_indices = [matrix_keys.index(key) for key in from_params]
+
+    # vmap cannot handle N-to-N transforms nicely, need to flatten the input first
     sub_injection_parameters = OrderedDict(
-        {key: injection_parameters[key] for key in from_params})
+        {key: injection_parameters[key].reshape(-1) for key in from_params})
     jacobian_dict = vmap(jacfwd(transform))(sub_injection_parameters)
     # Need to re-order the output Jacobian dictionary to match with expectation
     sub_transformed_parameters = transform(sub_injection_parameters)
     jacobian_dict = OrderedDict(
         {key: jacobian_dict[key] for key in sub_transformed_parameters.keys()}
     )
-    transform_dim = len(from_params)
-    param_shape = convariance_matrix.shape[2:]
     jacobian_mat = np.array(tree.leaves(jacobian_dict)).reshape(
         transform_dim, transform_dim, *param_shape)
 
-    matrix_keys = list(injection_parameters.keys())
-    keys_indices = [matrix_keys.index(key) for key in from_params]
-
     # Compute transformed Fisher matrix
-    full_rank = convariance_matrix.shape[0]
     full_jacobian_mat = np.zeros_like(convariance_matrix)
     full_jacobian_mat[np.diag_indices(full_rank)] = 1.0
     full_jacobian_mat[np.ix_(keys_indices, keys_indices)] = jacobian_mat
@@ -305,7 +307,7 @@ def covariance_change_variable(
             convariance_matrix, full_jacobian_mat_T))
     
     # Compute transformed parameters and keys, maintaining the original order
-    transform_keys = matrix_keys.copy()
+    transform_keys = matrix_keys
     for idx, new_key_name in zip(keys_indices, sub_transformed_parameters.keys()):
         transform_keys[idx] = new_key_name
     transform_parameters = {}
@@ -313,7 +315,7 @@ def covariance_change_variable(
         value = injection_parameters.get(key, None)
         if value is None:
             value = sub_transformed_parameters.get(key, None)
-        transform_parameters[key] = value
+        transform_parameters[key] = value.reshape(*param_shape)
 
     return transform_covar, transform_parameters, transform_keys
 
