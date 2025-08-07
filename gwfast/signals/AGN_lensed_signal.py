@@ -77,6 +77,8 @@ class AGNLensedGWSignal(GeneralLensedGWSignal):
             'delta_iota': params_2['iota'] - params_1['iota'],
             'phase': params_1['phase'],
             'delta_phase': params_2['phase'] - params_1['phase'],
+            'psi': params_1['psi'],
+            'delta_psi': params_2['psi'] - params_1['psi'],
             'dL': params_1['dL'],
             'relative_distance': params_2['dL'] / params_1['dL'],
             'Mc': params_1['Mc'],

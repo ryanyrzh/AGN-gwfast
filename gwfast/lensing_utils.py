@@ -290,6 +290,7 @@ def compute_lensed_angles_approx(
     parameters = agn_bbh_system_params.copy()
     iota = parameters["iota"]
     phase = parameters["phase"]
+    psi = parameters["psi"]
     r_orbit = parameters["R_orbit"]  # R_Sch
     y_src = parameters["src_pos"]  # R_orbit
 
@@ -314,12 +315,15 @@ def compute_lensed_angles_approx(
     inv_Delta = (np.cos(iota)**2 + np.sin(iota)**2 * np.sin(delta_phi)**2)**-0.5
     iota_term = np.cos(iota) * np.cos(delta_phi) * inv_Delta
     phi_term = np.sin(delta_phi) / np.sin(iota) * inv_Delta
+    psi_term = np.sin(iota) * np.sqrt(np.tan(iota)**2 + 1 / np.sin(delta_phi)**2)
     speed_term = np.sin(iota) * np.cos(delta_phi) * inv_Delta
 
     iota_p = iota - theta_bar_p * iota_term
     iota_m = iota + theta_bar_m * iota_term
     phi_p = phi_N + theta_bar_p * phi_term
     phi_m = phi_N - theta_bar_m * phi_term
+    psi_p = psi + theta_bar_p / psi_term
+    psi_m = psi + theta_bar_m / psi_term
 
     v_orb = Keplerian_speed(r_orbit)
     gamma = Lorentz_factor(v_orb)
@@ -341,6 +345,8 @@ def compute_lensed_angles_approx(
         'iota_m': iota_m,
         'phase_p': np.pi/2 - phi_p,
         'phase_m': np.pi/2 - phi_m,
+        'psi_p': psi_p,
+        'psi_m': psi_m,
         'v_proj_p': v_orb_p,
         'v_proj_m': v_orb_m,
         'z_rel_p': z_rel_p,

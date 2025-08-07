@@ -48,6 +48,7 @@ class GeneralLensedGWSignal(BasicGWSignal):
         additional_params = {
             'delta_iota': 0.5,   # radian
             'delta_phase': 0.5,  # radian
+            'delta_psi': 0.5,  # radian
             'delta_time': 1.0,   # seconds
             'relative_distance': 1.0,   # dimensionless
             'relative_mass': 1.0,   # dimensionless
@@ -216,6 +217,7 @@ class GeneralLensedGWSignal(BasicGWSignal):
         ref_parameters_dict = parameters_dict.copy()
         iota_1, iota_2 = self._get_parameter_pairs('iota', ref_parameters_dict, 'delta')
         phase_1, phase_2 = self._get_parameter_pairs('phase', ref_parameters_dict, 'delta')
+        psi_1, psi_2 = self._get_parameter_pairs('psi', ref_parameters_dict, 'delta')
         # Caution: tGPS is in unit of seconds, tcoal is days
         tGPS_1, tGPS_2 = self._get_parameter_pairs('tGPS', ref_parameters_dict, 'delta')
         tcoal_1, tcoal_2 = self._get_parameter_pairs('tcoal', ref_parameters_dict, 'delta')
@@ -228,12 +230,14 @@ class GeneralLensedGWSignal(BasicGWSignal):
         signal_1_params.update({
             "iota": iota_1,
             "phase": phase_1,
+            "psi": psi_1,
             "dL": distance_1,
             "Mc": mass_1,
         })
         signal_2_params.update({
             "iota": iota_2,
             "phase": phase_2,
+            "psi": psi_2,
             "dL": distance_2,
             "Mc": mass_2,
         })
