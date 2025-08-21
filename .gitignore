@@ -3,9 +3,11 @@
 *.ipynb_checkpoints/
 *.png
 *.pdf
+*.log
 
 data/
 results/
 docs/build/
 poetry.lock
 dist/
+production/plots/
