@@ -4,6 +4,7 @@
 from time import time
 import argparse
 from pathlib import Path
+from functools import partial
 from multiprocessing import Pool, set_start_method
 
 import numpy as onp
@@ -12,6 +13,7 @@ import jax.numpy as np
 from jax.lax import integer_pow
 config.update("jax_enable_x64", True)
 import matplotlib.pyplot as plt
+from matplotlib import colors
 
 from gwfast.gwfastGlobals import detectors as det_dict, detPath
 import gwfast.waveforms as waveforms
@@ -22,13 +24,13 @@ from gwfast.lensing_utils import (
     compute_lensed_angles_approx,
 )
 from gwfast.fisherTools import (
-    reduce_Fisher_matrix, 
-    compute_covariance_matrix, 
+    reduce_Fisher_matrix,
+    compute_covariance_matrix,
     covariance_change_variable
 )
 
 parser = argparse.ArgumentParser(description='Input control.')
-parser.add_argument('--nR', type=int, required=True, 
+parser.add_argument('--nR', type=int, required=True,
                     help='Number of cells in orbital radius (R_orbit).')
 parser.add_argument('--ny', type=int, required=True,
                     help='Number of cells in source position (y).')
@@ -65,7 +67,7 @@ reference_parameters = {
 
 def convert_y_from_Einstein_to_Rorbit(y_Eins, r_orbit):
     kappa = y_Eins*y_Eins / r_orbit
-    return np.sqrt(2 * kappa * (np.sqrt(1 + kappa*kappa) - kappa))
+    return np.sign(y_Eins) * np.sqrt(2 * kappa * (np.sqrt(1 + kappa*kappa) - kappa))
 
 def Jacobian_covariance(lensing_parameters):
     # 4.b Compute the Fisher
@@ -113,9 +115,15 @@ def lensing_transform(lensing_parameters):
     return phenom_changes
 
 
-
-
 def worker(Ry_tuple_sublist, model='agn', loop=2, actual_snr=False):
+    '''
+    Performance comment (2025/08/21)
+    * Looping is recommended, but one loop is sufficient to bring the
+        fractional difference between SNR and target SNR to below 1e-3
+    * Computing the actual SNR at the end is not needed. The typical fractional
+        error between the actual SNR and the one obtained from scaling is
+        of order 1e-5 (or less).
+    '''
     input_len = Ry_tuple_sublist.shape[0]
     shape = (input_len)
     lensing_parameters = {key: np.full(shape, val).astype(np.float64) for key, val in reference_parameters.items()}
@@ -130,7 +138,6 @@ def worker(Ry_tuple_sublist, model='agn', loop=2, actual_snr=False):
         network = HLV_Lensed
     covariance_mat, params_dict, keys = covar_func(lensing_parameters)
 
-    # 4.d Compute the threshold
     key_variable = 'relative_mass'
     key_idx = keys.index(key_variable)
     std = onp.sqrt(covariance_mat[key_idx, key_idx], dtype='float64')
@@ -140,7 +147,6 @@ def worker(Ry_tuple_sublist, model='agn', loop=2, actual_snr=False):
     target_std = np.abs((ln_mean - 0))/ 3
     scale = std_ln / target_std
 
-    # Compute the original SNR
     orig_snr = network.SNR(lensing_parameters, res=1000)
     result_snr = orig_snr / scale
 
@@ -163,13 +169,13 @@ def worker(Ry_tuple_sublist, model='agn', loop=2, actual_snr=False):
 
         _result_snr = orig_snr / lensing_parameters['dL']
         print('(After - Before) loop', _result_snr - result_snr)
+
         if actual_snr:
             actual_snr = network.SNR(lensing_parameters, res=1000)
             print('Actual v.s. Scaling (1 - Scaling/Actual):', 1 - actual_snr / _result_snr)
             result_snr = actual_snr
         else:
             result_snr = _result_snr
-    # 4.e Compute SNR and returns
     return result_snr
 
 
@@ -182,16 +188,15 @@ if __name__ == '__main__':
 
     tic = time()
     # 1. Prepare matrix of (y, R)
-    y_Eins_array = np.linspace(-1, 1, 2 * n_y) # in Einstein radii
-    R_orbit_array = np.logspace(10, 5000, n_R)
+    y_Eins_array = np.linspace(0.01, 1, n_y) # in Einstein radii
+    R_orbit_array = np.geomspace(10, 5000, n_R)
     R_orbit_mesh, y_Eins_mesh = np.meshgrid(R_orbit_array, y_Eins_array, indexing='xy')
     y_Rorbit_mesh = convert_y_from_Einstein_to_Rorbit(y_Eins_mesh, R_orbit_mesh)
     # 2. Flatten it
     Ry_tuple_list = np.vstack([R_orbit_mesh.flatten(), y_Rorbit_mesh.flatten()]).T
 
-    def the_worker(sub_list):
-        # Custom settings goes here
-        return worker(sub_list, model='agn', loop=1, actual_snr=False)
+    # Custom settings go here
+    the_worker = partial(worker, model='agn', loop=1, actual_snr=False)
 
     with Pool(cores) as p:
         results = list(p.map(the_worker, np.array_split(Ry_tuple_list, cores)))
@@ -202,13 +207,28 @@ if __name__ == '__main__':
     concat_result = np.concatenate(results, axis=0)
     snr_grid = concat_result.reshape((n_y, n_R))
 
-    fig, ax = plt.subplots(1, 1, figsize=(6, 4), constrained_layout=True)
-    cmap = plt.cm.plasma
+    fig, ax = plt.subplots(1, 1, figsize=(5.5, 4), constrained_layout=True)
+    cmap = plt.cm.plasma_r
     cmap.set_bad(color='lightgrey')
 
-    im = ax.pcolormesh(R_orbit_array, y_Eins_array, np.log10(snr_grid), cmap=cmap, shading='gouraud')
-    fig.colorbar(im, ax=ax, label=r'$\log_{10}(\rho_{\rm opt})$')
+    log10_snr = np.log10(snr_grid)
+    nans = np.isnan(log10_snr)
+    centre = np.mean(log10_snr[~nans])
+    # Make the whole thing 5% larger
+    _min, _max = np.min(log10_snr[~nans]), np.max(log10_snr[~nans])
+    midpoint = (_max + _min) / 2
+    half_range = (_max - _min) / 2 * 1.05
+    norm = colors.TwoSlopeNorm(vmin=midpoint - half_range, vcenter=centre, vmax=midpoint + half_range)
+    im = ax.pcolormesh(R_orbit_array, y_Eins_array, log10_snr, cmap=cmap, norm=norm, shading='gouraud')
+    cont_snrs = [8, 15, 30, 50, 100]
+    cont = ax.contour(R_orbit_array, y_Eins_array, log10_snr, colors=['white'], levels=onp.log10(cont_snrs))
+    labels = {lvl: f'{snr:d}' for lvl, snr in zip(cont.levels, cont_snrs)}
+    ax.clabel(cont, fmt=labels, fontsize=10)
+    ax.tick_params(which='both', direction='out')
+    ax.set_xscale('log')
     ax.set_xlabel(r'$R_{\rm orbit}\,/\,R_S$')
     ax.set_ylabel(r'$y\,\equiv\,\beta\,/\,\theta_{\rm E}$')
     ax.set_title(r'$\rho$ required for 0 to lie outside the $3\sigma$ region of $p(\ln({\cal M}_1/{\cal M}_2))$')
-    fig.savefig('plots/Test_expanded_domain.pdf')
+    fig.colorbar(im, ax=ax, label=r'$\log_{10}(\rho_{\rm opt})$')
+    # fig.savefig('plots/test_contour.pdf')
+    fig.savefig('plots/snr_threshold_Ry_plot.pdf')
