@@ -163,15 +163,15 @@ class GeneralLensedGWSignal(BasicGWSignal):
         delta_t = np.abs(params_1['tcoal'] - params_2['tcoal']) * DAY_TO_SEC
         signal_length = long_chirp + delta_t
 
-        cond(
-            np.any(signal_length > T_max),
-            lambda *args: jax_print(
-                    "Warning! Some of the input parameters will likely yield waveforms with signal length longer than the maximum duration resolved by the frequencies.\n" + 
-                    "Signal length: {}, Maximum duration: {}.\n",
-                    signal_length, T_max
-                    ),
-            lambda *args: None,
-        )
+        # cond(
+        #     np.any(signal_length > T_max),
+        #     lambda *args: jax_print(
+        #             "Warning! Some of the input parameters will likely yield waveforms with signal length longer than the maximum duration resolved by the frequencies.\n" + 
+        #             "Signal length: {}, Maximum duration: {}.\n",
+        #             signal_length[signal_length > T_max], T_max
+        #             ),
+        #     lambda *args: None,
+        # )
             
 
     def _analytical_derivatives(self):
