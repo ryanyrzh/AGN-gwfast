@@ -36,7 +36,9 @@ parser.add_argument('--ny', type=int, required=True,
                     help='Number of cells in source position (y).')
 parser.add_argument('--cores', type=int, default=4,
                     help='Number of cores to use.')
-
+parser.add_argument('--model', type=str, default='agn',
+                    choices=['agn', 'generic'],
+                    help='Which model to use for covariance calculation.')
 
 # Set up detectors
 H1 = Detector('H1', **det_dict['H1'],
@@ -53,10 +55,10 @@ L1_AGN = AGNLensedGWSignal(wf_model=wf_model, detector=L1, fmin=10)
 V1_AGN = AGNLensedGWSignal(wf_model=wf_model, detector=V1, fmin=10)
 HLV_AGN = network.DetNet({'H1': H1_AGN, 'L1': L1_AGN, 'V1': V1_AGN})
 
-# H1_Lensed = GeneralLensedGWSignal(wf_model=wf_model, detector=H1, fmin=10)
-# L1_Lensed = GeneralLensedGWSignal(wf_model=wf_model, detector=L1, fmin=10)
-# V1_Lensed = GeneralLensedGWSignal(wf_model=wf_model, detector=V1, fmin=10)
-# HLV_Lensed = network.DetNet({'H1': H1_Lensed, 'L1': L1_Lensed, 'V1': V1_Lensed})
+H1_Lensed = GeneralLensedGWSignal(wf_model=wf_model, detector=H1, fmin=10)
+L1_Lensed = GeneralLensedGWSignal(wf_model=wf_model, detector=L1, fmin=10)
+V1_Lensed = GeneralLensedGWSignal(wf_model=wf_model, detector=V1, fmin=10)
+HLV_Lensed = network.DetNet({'H1': H1_Lensed, 'L1': L1_Lensed, 'V1': V1_Lensed})
 
 reference_parameters = {
     'Mc': 30, 'eta': 0.24, 'iota': 0.99*np.pi/2, 'phase': 2,
@@ -110,7 +112,8 @@ def lensing_transform(lensing_parameters):
     # (Radial gravitational potential is cancelled)
     phenom_changes['relative_mass'] = (1 + outputs['z_rel_m']) / (1 + outputs['z_rel_p'])
     relative_magification = outputs['sqrt_mu_p'] / outputs['sqrt_mu_m']
-    phenom_changes['relative_distance'] = relative_magification * integer_pow((1 + outputs['z_rel_m']) / (1 + outputs['z_rel_p']), 2)
+    phenom_changes['relative_distance'] = \
+        relative_magification * integer_pow((1 + outputs['z_rel_m']) / (1 + outputs['z_rel_p']), 2)
     phenom_changes['delta_time'] = outputs['delta_time']
     return phenom_changes
 
@@ -192,11 +195,10 @@ if __name__ == '__main__':
     R_orbit_array = np.geomspace(10, 5000, n_R)
     R_orbit_mesh, y_Eins_mesh = np.meshgrid(R_orbit_array, y_Eins_array, indexing='xy')
     y_Rorbit_mesh = convert_y_from_Einstein_to_Rorbit(y_Eins_mesh, R_orbit_mesh)
-    # 2. Flatten it
     Ry_tuple_list = np.vstack([R_orbit_mesh.flatten(), y_Rorbit_mesh.flatten()]).T
 
     # Custom settings go here
-    the_worker = partial(worker, model='agn', loop=1, actual_snr=False)
+    the_worker = partial(worker, model=args.model, loop=1, actual_snr=False)
 
     with Pool(cores) as p:
         results = list(p.map(the_worker, np.array_split(Ry_tuple_list, cores)))
@@ -231,4 +233,4 @@ if __name__ == '__main__':
     ax.set_title(r'$\rho$ required for 0 to lie outside the $3\sigma$ region of $p(\ln({\cal M}_1/{\cal M}_2))$')
     fig.colorbar(im, ax=ax, label=r'$\log_{10}(\rho_{\rm opt})$')
     # fig.savefig('plots/test_contour.pdf')
-    fig.savefig('plots/snr_threshold_Ry_plot.pdf')
+    fig.savefig(f'plots/snr_threshold_{args.model}_Ry_plot.pdf')
