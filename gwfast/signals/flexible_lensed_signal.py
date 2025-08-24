@@ -166,13 +166,12 @@ class GeneralLensedGWSignal(BasicGWSignal):
         # cond(
         #     np.any(signal_length > T_max),
         #     lambda *args: jax_print(
-        #             "Warning! Some of the input parameters will likely yield waveforms with signal length longer than the maximum duration resolved by the frequencies.\n" + 
+        #             "Warning! Some of the input parameters will likely yield waveforms with signal length longer than the maximum duration resolved by the frequencies.\n" +
         #             "Signal length: {}, Maximum duration: {}.\n",
         #             signal_length[signal_length > T_max], T_max
         #             ),
         #     lambda *args: None,
         # )
-            
 
     def _analytical_derivatives(self):
         raise NotImplementedError('Lensed waveforms have no well-defined analytical derivatives (yet)')

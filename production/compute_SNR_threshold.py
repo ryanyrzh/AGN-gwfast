@@ -22,6 +22,7 @@ import gwfast.network as network
 from gwfast.signals import AGNLensedGWSignal, GeneralLensedGWSignal
 from gwfast.lensing_utils import (
     compute_lensed_angles_approx,
+    convert_y_from_Einstein_to_Rorbit
 )
 from gwfast.fisherTools import (
     reduce_Fisher_matrix,
@@ -67,9 +68,6 @@ reference_parameters = {
     'dL': 1, 'psi': 4, 'theta': 1.87, 'phi': 2.66,
 }
 
-def convert_y_from_Einstein_to_Rorbit(y_Eins, r_orbit):
-    kappa = y_Eins*y_Eins / r_orbit
-    return np.sign(y_Eins) * np.sqrt(2 * kappa * (np.sqrt(1 + kappa*kappa) - kappa))
 
 def Jacobian_covariance(lensing_parameters):
     # 4.b Compute the Fisher
@@ -88,7 +86,7 @@ def direct_covariance(lensing_parameters):
     model_parameters = L1_AGN.convert_to_general_lensed_parameters(lensing_parameters)
     keys = list(model_parameters.keys()).copy()
 
-    lensed_HLV_fisher = HLV_Lensed.FisherMatr(model_parameters, res=1000)
+    lensed_HLV_fisher = HLV_Lensed.FisherMatr(model_parameters, res=200)
 
     # If some of the events is nan, then the reduce matrix won't work
     cleaned_lensed_HLV_fisher = np.nan_to_num(lensed_HLV_fisher, nan=0.0)
@@ -170,7 +168,7 @@ def worker(Ry_tuple_sublist, model='agn', loop=2, actual_snr=False):
             looped += 1
             print(f'Loop {looped:d} v.s. target: {np.mean(frac):.6f}, std: {np.std(frac):.8f}')
 
-        _result_snr = orig_snr / lensing_parameters['dL']
+        _result_snr = orig_snr / lensing_parameters['dL'] * reference_parameters['dL']
         print('(After - Before) loop', _result_snr - result_snr)
 
         if actual_snr:
@@ -188,6 +186,7 @@ if __name__ == '__main__':
     n_y = args.ny
     n_R = args.nR
     cores = args.cores
+    model = args.model
 
     tic = time()
     # 1. Prepare matrix of (y, R)
@@ -198,7 +197,7 @@ if __name__ == '__main__':
     Ry_tuple_list = np.vstack([R_orbit_mesh.flatten(), y_Rorbit_mesh.flatten()]).T
 
     # Custom settings go here
-    the_worker = partial(worker, model=args.model, loop=1, actual_snr=False)
+    the_worker = partial(worker, model=model, loop=1, actual_snr=False)
 
     with Pool(cores) as p:
         results = list(p.map(the_worker, np.array_split(Ry_tuple_list, cores)))
@@ -209,6 +208,16 @@ if __name__ == '__main__':
     concat_result = np.concatenate(results, axis=0)
     snr_grid = concat_result.reshape((n_y, n_R))
 
+    # Saving result for reproducibility
+    print('Saving results')
+    np.savez(f'result_y{n_y:d}_R{n_R:d}_{model}',
+             y_Eins=y_Eins_mesh.flatten(),
+             y_Rorb=y_Rorbit_mesh.flatten(),
+             R_orbit=R_orbit_mesh.flatten(),
+             snr=snr_grid.flatten()
+             )
+
+    print('Start plotting')
     fig, ax = plt.subplots(1, 1, figsize=(5.5, 4), constrained_layout=True)
     cmap = plt.cm.plasma_r
     cmap.set_bad(color='lightgrey')
