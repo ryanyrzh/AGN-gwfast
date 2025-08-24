@@ -17,7 +17,7 @@ def einstein_angle(lens_mass_source, angular_D_L, D_LS):
     Compute the Einstein radius (θ_E) from the given distances.
 
     We assume D_S = D_L + D_LS, and we assume D_LS is sufficiently
-    small such that the (1 + z)^2 correction is unnecessary.
+    small such that its (1 + z)^2 correction is unnecessary.
 
     Making use of the distance hierarchsies, we write:
         θ_E^2 = 2 * (R_S / D_L) * [d_ls / (1 + d_ls)]
@@ -184,7 +184,20 @@ def line_of_sight_unit_vec(iota, phase):
     ])
 
 
-def get_agn_lens_angles(redshifted_lens_mass, r_orbit, source_position, 
+def convert_y_from_Einstein_to_Rorbit(y_Eins, r_orbit):
+    kappa = y_Eins*y_Eins / r_orbit
+    return np.sign(y_Eins) * np.sqrt(2 * kappa * (np.sqrt(1 + kappa*kappa) - kappa))
+
+
+def convert_y_from_Einstein_to_Rorbit_first_order(y_Eins, r_orbit, delta):
+    kappa = y_Eins*y_Eins / r_orbit
+    delta_r = r_orbit * delta
+    surd = np.sqrt(1 + (kappa - delta_r)**2)
+    t2 = kappa + delta_r
+    return np.sign(y_Eins) * np.sqrt(2 * kappa / (surd + t2))
+
+
+def get_agn_lens_angles(redshifted_lens_mass, r_orbit, source_position,
                         luminosity_distance, angular_distances=False):
     '''
     Computes the Einstein angle, the source position angle, and the lens mass.
@@ -245,7 +258,7 @@ def get_agn_lensed_parameters(unlensed_parameters):
 
     lensed_params = compute_lensed_angles_approx(unlensed_parameters)
 
-    # Environemental effects (orbit-induced redshift and gravitational redshift) can be modeled as 
+    # Environemental effects (orbit-induced redshift and gravitational redshift) can be modeled as
     # changes in effective chirp mass and effective luminosity distance
     # https://arxiv.org/abs/2310.16025 Eqs. 4&5
     plus_redshift_factor = (1 + lensed_params['z_rel_p']) * (1 + lensed_params['z_grav'])
@@ -271,7 +284,7 @@ def convert_simple_PML_to_general_lensed_parameters(parameters):
     luminosity_distance = output_params.pop("dL")
 
     theta_E, beta, lens_mass_src = get_agn_lens_angles(
-        output_params['M_lz'], output_params['R_orbit'], 
+        output_params['M_lz'], output_params['R_orbit'],
         output_params['src_pos'], luminosity_distance
     )
     time_delay, mag_1, mag_2 = PML_time_delay_magnification(beta_src=beta, theta_E=theta_E)
@@ -298,7 +311,7 @@ def compute_lensed_angles_approx(
     phi_N = np.pi / 2 - phase
 
     theta_E, beta, lens_mass_src = get_agn_lens_angles(
-        parameters["M_lz"], r_orbit, y_src, parameters["dL"], 
+        parameters["M_lz"], r_orbit, y_src, parameters["dL"],
         angular_distances=angular_distances)
 
     # Image positions
