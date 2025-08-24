@@ -148,7 +148,10 @@ def worker(Ry_tuple_sublist, model='agn', loop=2, actual_snr=False):
     target_std = np.abs((ln_mean - 0))/ 3
     scale = std_ln / target_std
 
-    orig_snr = network.SNR(lensing_parameters, res=1000)
+    if model == 'agn':
+        orig_snr = network.SNR(lensing_parameters, res=1000)
+    elif model == 'generic':
+        orig_snr = network.SNR(params_dict, res=1000)
     result_snr = orig_snr / scale
 
     if loop:
@@ -166,18 +169,21 @@ def worker(Ry_tuple_sublist, model='agn', loop=2, actual_snr=False):
             scale, lensing_parameters = snr_loop(lensing_parameters, scale, target_std)
             frac = 1 - scale
             looped += 1
+            frac = frac[~np.isnan(frac)]
             print(f'Loop {looped:d} v.s. target: {np.mean(frac):.6f}, std: {np.std(frac):.8f}')
 
         _result_snr = orig_snr / lensing_parameters['dL'] * reference_parameters['dL']
         print('(After - Before) loop', _result_snr - result_snr)
 
         if actual_snr:
-            actual_snr = network.SNR(lensing_parameters, res=1000)
-            print('Actual v.s. Scaling (1 - Scaling/Actual):', 1 - actual_snr / _result_snr)
-            result_snr = actual_snr
+            if model == 'agn':
+                computed_snr = network.SNR(lensing_parameters, res=1000)
+            elif model == 'generic':
+                computed_snr = network.SNR(params_dict, res=1000)
+            print('Actual v.s. Scaling (1 - Scaling/Actual):', 1 - computed_snr / _result_snr)
+            return computed_snr
         else:
-            result_snr = _result_snr
-    return result_snr
+            return _result_snr
 
 
 if __name__ == '__main__':
