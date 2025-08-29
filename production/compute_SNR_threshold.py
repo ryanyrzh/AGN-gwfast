@@ -67,6 +67,9 @@ reference_parameters = {
     'R_orbit': 100, 'M_lz': 1e4, 'src_pos': 0.5,
     'dL': 1, 'psi': 4, 'theta': 1.87, 'phi': 2.66,
 }
+# reference_parameters['M_lz'] = 1e6
+# reference_parameters['iota'] = 0.999 * np.pi / 2
+reference_parameters['Mc'] = 50
 
 
 def Jacobian_covariance(lensing_parameters):
@@ -193,10 +196,11 @@ if __name__ == '__main__':
     n_R = args.nR
     cores = args.cores
     model = args.model
+    label = 'Mc50'
 
     tic = time()
     # 1. Prepare matrix of (y, R)
-    y_Eins_array = np.linspace(0.01, 1, n_y) # in Einstein radii
+    y_Eins_array = np.linspace(0.01, 1, n_y)  # in Einstein radii
     R_orbit_array = np.geomspace(10, 5000, n_R)
     R_orbit_mesh, y_Eins_mesh = np.meshgrid(R_orbit_array, y_Eins_array, indexing='xy')
     y_Rorbit_mesh = convert_y_from_Einstein_to_Rorbit(y_Eins_mesh, R_orbit_mesh)
@@ -216,7 +220,7 @@ if __name__ == '__main__':
 
     # Saving result for reproducibility
     print('Saving results')
-    np.savez(f'result_y{n_y:d}_R{n_R:d}_{model}',
+    np.savez(f'output/result_y{n_y:d}_R{n_R:d}_{model}_{label}',
              y_Eins=y_Eins_mesh.flatten(),
              y_Rorb=y_Rorbit_mesh.flatten(),
              R_orbit=R_orbit_mesh.flatten(),
@@ -248,4 +252,4 @@ if __name__ == '__main__':
     ax.set_title(r'$\rho$ required for 0 to lie outside the $3\sigma$ region of $p(\ln({\cal M}_1/{\cal M}_2))$')
     fig.colorbar(im, ax=ax, label=r'$\log_{10}(\rho_{\rm opt})$')
     # fig.savefig('plots/test_contour.pdf')
-    fig.savefig(f'plots/snr_threshold_{args.model}_Ry_plot.pdf')
+    fig.savefig(f'plots/snr_threshold_{args.model}_{label}_Ry_plot.pdf')
