@@ -42,6 +42,7 @@ __all__ = [
     'compute_single_covariance_matrix',
     'compute_covariance_matrix',
     'covariance_change_variable',
+    'covariance_change_variable_1',
     'print_single_matrix', 
     'print_matrices',
     'check_covariance',
@@ -319,6 +320,64 @@ def covariance_change_variable(
 
     return transform_covar, transform_parameters, transform_keys
 
+def covariance_change_variable_1(
+        convariance_matrix, injection_parameters, target_keys, transform, from_params, to_params
+    ):
+    """
+    Transform the covariance matrix according to a change of variable defined by the `transform` function.
+
+    :param array convariance_matrix: Covariance matricies to be transformed, of shape :math:`(N_{\\rm parameters}`, :math:`N_{\\rm parameters}`, :math:`N_{\\rm events} ...)`.
+    :param dict injection_parameters: Dictionary containing the original sets of injected parameters, or the means of the parameters.
+    :param list target_keys: List containing the target sets of parameter keys.
+    :param function transform: A transformation function that takes a subset of injection parameters and transforms to a new set of parameters. Both the input and output must be dictionaries.
+    :param list from_params: Sub-list of keys in `injection_parameters` that will be transformed. 
+    :param list to_params: Sub-list of keys in the output dictionary from `transform` corresponding to the transformed parameters.
+    """
+    # Get the basic input and output shapes
+    inj_full_rank = convariance_matrix.shape[0]
+    tar_full_rank = len(target_keys)
+    param_shape = convariance_matrix.shape[2:]
+    from_dim = len(from_params)
+    to_dim = len(to_params)
+    inj_keys = list(injection_parameters.keys())
+    from_keys_indices = [inj_keys.index(key) for key in from_params]
+    to_keys_indices = [target_keys.index(key) for key in to_params]
+
+    fixed_dim = inj_full_rank - from_dim
+    fixed_dim_ = tar_full_rank - to_dim
+    assert fixed_dim == fixed_dim_
+
+    # vmap cannot handle high dimensional transforms nicely, need to flatten the input first
+    sub_injection_parameters = OrderedDict(
+        {key: injection_parameters[key].reshape(-1) for key in from_params})
+    jacobian_dict = vmap(jacfwd(transform))(sub_injection_parameters)
+    # Need to re-order the output Jacobian dictionary to match with expectation
+    sub_transformed_parameters = transform(sub_injection_parameters)
+    jacobian_dict = OrderedDict(
+        {key: jacobian_dict[key] for key in sub_transformed_parameters.keys()}
+    )
+    jacobian_mat = np.array(tree.leaves(jacobian_dict)).reshape(
+        to_dim, from_dim, *param_shape)
+
+    # Compute transformed Fisher matrix
+    full_jacobian_mat = np.zeros((fixed_dim + to_dim, fixed_dim + from_dim, *param_shape))
+    full_jacobian_mat[np.diag_indices(fixed_dim)] = 1.0
+    full_jacobian_mat[np.ix_(to_keys_indices, from_keys_indices)] = jacobian_mat
+    full_jacobian_mat_T = np.transpose(
+        full_jacobian_mat, axes=(1, 0, *range(2, full_jacobian_mat.ndim)))
+    transform_covar = high_dim_matmul(
+        full_jacobian_mat, high_dim_matmul(
+            convariance_matrix, full_jacobian_mat_T))
+    
+    # Compute transformed parameters and keys, maintaining the original order
+    tar_parameters = {}
+    for key in target_keys:
+        value = injection_parameters.get(key, None)
+        if value is None:
+            value = sub_transformed_parameters.get(key, None)
+        tar_parameters[key] = value.reshape(*param_shape)
+
+    return transform_covar, tar_parameters, target_keys
 
 def print_single_matrix(matrix, parameters:Union[dict, list]):
     """

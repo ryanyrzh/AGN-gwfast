@@ -27,7 +27,8 @@ from gwfast.lensing_utils import (
 from gwfast.fisherTools import (
     reduce_Fisher_matrix,
     compute_covariance_matrix,
-    covariance_change_variable
+    covariance_change_variable,
+    covariance_change_variable_1
 )
 
 parser = argparse.ArgumentParser(description='Input control.')
@@ -65,8 +66,8 @@ HLV_Lensed = network.DetNet({'H1': H1_Lensed, 'L1': L1_Lensed, 'V1': V1_Lensed})
 reference_parameters = {
     'Mc': 30, 'eta': 0.24, 'iota': 0.99*np.pi/2, 'phase': 2,
     'chi1z': 0.3, 'chi2z': 0.5, 'tcoal': 0,
-    'R_orbit': 100, 'M_lz': 1e4, 'src_pos': 0.5,
-    'dL': 0.5, 'psi': 4, 'theta': 1.87, 'phi': 2.66,
+    'R_orbit': 50, 'M_lz': 1e4, 'src_pos': 0.5,
+    'dL': 0.5, 'psi': 1, 'theta': 1.87, 'phi': 2.66,
 }
 # reference_parameters['M_lz'] = 1e6
 # reference_parameters['iota'] = 0.999 * np.pi / 2
@@ -76,13 +77,36 @@ reference_parameters_1['Mc'] = 30
 reference_parameters_2['Mc'] = 80
 
 
+# def Jacobian_covariance(lensing_parameters):
+#     # 4.b Compute the Fisher
+#     fisher_matrix = HLV_AGN.FisherMatr(lensing_parameters, res=100)
+#     # 4.c Reduce and compute covar
+#     covar_matrix, _ = compute_covariance_matrix(fisher_matrix, cores=1)
+
+#     # lensing_transform is a 6-to-6 transform
+#     from_params = ['iota', 'R_orbit', 'src_pos', 'M_lz', 'dL']
+#     transformed_cov_mat, transformed_parameters, transformed_keys = covariance_change_variable(
+#         covar_matrix, lensing_parameters, lensing_transform, from_params
+#     )
+#     return transformed_cov_mat, transformed_parameters, transformed_keys
+
 def Jacobian_covariance(lensing_parameters):
     # 4.b Compute the Fisher
     fisher_matrix = HLV_AGN.FisherMatr(lensing_parameters, res=100)
     # 4.c Reduce and compute covar
     covar_matrix, _ = compute_covariance_matrix(fisher_matrix, cores=1)
 
-    from_params = ['iota', 'R_orbit', 'src_pos', 'M_lz', 'dL']
+    # # lensing_transform is a 3-to-6 transform
+    # from_params = ['R_orbit', 'src_pos', 'M_lz']
+    # to_params = ['delta_iota', 'delta_phase', 'delta_psi', 'relative_distance', 'relative_mass', 'delta_time']
+    # fixed_params = [key for key in lensing_parameters.keys() if key not in from_params]
+    # target_keys = fixed_params + to_params
+    # transformed_cov_mat, transformed_parameters, transformed_keys = covariance_change_variable_1(
+    #     covar_matrix, lensing_parameters, target_keys, lensing_transform, from_params, to_params
+    # )
+
+    # original 5-to-5 transform
+    from_params = ['R_orbit', 'src_pos', 'M_lz', 'iota', 'dL']
     transformed_cov_mat, transformed_parameters, transformed_keys = covariance_change_variable(
         covar_matrix, lensing_parameters, lensing_transform, from_params
     )
@@ -99,7 +123,6 @@ def direct_covariance(lensing_parameters):
     cleaned_lensed_HLV_fisher = np.nan_to_num(lensed_HLV_fisher, nan=0.0)
 
     lensed_fisher_mat, rm_keys = reduce_Fisher_matrix(cleaned_lensed_HLV_fisher, keys=keys)
-    print(rm_keys)
     lensed_fisher_mat[lensed_fisher_mat == 0.0] = np.nan
     lensed_cov_mats, _ = compute_covariance_matrix(lensed_fisher_mat, cores=1)
     return lensed_cov_mats, model_parameters, keys
@@ -120,20 +143,22 @@ def simple_lensing_covariance(lensing_parameters):
     cleaned_simple_HLV_fisher = np.nan_to_num(simple_HLV_fisher, nan=0.0)
 
     simple_fisher_mat, rm_keys = reduce_Fisher_matrix(cleaned_simple_HLV_fisher, keys=keys)
-    print(rm_keys)
+    print('Fisher removed keys:', rm_keys)
     simple_fisher_mat[simple_fisher_mat == 0.0] = np.nan
     simple_cov_mats, _ = compute_covariance_matrix(simple_fisher_mat, cores=1)
     return simple_cov_mats, model_parameters, keys
 
 def lensing_transform(lensing_parameters):
     # A fiducial phase which does not affect the Jacobian results
+    # lensing_parameters['iota'] = reference_parameters['iota'] # temporary fix
     lensing_parameters['phase'] = 0.0
     lensing_parameters['psi'] = 0.0
-    outputs = compute_lensed_angles_approx(lensing_parameters) ### REARRANGE PARAMETERS SO DELTA T AND DISTANCE GO FIRST
+    # lensing_parameters['dL'] = reference_parameters['dL'] # temporary fix
+    outputs = compute_lensed_angles_approx(lensing_parameters)
     phenom_changes = {}
     phenom_changes['delta_iota'] = outputs['iota_m'] - outputs['iota_p']
     phenom_changes['delta_phase'] = outputs['phase_m'] - outputs['phase_p']
-    phenom_changes['delta_psi'] = outputs['psi_m'] - outputs['psi_p']
+    # phenom_changes['delta_psi'] = outputs['psi_m'] - outputs['psi_p'] # comment out in original transform
 
     # (Radial gravitational potential is cancelled)
     relative_magification = outputs['sqrt_mu_p'] / outputs['sqrt_mu_m']
@@ -160,16 +185,19 @@ def get_bayes_factor(full_cov, full_params_dict, simple_cov, simple_params_dict,
     full_params_dict = reorder_params_dict(full_params_dict, params_order)
     simple_params_dict = reorder_params_dict(simple_params_dict, params_order)
 
-    n_extra_params = prior_widths.shape[0] # should be 4 for our case
-    n_simple_params = full_cov.shape[0] - n_extra_params # should be 13 for our case
+    n_extra_params = prior_widths.shape[0] # delta_iota, delta_phase, (delta_psi), relative_mass
+    n_simple_params = full_cov.shape[0] - n_extra_params # 13 simple lensing parameters
     simple_cov = simple_cov[:n_simple_params, :n_simple_params]
     cross_block = full_cov[:n_simple_params, n_simple_params:]
 
     relative_mass_offset = full_params_dict['relative_mass'] - 1.0
     delta_iota_offset = full_params_dict['delta_iota']
     delta_phase_offset = full_params_dict['delta_phase']
-    delta_psi_offset = full_params_dict['delta_psi']
-    offset = np.array([relative_mass_offset, delta_iota_offset, delta_phase_offset, delta_psi_offset])
+    # Use for old transform:
+    offset = np.array([relative_mass_offset, delta_iota_offset, delta_phase_offset])
+    # Use for new transform:
+    # delta_psi_offset = full_params_dict['delta_psi']
+    # offset = np.array([relative_mass_offset, delta_iota_offset, delta_phase_offset, delta_psi_offset])
 
     # make axis order compatible with linalg operations
     full_cov = np.moveaxis(full_cov, -1, 0) # (n, 17, 17)
@@ -225,28 +253,56 @@ def worker(Ry_tuple_sublist, model='agn', loop=2, actual_snr=False):
         network = HLV_Lensed
     covariance_mat_1, params_dict_1, keys = covar_func(lensing_parameters_1)
     covariance_mat_2, params_dict_2, _ = covar_func(lensing_parameters_2)
+    try:
+        simple_cov_mats_1, simple_params_dict_1, _ = simple_lensing_covariance(lensing_parameters_1)
+        simple_cov_mats_2, simple_params_dict_2, _ = simple_lensing_covariance(lensing_parameters_2)
+    except ValueError:
+        print('simple_lensing_covariance failed, returning nans')
+        return np.full(shape, np.nan), np.full(shape, np.nan)
+    print(f'COVARIANCE: {covariance_mat_1}')
 
-    simple_cov_mats_1, simple_params_dict_1, _ = simple_lensing_covariance(lensing_parameters_1)
-    simple_cov_mats_2, simple_params_dict_2, _ = simple_lensing_covariance(lensing_parameters_2)
+    # # Use this for generic model
+    # order = [
+    #     'Mc', 'eta', 'iota', 'phase',
+    #     'chi1z', 'chi2z', 'tcoal',
+    #     'dL', 'psi', 'theta', 'phi',
+    #     'delta_time', 'relative_distance', 'relative_mass', 'delta_iota', 'delta_phase', 'delta_psi'
+    # ]
     
+    # Use this for old AGN model
     order = [
-        'Mc', 'eta', 'iota', 'phase', 
+        'Mc', 'eta', 'phase',
         'chi1z', 'chi2z', 'tcoal',
-        'dL', 'psi', 'theta', 'phi',
-        'delta_time', 'relative_distance', 'relative_mass', 'delta_iota', 'delta_phase', 'delta_psi'
+        'psi', 'theta', 'phi',
+        'delta_time', 'relative_distance', 'relative_mass', 'delta_iota', 'delta_phase'
     ]
 
-    relative_mass_prior_width = 1.0
-    delta_iota_prior_width = np.pi
-    delta_phase_prior_width = np.pi
-    delta_psi_prior_width = np.pi
-    prior_widths = np.array([relative_mass_prior_width, delta_iota_prior_width, delta_phase_prior_width, delta_psi_prior_width])
+    # # Use this for new AGN model
+    # order = [
+    #     'Mc', 'eta', 'iota', 'phase',
+    #     'chi1z', 'chi2z', 'tcoal',
+    #     'dL', 'psi', 'theta', 'phi',
+    #     'delta_time', 'relative_distance', 'relative_mass', 'delta_iota', 'delta_phase', 'delta_psi'
+    # ]
+
+    # # Prior widths for generic model
+    # relative_mass_prior_width = 1.0
+    # delta_iota_prior_width = np.pi
+    # delta_phase_prior_width = np.pi
+    # delta_psi_prior_width = np.pi
+    # prior_widths = np.array([relative_mass_prior_width, delta_iota_prior_width, delta_phase_prior_width, delta_psi_prior_width])
+
+    # Prior widths for old agn model
+    R_orbit_prior_width = 50.
+    src_pos_prior_width = 0.1
+    M_lz_prior_width = 1e5
+    prior_widths = np.array([R_orbit_prior_width, src_pos_prior_width, M_lz_prior_width])
 
     B_1 = get_bayes_factor(covariance_mat_1, params_dict_1, simple_cov_mats_1, simple_params_dict_1, keys, order, prior_widths)
     B_2 = get_bayes_factor(covariance_mat_2, params_dict_2, simple_cov_mats_2, simple_params_dict_2, keys, order, prior_widths)
     logB_1, logB_2 = np.log10(B_1), np.log10(B_2)
 
-    target_logB = 2
+    target_logB = 3
     scale_1 = logB_1 - target_logB
     scale_2 = logB_2 - target_logB
     print('initial scale:', scale_1, scale_2)
@@ -264,11 +320,17 @@ def worker(Ry_tuple_sublist, model='agn', loop=2, actual_snr=False):
         def snr_loop(old_parameters, scale, target_logB):
             new_parameters = old_parameters.copy()
             new_parameters['dL'] += scale
-            new_covariance_mat, new_params_dict, keys = covar_func(new_parameters)
-            new_simple_cov_mats, new_simple_params_dict, _ = simple_lensing_covariance(new_parameters)
-            new_B = get_bayes_factor(new_covariance_mat, new_params_dict, new_simple_cov_mats, new_simple_params_dict, keys, order, prior_widths)
-            new_logB = np.log10(new_B)
-            new_scale = new_logB - target_logB
+            try:
+                new_covariance_mat, new_params_dict, keys = covar_func(new_parameters)
+                new_simple_cov_mats, new_simple_params_dict, _ = simple_lensing_covariance(new_parameters)
+                new_B = get_bayes_factor(new_covariance_mat, new_params_dict,
+                                        new_simple_cov_mats, new_simple_params_dict,
+                                        keys, order, prior_widths)
+                new_logB = np.log10(new_B)
+                new_scale = new_logB - target_logB
+            except ValueError:
+                print('simple_lensing_covariance failed, returning nans')
+                new_scale = np.full_like(scale, np.nan)
             return new_scale, new_parameters
 
         looped = 0
@@ -312,7 +374,7 @@ if __name__ == '__main__':
     n_R = args.nR
     cores = args.cores
     model = args.model
-    label = '7loops-logB2'
+    label = 'oldtransformagain-3loops-logB3'
 
     tic = time()
     # 1. Prepare matrix of (y, R)
@@ -323,7 +385,7 @@ if __name__ == '__main__':
     Ry_tuple_list = np.vstack([R_orbit_mesh.flatten(), y_Rorbit_mesh.flatten()]).T
 
     # Custom settings go here
-    the_worker = partial(worker, model=model, loop=7, actual_snr=False)
+    the_worker = partial(worker, model=model, loop=3, actual_snr=False)
 
     with Pool(cores) as p:
         results = p.map(the_worker, np.array_split(Ry_tuple_list, cores))
@@ -338,6 +400,7 @@ if __name__ == '__main__':
     concat_result_2 = np.concatenate(results_2, axis=0)
     snr_grid_1 = concat_result_1.reshape((n_y, n_R))
     snr_grid_2 = concat_result_2.reshape((n_y, n_R))
+    print(f'SNR: {snr_grid_1}')
 
     # Saving result for reproducibility
     print('Saving results')
@@ -374,7 +437,7 @@ if __name__ == '__main__':
     ax.set_xscale('log')
     ax.set_xlabel(r'$R_{\rm orbit}\,/\,R_S$')
     ax.set_ylabel(r'$y\,\equiv\,\beta\,/\,\theta_{\rm E}$')
-    ax.set_title(r'$\rho$ required for $\log B>2$')
+    ax.set_title(r'$\rho$ required for $\log B>3$')
     # ax.set_title(r'$\rho$ required for 0 to lie outside the $5\sigma$ region of $p(M_{Lz})$')
     fig.colorbar(im, ax=ax, label=r'$\log_{10}(\rho_{\rm opt})$')
     # fig.savefig('plots/test_contour.pdf')
