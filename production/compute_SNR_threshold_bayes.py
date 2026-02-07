@@ -179,11 +179,13 @@ def reorder_covariance(cov, keys, desired_order):
 def reorder_params_dict(params_dict, desired_order):
     return {k: np.array(params_dict[k]) for k in desired_order}
 
-def get_bayes_factor(full_cov, full_params_dict, simple_cov, simple_params_dict, orig_keys, params_order, prior_widths):
+def get_bayes_factor(full_cov, full_params_dict, simple_cov, simple_params_dict, orig_keys, params_order, simple_params_order, prior_widths):
+    print(orig_keys)
+    print(params_order)
     full_cov, _ = reorder_covariance(full_cov, orig_keys, params_order)
-    simple_cov, _ = reorder_covariance(simple_cov, orig_keys, params_order)
+    simple_cov, _ = reorder_covariance(simple_cov, orig_keys, simple_params_order)
     full_params_dict = reorder_params_dict(full_params_dict, params_order)
-    simple_params_dict = reorder_params_dict(simple_params_dict, params_order)
+    simple_params_dict = reorder_params_dict(simple_params_dict, simple_params_order)
 
     n_extra_params = prior_widths.shape[0] # delta_iota, delta_phase, (delta_psi), relative_mass
     n_simple_params = full_cov.shape[0] - n_extra_params # 13 simple lensing parameters
@@ -214,10 +216,12 @@ def get_bayes_factor(full_cov, full_params_dict, simple_cov, simple_params_dict,
                                     simple_cov,
                                     correction)
                          ) # (n,)
+    print('exp_term:', exp_term)
 
     prior_product = np.prod(prior_widths, axis=0)
 
     det_ratio = np.sqrt(np.linalg.det(full_cov) / np.linalg.det(simple_cov))
+    print('det_ratio:', det_ratio)
 
     B = (2*np.pi)**(-n_extra_params/2) * det_ratio * exp_term * prior_product
     # This definition in Heavens (2016) is the inverse of the standard defintion,
@@ -259,7 +263,6 @@ def worker(Ry_tuple_sublist, model='agn', loop=2, actual_snr=False):
     except ValueError:
         print('simple_lensing_covariance failed, returning nans')
         return np.full(shape, np.nan), np.full(shape, np.nan)
-    print(f'COVARIANCE: {covariance_mat_1}')
 
     # # Use this for generic model
     # order = [
@@ -275,6 +278,12 @@ def worker(Ry_tuple_sublist, model='agn', loop=2, actual_snr=False):
         'chi1z', 'chi2z', 'tcoal',
         'psi', 'theta', 'phi',
         'delta_time', 'relative_distance', 'relative_mass', 'delta_iota', 'delta_phase'
+    ]
+    simple_order = [
+    'Mc', 'eta', 'phase',
+    'chi1z', 'chi2z', 'tcoal',
+    'psi', 'theta', 'phi',
+    'delta_time', 'relative_distance'
     ]
 
     # # Use this for new AGN model
@@ -298,8 +307,8 @@ def worker(Ry_tuple_sublist, model='agn', loop=2, actual_snr=False):
     M_lz_prior_width = 1e5
     prior_widths = np.array([R_orbit_prior_width, src_pos_prior_width, M_lz_prior_width])
 
-    B_1 = get_bayes_factor(covariance_mat_1, params_dict_1, simple_cov_mats_1, simple_params_dict_1, keys, order, prior_widths)
-    B_2 = get_bayes_factor(covariance_mat_2, params_dict_2, simple_cov_mats_2, simple_params_dict_2, keys, order, prior_widths)
+    B_1 = get_bayes_factor(covariance_mat_1, params_dict_1, simple_cov_mats_1, simple_params_dict_1, keys, order, simple_order, prior_widths)
+    B_2 = get_bayes_factor(covariance_mat_2, params_dict_2, simple_cov_mats_2, simple_params_dict_2, keys, order, simple_order, prior_widths)
     logB_1, logB_2 = np.log10(B_1), np.log10(B_2)
 
     target_logB = 3
@@ -325,7 +334,7 @@ def worker(Ry_tuple_sublist, model='agn', loop=2, actual_snr=False):
                 new_simple_cov_mats, new_simple_params_dict, _ = simple_lensing_covariance(new_parameters)
                 new_B = get_bayes_factor(new_covariance_mat, new_params_dict,
                                         new_simple_cov_mats, new_simple_params_dict,
-                                        keys, order, prior_widths)
+                                        keys, order, simple_order, prior_widths)
                 new_logB = np.log10(new_B)
                 new_scale = new_logB - target_logB
             except ValueError:
@@ -374,12 +383,12 @@ if __name__ == '__main__':
     n_R = args.nR
     cores = args.cores
     model = args.model
-    label = 'oldtransformagain-3loops-logB3'
+    label = 'old_small-3loops-logB3'
 
     tic = time()
     # 1. Prepare matrix of (y, R)
-    y_Eins_array = np.linspace(0.01, 2, n_y)  # in Einstein radii
-    R_orbit_array = np.geomspace(10, 5000, n_R)
+    y_Eins_array = np.linspace(0.4, 2, n_y)  # in Einstein radii
+    R_orbit_array = np.geomspace(10, 500, n_R)
     R_orbit_mesh, y_Eins_mesh = np.meshgrid(R_orbit_array, y_Eins_array, indexing='xy')
     y_Rorbit_mesh = convert_y_from_Einstein_to_Rorbit(y_Eins_mesh, R_orbit_mesh)
     Ry_tuple_list = np.vstack([R_orbit_mesh.flatten(), y_Rorbit_mesh.flatten()]).T
@@ -400,7 +409,6 @@ if __name__ == '__main__':
     concat_result_2 = np.concatenate(results_2, axis=0)
     snr_grid_1 = concat_result_1.reshape((n_y, n_R))
     snr_grid_2 = concat_result_2.reshape((n_y, n_R))
-    print(f'SNR: {snr_grid_1}')
 
     # Saving result for reproducibility
     print('Saving results')
