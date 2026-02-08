@@ -172,6 +172,7 @@ def reorder_covariance(cov, keys, desired_order):
     idx = [keys.index(k) for k in desired_order]
     idx_arr = np.array(idx, dtype=np.int32)
     # reorder rows then columns using jax.numpy.take
+    assert cov.shape[0] == len(keys) == cov.shape[1]
     cov_reordered = np.take(np.take(cov.astype(np.float64), idx_arr, axis=0), idx_arr, axis=1)
     new_keys = [keys[i] for i in idx]
     return cov_reordered, new_keys
@@ -179,11 +180,11 @@ def reorder_covariance(cov, keys, desired_order):
 def reorder_params_dict(params_dict, desired_order):
     return {k: np.array(params_dict[k]) for k in desired_order}
 
-def get_bayes_factor(full_cov, full_params_dict, simple_cov, simple_params_dict, orig_keys, params_order, simple_params_order, prior_widths):
-    print(orig_keys)
-    print(params_order)
+def get_bayes_factor(full_cov, full_params_dict, simple_cov, simple_params_dict, 
+                     orig_keys, simple_keys, params_order, simple_params_order, 
+                     prior_widths):
     full_cov, _ = reorder_covariance(full_cov, orig_keys, params_order)
-    simple_cov, _ = reorder_covariance(simple_cov, orig_keys, simple_params_order)
+    simple_cov, _ = reorder_covariance(simple_cov, simple_keys, simple_params_order)
     full_params_dict = reorder_params_dict(full_params_dict, params_order)
     simple_params_dict = reorder_params_dict(simple_params_dict, simple_params_order)
 
@@ -220,7 +221,11 @@ def get_bayes_factor(full_cov, full_params_dict, simple_cov, simple_params_dict,
 
     prior_product = np.prod(prior_widths, axis=0)
 
-    det_ratio = np.sqrt(np.linalg.det(full_cov) / np.linalg.det(simple_cov))
+    full_cov_det = np.linalg.det(full_cov)
+    simple_cov_det = np.linalg.det(simple_cov)
+    print('full_cov_det:', full_cov_det)
+    print('simple_cov_det:', simple_cov_det)    
+    det_ratio = np.sqrt(full_cov_det / simple_cov_det)
     print('det_ratio:', det_ratio)
 
     B = (2*np.pi)**(-n_extra_params/2) * det_ratio * exp_term * prior_product
@@ -255,10 +260,10 @@ def worker(Ry_tuple_sublist, model='agn', loop=2, actual_snr=False):
     elif model == 'generic':
         covar_func = direct_covariance
         network = HLV_Lensed
-    covariance_mat_1, params_dict_1, keys = covar_func(lensing_parameters_1)
+    covariance_mat_1, params_dict_1, full_keys = covar_func(lensing_parameters_1)
     covariance_mat_2, params_dict_2, _ = covar_func(lensing_parameters_2)
     try:
-        simple_cov_mats_1, simple_params_dict_1, _ = simple_lensing_covariance(lensing_parameters_1)
+        simple_cov_mats_1, simple_params_dict_1, simple_keys = simple_lensing_covariance(lensing_parameters_1)
         simple_cov_mats_2, simple_params_dict_2, _ = simple_lensing_covariance(lensing_parameters_2)
     except ValueError:
         print('simple_lensing_covariance failed, returning nans')
@@ -307,8 +312,12 @@ def worker(Ry_tuple_sublist, model='agn', loop=2, actual_snr=False):
     M_lz_prior_width = 1e5
     prior_widths = np.array([R_orbit_prior_width, src_pos_prior_width, M_lz_prior_width])
 
-    B_1 = get_bayes_factor(covariance_mat_1, params_dict_1, simple_cov_mats_1, simple_params_dict_1, keys, order, simple_order, prior_widths)
-    B_2 = get_bayes_factor(covariance_mat_2, params_dict_2, simple_cov_mats_2, simple_params_dict_2, keys, order, simple_order, prior_widths)
+    B_1 = get_bayes_factor(covariance_mat_1, params_dict_1, simple_cov_mats_1, simple_params_dict_1, 
+                           full_keys, simple_keys, order, simple_order, 
+                           prior_widths)
+    B_2 = get_bayes_factor(covariance_mat_2, params_dict_2, simple_cov_mats_2, simple_params_dict_2, 
+                            full_keys, simple_keys, order, simple_order, 
+                            prior_widths)
     logB_1, logB_2 = np.log10(B_1), np.log10(B_2)
 
     target_logB = 3
@@ -334,7 +343,7 @@ def worker(Ry_tuple_sublist, model='agn', loop=2, actual_snr=False):
                 new_simple_cov_mats, new_simple_params_dict, _ = simple_lensing_covariance(new_parameters)
                 new_B = get_bayes_factor(new_covariance_mat, new_params_dict,
                                         new_simple_cov_mats, new_simple_params_dict,
-                                        keys, order, simple_order, prior_widths)
+                                        full_keys, simple_keys, order, simple_order, prior_widths)
                 new_logB = np.log10(new_B)
                 new_scale = new_logB - target_logB
             except ValueError:
