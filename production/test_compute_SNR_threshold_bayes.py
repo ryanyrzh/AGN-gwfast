@@ -20,6 +20,7 @@ import gwfast.waveforms as waveforms
 from gwfast.detector import Detector
 import gwfast.network as network
 from gwfast.signals import AGNLensedGWSignal, GeneralLensedGWSignal
+
 from gwfast.lensing_utils import (
     compute_lensed_angles_approx,
     convert_y_from_Einstein_to_Rorbit
@@ -183,6 +184,20 @@ def reorder_params_dict(params_dict, desired_order):
 def get_bayes_factor(full_cov, full_params_dict, simple_cov, simple_params_dict, 
                      orig_keys, simple_keys, params_order, simple_params_order, 
                      prior_widths):
+    ''' Compute the Bayes factor B = P(D|M_simple) / P(D|M_full) using the Savage-Dickey density ratio, where M_simple is the simpler model with fixed lensing parameters (delta_iota=0, delta_phase=0, delta_psi=0, relative_mass=1), and M_full is the more complicated model with free lensing parameters. The Bayes factor is computed as the ratio of the likelihoods of the data under the two models, which can be approximated using the covariance matrices of the parameters under each model and the prior widths of the extra parameters in the full model. The function takes in the covariance matrices and parameter dictionaries for both models, as well as the original keys and desired order of parameters for both models, and returns the Bayes factor.
+
+    :param full_cov: covariance matrix of the full model parameters (including lensing parameters)
+    :param full_params_dict: dictionary of the full model parameters and their values
+    :param simple_cov: covariance matrix of the simple model parameters (with fixed lensing parameters)
+    :param simple_params_dict: dictionary of the simple model parameters and their values
+    :param orig_keys: original keys of the parameters in the covariance matrices
+    :param simple_keys: original keys of the parameters in the simple model covariance matrix
+    :param params_order: desired order of parameters for the full model (must include all keys in orig_keys)
+    :param simple_params_order: desired order of parameters for the simple model (must include all keys in simple_keys)
+    :param prior_widths: array of prior widths for the extra parameters in the full model (delta_iota, delta_phase, delta_psi, relative_mass)
+
+    :return: Bayes factor B = P(D|M_simple) / P(D|M_full)
+    '''
     full_cov, _ = reorder_covariance(full_cov, orig_keys, params_order)
     simple_cov, _ = reorder_covariance(simple_cov, simple_keys, simple_params_order)
     full_params_dict = reorder_params_dict(full_params_dict, params_order)
@@ -233,235 +248,8 @@ def get_bayes_factor(full_cov, full_params_dict, simple_cov, simple_params_dict,
     # where positive logB favours the more complicated model
     return 1 / B
 
-
-
-def worker(Ry_tuple_sublist, model='agn', loop=2, actual_snr=False):
-    '''
-    Performance comment (2025/08/21)
-    * Looping is recommended, but one loop is sufficient to bring the
-        fractional difference between SNR and target SNR to below 1e-3
-    * Computing the actual SNR at the end is not needed. The typical fractional
-        error between the actual SNR and the one obtained from scaling is
-        of order 1e-5 (or less).
-    '''
-    input_len = Ry_tuple_sublist.shape[0]
-    shape = (input_len)
-    lensing_parameters_1 = {key: np.full(shape, val).astype(np.float64) for key, val in reference_parameters_1.items()}
-    lensing_parameters_1['R_orbit'] = Ry_tuple_sublist[:, 0]
-    lensing_parameters_1['src_pos'] = Ry_tuple_sublist[:, 1]
-
-    lensing_parameters_2 = {key: np.full(shape, val).astype(np.float64) for key, val in reference_parameters_2.items()}
-    lensing_parameters_2['R_orbit'] = Ry_tuple_sublist[:, 0]
-    lensing_parameters_2['src_pos'] = Ry_tuple_sublist[:, 1]
-
-    if model == 'agn':
-        covar_func = Jacobian_covariance
-        network = HLV_AGN
-    elif model == 'generic':
-        covar_func = direct_covariance
-        network = HLV_Lensed
-    covariance_mat_1, params_dict_1, full_keys = covar_func(lensing_parameters_1)
-    covariance_mat_2, params_dict_2, _ = covar_func(lensing_parameters_2)
-    try:
-        simple_cov_mats_1, simple_params_dict_1, simple_keys = simple_lensing_covariance(lensing_parameters_1)
-        simple_cov_mats_2, simple_params_dict_2, _ = simple_lensing_covariance(lensing_parameters_2)
-    except ValueError:
-        print('simple_lensing_covariance failed, returning nans')
-        return np.full(shape, np.nan), np.full(shape, np.nan)
-
-    # # Use this for generic model
-    # order = [
-    #     'Mc', 'eta', 'iota', 'phase',
-    #     'chi1z', 'chi2z', 'tcoal',
-    #     'dL', 'psi', 'theta', 'phi',
-    #     'delta_time', 'relative_distance', 'relative_mass', 'delta_iota', 'delta_phase', 'delta_psi'
-    # ]
-    
-    # Use this for old AGN model
-    order = [
-        'Mc', 'eta', 'phase',
-        'chi1z', 'chi2z', 'tcoal',
-        'psi', 'theta', 'phi',
-        'delta_time', 'relative_distance', 'relative_mass', 'delta_iota', 'delta_phase'
-    ]
-    simple_order = [
-    'Mc', 'eta', 'phase',
-    'chi1z', 'chi2z', 'tcoal',
-    'psi', 'theta', 'phi',
-    'delta_time', 'relative_distance'
-    ]
-
-    # # Use this for new AGN model
-    # order = [
-    #     'Mc', 'eta', 'iota', 'phase',
-    #     'chi1z', 'chi2z', 'tcoal',
-    #     'dL', 'psi', 'theta', 'phi',
-    #     'delta_time', 'relative_distance', 'relative_mass', 'delta_iota', 'delta_phase', 'delta_psi'
-    # ]
-
-    # # Prior widths for generic model
-    # relative_mass_prior_width = 1.0
-    # delta_iota_prior_width = np.pi
-    # delta_phase_prior_width = np.pi
-    # delta_psi_prior_width = np.pi
-    # prior_widths = np.array([relative_mass_prior_width, delta_iota_prior_width, delta_phase_prior_width, delta_psi_prior_width])
-
-    # Prior widths for old agn model
-    R_orbit_prior_width = 50.
-    src_pos_prior_width = 0.1
-    M_lz_prior_width = 1e5
-    prior_widths = np.array([R_orbit_prior_width, src_pos_prior_width, M_lz_prior_width])
-
-    B_1 = get_bayes_factor(covariance_mat_1, params_dict_1, simple_cov_mats_1, simple_params_dict_1, 
-                           full_keys, simple_keys, order, simple_order, 
-                           prior_widths)
-    B_2 = get_bayes_factor(covariance_mat_2, params_dict_2, simple_cov_mats_2, simple_params_dict_2, 
-                            full_keys, simple_keys, order, simple_order, 
-                            prior_widths)
-    logB_1, logB_2 = np.log10(B_1), np.log10(B_2)
-
-    target_logB = 3
-    scale_1 = logB_1 - target_logB
-    scale_2 = logB_2 - target_logB
-    print('initial scale:', scale_1, scale_2)
-
-    if model == 'agn':
-        orig_snr_1 = network.SNR(lensing_parameters_1, res=1000)
-        orig_snr_2 = network.SNR(lensing_parameters_2, res=1000)
-    elif model == 'generic':
-        orig_snr_1 = network.SNR(params_dict_1, res=1000)
-        orig_snr_2 = network.SNR(params_dict_2, res=1000)
-    result_snr_1 = orig_snr_1 + scale_1
-    result_snr_2 = orig_snr_2 + scale_2
-
-    if loop:
-        def snr_loop(old_parameters, scale, target_logB):
-            new_parameters = old_parameters.copy()
-            new_parameters['dL'] += scale
-            try:
-                new_covariance_mat, new_params_dict, keys = covar_func(new_parameters)
-                new_simple_cov_mats, new_simple_params_dict, _ = simple_lensing_covariance(new_parameters)
-                new_B = get_bayes_factor(new_covariance_mat, new_params_dict,
-                                        new_simple_cov_mats, new_simple_params_dict,
-                                        full_keys, simple_keys, order, simple_order, prior_widths)
-                new_logB = np.log10(new_B)
-                new_scale = new_logB - target_logB
-            except ValueError:
-                print('simple_lensing_covariance failed, returning nans')
-                new_scale = np.full_like(scale, np.nan)
-            return new_scale, new_parameters
-
-        looped = 0
-        while looped < loop:
-            scale_1, lensing_parameters_1 = snr_loop(lensing_parameters_1, scale_1, target_logB)
-            scale_2, lensing_parameters_2 = snr_loop(lensing_parameters_2, scale_2, target_logB)
-            # frac_1 = 1 - scale_1
-            # frac_2 = 1 - scale_2
-            # looped += 1
-            # frac_1 = frac_1[~np.isnan(frac_1)]
-            # frac_2 = frac_2[~np.isnan(frac_2)]
-            # print(f'Loop {looped:d} v.s. target: {np.mean(frac_1):.6f} and {np.mean(frac_2):.6f}, std: {np.std(frac_1):.8f} and {np.std(frac_2):.8f}')
-            frac_1 = scale_1
-            frac_2 = scale_2
-            looped += 1
-            frac_1 = frac_1[~np.isnan(frac_1)]
-            frac_2 = frac_2[~np.isnan(frac_2)]
-            print(f'Loop {looped:d} v.s. target: {np.mean(frac_1):.6f} and {np.mean(frac_2):.6f}, std: {np.std(frac_1):.8f} and {np.std(frac_2):.8f}')
-
-        _result_snr_1 = orig_snr_1 / lensing_parameters_1['dL'] * reference_parameters_1['dL']
-        _result_snr_2 = orig_snr_2 / lensing_parameters_2['dL'] * reference_parameters_2['dL']
-        print('(After - Before) loop', _result_snr_1 - result_snr_1, _result_snr_2 - result_snr_2)
-
-        if actual_snr:
-            if model == 'agn':
-                computed_snr_1 = network.SNR(lensing_parameters_1, res=1000)
-                computed_snr_2 = network.SNR(lensing_parameters_2, res=1000)
-            elif model == 'generic':
-                computed_snr_1 = network.SNR(params_dict_1, res=1000)
-                computed_snr_2 = network.SNR(params_dict_2, res=1000)
-            print('Actual v.s. Scaling (1 - Scaling/Actual):', 1 - computed_snr_1 / _result_snr_1, 1 - computed_snr_2 / _result_snr_2)
-            return computed_snr_1, computed_snr_2
-        else:
-            return _result_snr_1, _result_snr_2
-
-
 if __name__ == '__main__':
-    set_start_method('spawn', force=True) # Multiprocessing
-    args = parser.parse_args() # Get args
-    n_y = args.ny # Get n_y
-    n_R = args.nR # Get n_R
-    cores = args.cores # Get cores
-    model = args.model # Get model
-    label = 'old_small-3loops-logB3' # label for saving files and plots, e.g. 'old_small-3loops-logB3' or 'new_large-1loop-logB3'
-
-    tic = time()
-    # 1. Prepare matrix of (y, R)
-    y_Eins_array = np.linspace(0.4, 2, n_y)  # in Einstein radii
-    R_orbit_array = np.geomspace(10, 500, n_R)
-    R_orbit_mesh, y_Eins_mesh = np.meshgrid(R_orbit_array, y_Eins_array, indexing='xy')
-    y_Rorbit_mesh = convert_y_from_Einstein_to_Rorbit(y_Eins_mesh, R_orbit_mesh)
-    Ry_tuple_list = np.vstack([R_orbit_mesh.flatten(), y_Rorbit_mesh.flatten()]).T
-
-    # Custom settings go here
-    the_worker = partial(worker, model=model, loop=3, actual_snr=False)
-
-    with Pool(cores) as p:
-        results = p.map(the_worker, np.array_split(Ry_tuple_list, cores))
-        results_1, results_2 = zip(*results)
-        results_1 = list(results_1)
-        results_2 = list(results_2)
-
-    print('ny, nR, cores', n_y, n_R, cores)
-    print('Elapsed Time (min):', (time() - tic) / 60)
-
-    concat_result_1 = np.concatenate(results_1, axis=0)
-    concat_result_2 = np.concatenate(results_2, axis=0)
-    snr_grid_1 = concat_result_1.reshape((n_y, n_R))
-    snr_grid_2 = concat_result_2.reshape((n_y, n_R))
-
-    # Saving result for reproducibility
-    print('Saving results')
-    np.savez(f'output/result_y{n_y:d}_R{n_R:d}_{model}_{label}',
-             y_Eins=y_Eins_mesh.flatten(),
-             y_Rorb=y_Rorbit_mesh.flatten(),
-             R_orbit=R_orbit_mesh.flatten(),
-             snr_1=snr_grid_1.flatten(),
-             snr_2=snr_grid_2.flatten()
-             )
-
-    print('Start plotting')
-    fig, ax = plt.subplots(1, 1, figsize=(5.5, 4), constrained_layout=True)
-    # Color plot for 1 of 2 datasets
-    log10_snr = np.log10(snr_grid_1)
-    cmap = plt.cm.plasma
-    cmap.set_bad(color='lightgrey')
-    nans = np.isnan(log10_snr)
-    centre = np.mean(log10_snr[~nans])
-    # Make the whole thing 5% larger
-    _min, _max = np.min(log10_snr[~nans]), np.max(log10_snr[~nans])
-    midpoint = (_max + _min) / 2
-    half_range = (_max - _min) / 2 * 1.05
-    norm = colors.TwoSlopeNorm(vmin=midpoint - half_range, vcenter=centre, vmax=midpoint + half_range)
-    im = ax.pcolormesh(R_orbit_array, y_Eins_array, log10_snr, cmap=cmap, norm=norm, shading='gouraud')
-    # Contour lines for both datasets
-    for snr_grid, color in zip([snr_grid_1, snr_grid_2], ['black', 'white']):
-        log10_snr = np.log10(snr_grid)
-        cont_snrs = [8, 15, 30, 50, 100]
-        cont = ax.contour(R_orbit_array, y_Eins_array, log10_snr, colors=[color], levels=onp.log10(cont_snrs))
-        labels = {lvl: f'{snr:d}' for lvl, snr in zip(cont.levels, cont_snrs)}
-        ax.clabel(cont, fmt=labels, fontsize=10)
-    ax.tick_params(which='both', direction='out')
-    ax.set_xscale('log')
-    ax.set_xlabel(r'$R_{\rm orbit}\,/\,R_S$')
-    ax.set_ylabel(r'$y\,\equiv\,\beta\,/\,\theta_{\rm E}$')
-    ax.set_title(r'$\rho$ required for $\log B>3$')
-    # ax.set_title(r'$\rho$ required for 0 to lie outside the $5\sigma$ region of $p(M_{Lz})$')
-    fig.colorbar(im, ax=ax, label=r'$\log_{10}(\rho_{\rm opt})$')
-    # fig.savefig('plots/test_contour.pdf')
-    fig.savefig(f'plots/snr_threshold_bayes_{args.model}_{label}_Ry_plot.pdf')
-
-
-    # Now do a simpler example with no parallelisation and no grids. Just single value of (R, y) to test the code and understand the results. This is also useful for debugging and for understanding the behaviour of the Bayes factor as a function of SNR and lensing parameters. # Do NOT use worker function. Do NOT use the loop to adjust SNR. Just compute the Bayes factor for a single set of lensing parameters and a single SNR, and see how it compares to the target logB of 3. This will help us understand if the code is working as expected and if the Bayes factor is sensitive to the lensing parameters in the way we expect.
+    # Now do a simple example with no parallelisation and no grids. Just single value of (R, y) to test the code and understand the results. This is also useful for debugging and for understanding the behaviour of the Bayes factor as a function of SNR and lensing parameters. # Do NOT use worker function. Do NOT use the loop to adjust SNR. Just compute the Bayes factor for a single set of lensing parameters and a single SNR, and see how it compares to the target logB of 3. This will help us understand if the code is working as expected and if the Bayes factor is sensitive to the lensing parameters in the way we expect.
     y_Eins_test = np.array([0.5])
     R_orbit_test = np.array([50])
     lensing_parameters_test = reference_parameters_1.copy()
@@ -473,12 +261,19 @@ if __name__ == '__main__':
             lensing_parameters_test[key] = np.array([lensing_parameters_test[key]], dtype=np.float64)
         else:
             lensing_parameters_test[key] = lensing_parameters_test[key].astype(np.float64)
+    # 4.b Compute the Fisher
+    fisher_matrix_array = HLV_AGN.FisherMatr(lensing_parameters_test, res=100)
+    # Take the first entry:
+    fisher_matrix = fisher_matrix_array[:,:,0]
+    # Get the keys associated with the Fisher matrix:
+    keys = HLV_AGN.get_parameter_keys()
+    # Print the diagonals
+    print('Fisher matrix keys:', keys)
+    print("Fisher matrix diagonal entries:", np.diag(fisher_matrix))
+    # Print the condition number in scientific notation
+    print("Fisher matrix condition number: %.2e" % np.linalg.cond(fisher_matrix))
     # Conv
     covar_mat_test, params_dict_test, keys_test = Jacobian_covariance(lensing_parameters_test)
     simple_cov_mats_test, simple_params_dict_test, simple_keys_test = simple_lensing_covariance(lensing_parameters_test)
-    B_test = get_bayes_factor(covar_mat_test, params_dict_test, simple_cov_mats_test, simple_params_dict_test, 
-                              keys_test, simple_keys_test, order, simple_order, 
-                              prior_widths)
-    logB_test = np.log10(B_test)
-    print('Test Bayes factor:', B_test)
-    print('Test log10(Bayes factor):', logB_test)
+    # Test not finished - to be continued below (feel free to modify)
+
