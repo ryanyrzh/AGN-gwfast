@@ -35,6 +35,7 @@ dependencies = [
     "numdifftools==0.9.41",
     "schwimmbad>=0.3.2,<0.4",
     "jax[cpu]>=0.4.26, <=0.4.30",
+    "lalsuite>=7.26.4",
 ]
 
 [project.optional-dependencies]
