@@ -75,14 +75,33 @@ reference_parameters['Mc'] = 30
 def Jacobian_covariance(lensing_parameters):
     # 4.b Compute the Fisher
     fisher_matrix = HLV_AGN.FisherMatr(lensing_parameters, res=100)
+    # fisher_evt_first = onp.moveaxis(fisher_matrix, -1, 0)
+    # fisher_evt_first = onp.asarray(fisher_evt_first, dtype=onp.float64)
+    # sign, logdet = onp.linalg.slogdet(fisher_evt_first)
+    # condition = np.linalg.cond(fisher_evt_first)
+    # norm = np.linalg.norm(fisher_evt_first)
+    # print(f'fisher slogdet sign:\n{sign}\nfisher slogdet logdet:\n{logdet}')
+    # print('Fisher matrix condition number:', condition)
+    # print('Fisher matrix norm:', norm)
+    flat_fisher_mat = fisher_matrix.reshape(fisher_matrix.shape[0], fisher_matrix.shape[1], -1)
+    flat_fisher_mat = np.asarray(flat_fisher_mat, dtype='float64')
+    fisher_mat_loop = np.moveaxis(flat_fisher_mat, -1, 0)
+    sign, logdet = np.linalg.slogdet(fisher_mat_loop)
+    print('fisher det sign:', sign)
+
     # 4.c Reduce and compute covar
-    covar_matrix, _ = compute_covariance_matrix(fisher_matrix, cores=1)
+    covar_matrix, ie = compute_covariance_matrix(fisher_matrix, cores=1)
+    flat_covar_mat = covar_matrix.reshape(covar_matrix.shape[0], covar_matrix.shape[1], -1)
+    flat_covar_mat = np.asarray(flat_covar_mat, dtype='float64')
+    covar_mat_loop = np.moveaxis(flat_covar_mat, -1, 0)
+    sign, logdet = np.linalg.slogdet(covar_mat_loop)
+    print('covar det sign:', sign)
 
     from_params = ['iota', 'R_orbit', 'src_pos', 'M_lz', 'dL']
     transformed_cov_mat, transformed_parameters, transformed_keys = covariance_change_variable(
         covar_matrix, lensing_parameters, lensing_transform, from_params
     )
-    return transformed_cov_mat, transformed_parameters, transformed_keys
+    return transformed_cov_mat, transformed_parameters, transformed_keys, ie
 
 
 def direct_covariance(lensing_parameters):
@@ -97,18 +116,18 @@ def direct_covariance(lensing_parameters):
     lensed_fisher_mat, rm_keys = reduce_Fisher_matrix(cleaned_lensed_HLV_fisher, keys=keys)
     print(rm_keys)
     lensed_fisher_mat[lensed_fisher_mat == 0.0] = np.nan
-    lensed_cov_mats, _ = compute_covariance_matrix(lensed_fisher_mat, cores=1)
-    return lensed_cov_mats, model_parameters, keys
+    lensed_cov_mats, ie = compute_covariance_matrix(lensed_fisher_mat, cores=1)
+    return lensed_cov_mats, model_parameters, keys, ie
 
 def intrinsic_covariance(lensing_parameters):
     fisher_matrix = HLV_AGN.FisherMatr(lensing_parameters, res=100)
-    covar_matrix, _ = compute_covariance_matrix(fisher_matrix, cores=1)
-    return covar_matrix, lensing_parameters, list(lensing_parameters.keys()).copy()
+    covar_matrix, ie = compute_covariance_matrix(fisher_matrix, cores=1)
+    return covar_matrix, lensing_parameters, list(lensing_parameters.keys()).copy(), ie
 
 def lensing_transform(lensing_parameters):
     # A fiducial phase which does not affect the Jacobian results
-    lensing_parameters['phase'] = 0.0
-    lensing_parameters['psi'] = 0.0
+    lensing_parameters['phase'] = np.zeros_like(lensing_parameters['iota'])
+    lensing_parameters['psi'] = np.zeros_like(lensing_parameters['iota'])
     outputs = compute_lensed_angles_approx(lensing_parameters)
     phenom_changes = {}
     phenom_changes['delta_iota'] = outputs['iota_m'] - outputs['iota_p']
@@ -147,7 +166,14 @@ def worker(Ry_tuple_sublist, model='agn', loop=2, actual_snr=False):
     elif model == 'agn_intrinsic':
         covar_func = intrinsic_covariance
         network = HLV_AGN
-    covariance_mat, params_dict, keys = covar_func(lensing_parameters)
+    covariance_mat, params_dict, keys, ie = covar_func(lensing_parameters)
+    cov_evt_first = onp.moveaxis(covariance_mat, -1, 0)
+    cov_evt_first = onp.asarray(cov_evt_first, dtype=onp.float64)
+    # cov_det = onp.linalg.det(cov_evt_first)
+    # print(f'cov det:\n{cov_det}')
+    sign, logdet = onp.linalg.slogdet(cov_evt_first)
+    print(f'inversion error: {ie}')
+    print(f'cov slogdet sign:\n{sign}\ncov slogdet logdet:\n{logdet}')
 
     key_variable = 'relative_mass'
     key_idx = keys.index(key_variable)
@@ -175,7 +201,7 @@ def worker(Ry_tuple_sublist, model='agn', loop=2, actual_snr=False):
         def snr_loop(old_parameters, scale, target_std):
             new_parameters = old_parameters.copy()
             new_parameters['dL'] /= scale
-            new_covariance_mat, _, _ = covar_func(new_parameters)
+            new_covariance_mat, _, _, _ = covar_func(new_parameters)
             new_std = onp.sqrt(new_covariance_mat[key_idx, key_idx], dtype='float64')
             new_std /= mean
             new_scale = new_std / target_std
@@ -210,7 +236,7 @@ if __name__ == '__main__':
     n_R = args.nR
     cores = args.cores
     model = args.model
-    label = 'Mc30-bigy-ryan'
+    label = 'debug'
 
     tic = time()
     # 1. Prepare matrix of (y, R)

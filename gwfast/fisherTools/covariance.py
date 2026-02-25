@@ -152,10 +152,10 @@ def compute_single_covariance_matrix(
             # likely for very small eigenvalues
                 cho = (mpmath.cholesky(_mp_fisher)) ** -1
             except Exception as e:
-                invMethod = alt_method
+                inv_method = alt_method
                 print(e)
                 print(
-                    f"Cholesky decomposition not usable. Eigenvalues seem ok but cholesky decomposition failed. Using method {invMethod}"
+                    f"Cholesky decomposition not usable. Eigenvalues seem ok but cholesky decomposition failed. Using method {inv_method}"
                 )
 
     match inv_method:
@@ -187,6 +187,11 @@ def compute_single_covariance_matrix(
         mp_cov_mat = weights * cov_mat * weights
     else:
         mp_cov_mat = cov_mat
+
+    mp_cov_mat_reshaped = np.reshape(np.asarray(mp_cov_mat.tolist(), dtype='float64'), fisher_mat.shape)
+    sign, logdet = np.linalg.slogdet(mp_cov_mat_reshaped)
+    print('inversion method:', inv_method, 'single cov det sign:', sign)
+
     return np.asarray(mp_cov_mat.tolist(), dtype=typeuse)
 
 
@@ -258,67 +263,202 @@ def compute_covariance_matrix(
     eps = eps.reshape(orig_shape[2:])
     return cov_matrices, eps
 
-
 def high_dim_matmul(mat_1, mat_2):
     """
-    Perform matrix multiplication for high-dimensional arrays.
-    The first two dimensions of the input arrays are treated as matrices.
-    """
-    return np.einsum('ij...,jk...->ik...', mat_1, mat_2)
+    Batched matrix multiplication over trailing (event/grid) axes.
 
+    Expected shapes:
+      mat_1: (N, M, *S)
+      mat_2: (M, K, *S)  or (M, K) (broadcast across *S)
+
+    Returns:
+      out: (N, K, *S)
+    """
+    if mat_1.ndim < 2 or mat_2.ndim < 2:
+        raise ValueError(f"high_dim_matmul expects arrays with ndim>=2, got {mat_1.ndim}, {mat_2.ndim}")
+
+    N, M = mat_1.shape[0], mat_1.shape[1]
+    if mat_2.shape[0] != M:
+        raise ValueError(f"inner dim mismatch: mat_1 is ({N},{M},...), mat_2 is ({mat_2.shape[0]},{mat_2.shape[1]},...)")
+
+    # Simple 2D case
+    if mat_1.ndim == 2 and mat_2.ndim == 2:
+        return mat_1 @ mat_2
+
+    S1 = mat_1.shape[2:]  # batch shape
+    K = mat_2.shape[1]
+
+    # Allow mat_2 to be broadcast (constant across batch)
+    if mat_2.ndim == 2:
+        # reshape to (1, M, K) then broadcast later
+        mat_2_batched = mat_2[None, :, :]
+        S2 = S1
+    else:
+        S2 = mat_2.shape[2:]
+        if S2 != S1:
+            raise ValueError(f"batch shape mismatch: mat_1 batch={S1}, mat_2 batch={S2}")
+        # Move batch axes to the front, then flatten
+        perm2 = (*range(2, mat_2.ndim), 0, 1)  # (*S, M, K)
+        mat_2_batched = np.transpose(mat_2, axes=perm2).reshape((-1, M, K))  # (B, M, K)
+
+    # Move batch axes to the front, then flatten
+    perm1 = (*range(2, mat_1.ndim), 0, 1)  # (*S, N, M)
+    mat_1_batched = np.transpose(mat_1, axes=perm1).reshape((-1, N, M))  # (B, N, M)
+
+    # If mat_2 is constant across the batch, broadcast it to (B, M, K)
+    if mat_2.ndim == 2:
+        B = mat_1_batched.shape[0]
+        mat_2_batched = np.broadcast_to(mat_2_batched, (B, M, K))
+
+    out_batched = mat_1_batched @ mat_2_batched  # (B, N, K)
+
+    # Unflatten batch and move axes back to (N, K, *S)
+    out = out_batched.reshape((*S1, N, K))
+    out = np.transpose(out, axes=(len(S1), len(S1) + 1, *range(0, len(S1))))
+    return out
+
+# def high_dim_matmul(mat_1, mat_2):
+#     """
+#     Perform matrix multiplication for high-dimensional arrays.
+#     The first two dimensions of the input arrays are treated as matrices.
+#     """
+#     return np.einsum('ij...,jk...->ik...', mat_1, mat_2)
 
 def covariance_change_variable(
         convariance_matrix, injection_parameters, transform, from_params
     ):
-    """
-    Transform the covariance matrix according to a change of variable defined by the `transform` function.
-
-    :param array convariance_matrix: Covariance matricies to be transformed, of shape :math:`(N_{\\rm parameters}`, :math:`N_{\\rm parameters}`, :math:`N_{\\rm events} ...)`.
-    :param dict injection_parameters: Dictionary containing the original sets of injected parameters, or the means of the parameters.
-    :param function transform: An N×N transformation function that takes a subset of injection parameters and transforms to a new set of parameters. Both the input and output must be dictionaries with same number of parameters.
-    :param list from_params: Sub-list of keys in `injection_parameters` that will be transformed. 
-    """
-    # Get the basic input and output shapes
     full_rank = convariance_matrix.shape[0]
-    param_shape = convariance_matrix.shape[2:]
-    transform_dim = len(from_params)
+    param_shape = convariance_matrix.shape[2:]  # empty () if convariance_matrix is 2D
     matrix_keys = list(injection_parameters.keys())
     keys_indices = [matrix_keys.index(key) for key in from_params]
 
-    # vmap cannot handle N-to-N transforms nicely, need to flatten the input first
+    # Flatten inputs (support scalars too)
     sub_injection_parameters = OrderedDict(
-        {key: injection_parameters[key].reshape(-1) for key in from_params})
-    jacobian_dict = vmap(jacfwd(transform))(sub_injection_parameters)
-    # Need to re-order the output Jacobian dictionary to match with expectation
-    sub_transformed_parameters = transform(sub_injection_parameters)
-    jacobian_dict = OrderedDict(
-        {key: jacobian_dict[key] for key in sub_transformed_parameters.keys()}
+        {key: np.atleast_1d(injection_parameters[key]).reshape(-1) for key in from_params}
     )
-    jacobian_mat = np.array(tree.leaves(jacobian_dict)).reshape(
-        transform_dim, transform_dim, *param_shape)
 
-    # Compute transformed Fisher matrix
-    full_jacobian_mat = np.zeros_like(convariance_matrix)
-    full_jacobian_mat[np.diag_indices(full_rank)] = 1.0
-    full_jacobian_mat[np.ix_(keys_indices, keys_indices)] = jacobian_mat
-    full_jacobian_mat_T = np.transpose(
-        full_jacobian_mat, axes=(1, 0, *range(2, full_jacobian_mat.ndim)))
-    transform_covar = high_dim_matmul(
-        full_jacobian_mat, high_dim_matmul(
-            convariance_matrix, full_jacobian_mat_T))
-    
-    # Compute transformed parameters and keys, maintaining the original order
-    transform_keys = matrix_keys
-    for idx, new_key_name in zip(keys_indices, sub_transformed_parameters.keys()):
+    sub_transformed_parameters = transform(sub_injection_parameters)
+    out_keys = list(sub_transformed_parameters.keys())
+
+    # Decide whether we have a batch axis to vmap over
+    # If covariance is 2D, we treat it as a single event and DO NOT vmap.
+    if convariance_matrix.ndim == 2:
+        jacobian_pytree = jacfwd(transform)(OrderedDict(
+            {k: sub_injection_parameters[k][0] for k in from_params}
+        ))
+        # jacobian_pytree[out][in] are scalars
+        jacobian_mat = np.stack(
+            [
+                np.stack([np.asarray(jacobian_pytree[ok][ik]) for ik in from_params], axis=0)
+                for ok in out_keys
+            ],
+            axis=0
+        )  # (Nout, Nin)
+
+        full_jacobian_mat = np.eye(full_rank, dtype=convariance_matrix.dtype)
+        full_jacobian_mat[np.ix_(keys_indices, keys_indices)] = jacobian_mat
+
+        J = full_jacobian_mat
+        transform_covar = J @ convariance_matrix @ J.T
+
+    else:
+        # Batched case: vmap over event axis
+        # Ensure leaves are rank>=1 for vmap
+        _scalar_keys = [k for k, v in sub_injection_parameters.items() if np.ndim(v) == 0]
+        if _scalar_keys:
+            raise ValueError(f"Expected batched inputs, got scalars for keys={_scalar_keys}")
+
+        jacobian_pytree = vmap(jacfwd(transform))(sub_injection_parameters)
+        # dict[out][in] -> (Nflat,)
+        jacobian_mat = np.stack(
+            [
+                np.stack([np.asarray(jacobian_pytree[ok][ik]) for ik in from_params], axis=0)
+                for ok in out_keys
+            ],
+            axis=0
+        ).reshape(len(out_keys), len(from_params), *param_shape)
+
+        full_jacobian_mat = np.zeros_like(convariance_matrix)
+        full_jacobian_mat[np.diag_indices(full_rank)] = 1.0
+        full_jacobian_mat[np.ix_(keys_indices, keys_indices)] = jacobian_mat
+        full_jacobian_mat_moved = np.moveaxis(full_jacobian_mat, -1, 0)
+        print(full_jacobian_mat_moved)
+
+        full_jacobian_mat_T = np.transpose(
+            full_jacobian_mat, axes=(1, 0, *range(2, full_jacobian_mat.ndim))
+        )
+
+        transform_covar = high_dim_matmul(
+            full_jacobian_mat, high_dim_matmul(convariance_matrix, full_jacobian_mat_T)
+        )
+
+    # Maintain original order of keys, replacing transformed subset
+    transform_keys = list(matrix_keys)
+    for idx, new_key_name in zip(keys_indices, out_keys):
         transform_keys[idx] = new_key_name
+
     transform_parameters = {}
     for key in transform_keys:
         value = injection_parameters.get(key, None)
         if value is None:
             value = sub_transformed_parameters.get(key, None)
-        transform_parameters[key] = value.reshape(*param_shape)
+        # For 2D covariance, param_shape=() so reshape is a no-op for scalars/arrays
+        transform_parameters[key] = np.asarray(value).reshape(*param_shape) if convariance_matrix.ndim > 2 else value
 
     return transform_covar, transform_parameters, transform_keys
+
+# def covariance_change_variable(
+#         convariance_matrix, injection_parameters, transform, from_params
+#     ):
+#     """
+#     Transform the covariance matrix according to a change of variable defined by the `transform` function.
+
+#     :param array convariance_matrix: Covariance matricies to be transformed, of shape :math:`(N_{\\rm parameters}`, :math:`N_{\\rm parameters}`, :math:`N_{\\rm events} ...)`.
+#     :param dict injection_parameters: Dictionary containing the original sets of injected parameters, or the means of the parameters.
+#     :param function transform: An N×N transformation function that takes a subset of injection parameters and transforms to a new set of parameters. Both the input and output must be dictionaries with same number of parameters.
+#     :param list from_params: Sub-list of keys in `injection_parameters` that will be transformed. 
+#     """
+#     # Get the basic input and output shapes
+#     full_rank = convariance_matrix.shape[0]
+#     param_shape = convariance_matrix.shape[2:]
+#     transform_dim = len(from_params)
+#     matrix_keys = list(injection_parameters.keys())
+#     keys_indices = [matrix_keys.index(key) for key in from_params]
+
+#     # vmap cannot handle N-to-N transforms nicely, need to flatten the input first
+#     sub_injection_parameters = OrderedDict(
+#         {key: injection_parameters[key].reshape(-1) for key in from_params})
+#     jacobian_dict = vmap(jacfwd(transform))(sub_injection_parameters)
+#     # Need to re-order the output Jacobian dictionary to match with expectation
+#     sub_transformed_parameters = transform(sub_injection_parameters)
+#     jacobian_dict = OrderedDict(
+#         {key: jacobian_dict[key] for key in sub_transformed_parameters.keys()}
+#     )
+#     jacobian_mat = np.array(tree.leaves(jacobian_dict)).reshape(
+#         transform_dim, transform_dim, *param_shape)
+
+#     # Compute transformed Fisher matrix
+#     full_jacobian_mat = np.zeros_like(convariance_matrix)
+#     full_jacobian_mat[np.diag_indices(full_rank)] = 1.0
+#     full_jacobian_mat[np.ix_(keys_indices, keys_indices)] = jacobian_mat
+#     full_jacobian_mat_T = np.transpose(
+#         full_jacobian_mat, axes=(1, 0, *range(2, full_jacobian_mat.ndim)))
+#     transform_covar = high_dim_matmul(
+#         full_jacobian_mat, high_dim_matmul(
+#             convariance_matrix, full_jacobian_mat_T))
+    
+#     # Compute transformed parameters and keys, maintaining the original order
+#     transform_keys = matrix_keys
+#     for idx, new_key_name in zip(keys_indices, sub_transformed_parameters.keys()):
+#         transform_keys[idx] = new_key_name
+#     transform_parameters = {}
+#     for key in transform_keys:
+#         value = injection_parameters.get(key, None)
+#         if value is None:
+#             value = sub_transformed_parameters.get(key, None)
+#         transform_parameters[key] = value.reshape(*param_shape)
+
+#     return transform_covar, transform_parameters, transform_keys
 
 def covariance_change_variable_1(
         convariance_matrix, injection_parameters, target_keys, transform, from_params, to_params
