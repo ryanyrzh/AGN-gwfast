@@ -119,10 +119,12 @@ def direct_covariance(lensing_parameters):
     lensed_cov_mats, ie = compute_covariance_matrix(lensed_fisher_mat, cores=1)
     return lensed_cov_mats, model_parameters, keys, ie
 
+
 def intrinsic_covariance(lensing_parameters):
     fisher_matrix = HLV_AGN.FisherMatr(lensing_parameters, res=100)
     covar_matrix, ie = compute_covariance_matrix(fisher_matrix, cores=1)
     return covar_matrix, lensing_parameters, list(lensing_parameters.keys()).copy(), ie
+
 
 def lensing_transform(lensing_parameters):
     # A fiducial phase which does not affect the Jacobian results
