@@ -266,7 +266,7 @@ if __name__ == '__main__':
     # Take the first entry:
     fisher_matrix = fisher_matrix_array[:,:,0]
     # Get the keys associated with the Fisher matrix:
-    keys = HLV_AGN.get_parameter_keys()
+    keys = lensing_parameters_test.keys()
     # Print the diagonals
     print('Fisher matrix keys:', keys)
     print("Fisher matrix diagonal entries:", np.diag(fisher_matrix))
