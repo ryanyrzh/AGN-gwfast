@@ -67,7 +67,7 @@ reference_parameters = {
     'Mc': 30, 'eta': 0.24, 'iota': 0.99*np.pi/2, 'phase': 2,
     'chi1z': 0.3, 'chi2z': 0.5, 'tcoal': 0,
     'R_orbit': 50, 'M_lz': 1e4, 'src_pos': 0.5,
-    'dL': 0.5, 'psi': 1, 'theta': 1.87, 'phi': 2.66,
+    'dL': 1.0, 'psi': 1, 'theta': 1.87, 'phi': 2.66,
 }
 # reference_parameters['M_lz'] = 1e6
 # reference_parameters['iota'] = 0.999 * np.pi / 2
@@ -170,6 +170,52 @@ def reorder_covariance(cov, keys, desired_order):
     new_keys = [keys[i] for i in idx]
     return cov_reordered, new_keys
 
+
+def _covariance_matrix_table(cov, labels, float_fmt='{: .6g}'):
+    """Pretty-print a (batched) covariance with row/column parameter labels."""
+    c = onp.asarray(cov)
+    labels = list(labels)
+    if c.ndim > 2:
+        c = c[(slice(None), slice(None)) + (0,) * (c.ndim - 2)]
+    if c.shape != (len(labels), len(labels)):
+        return (
+            f'(cannot tabulate: cov shape {onp.asarray(cov).shape}, '
+            f'{len(labels)} labels)\n{onp.asarray(cov)}'
+        )
+    cells = [[float_fmt.format(float(c[i, j])) for j in range(c.shape[1])]
+             for i in range(c.shape[0])]
+    w_lab = max(len(s) for s in labels)
+    w_col = [
+        max(len(labels[j]), max(len(cells[i][j]) for i in range(c.shape[0])))
+        for j in range(c.shape[1])
+    ]
+    pad = 2
+    top = ' ' * (w_lab + pad) + ''.join(
+        labels[j].ljust(w_col[j] + pad) for j in range(c.shape[1])
+    )
+    rows = [top]
+    for i in range(c.shape[0]):
+        row = labels[i].ljust(w_lab + pad) + ''.join(
+            cells[i][j].rjust(w_col[j]).ljust(w_col[j] + pad)
+            for j in range(c.shape[1])
+        )
+        rows.append(row)
+    return '\n'.join(rows)
+
+
+def _covariance_trailing_block_table(cov, keys, k=4, float_fmt='{: .6g}'):
+    """Pretty-print the trailing k×k block (first batch slice if cov is batched)."""
+    labels = list(keys)
+    if len(labels) < k:
+        return f'(need at least {k} parameters, have {len(labels)})'
+    c = onp.asarray(cov)
+    if c.ndim > 2:
+        c = c[(slice(None), slice(None)) + (0,) * (c.ndim - 2)]
+    if c.shape[0] < k or c.shape[1] < k:
+        return f'(cov too small for {k}×{k} block: shape {c.shape})'
+    return _covariance_matrix_table(c[-k:, -k:], labels[-k:], float_fmt=float_fmt)
+
+
 def reorder_params_dict(params_dict, desired_order):
     return {k: np.array(params_dict[k]) for k in desired_order}
 
@@ -257,6 +303,7 @@ def get_bayes_factor_capped(full_cov, full_params_dict, orig_keys, params_order,
 
     log_det_capped = log_det_extra + np.minimum(marginal_correction,
                                                  turning_correction)
+    print(f'===== log_det_capped =====: {log_det_capped}')
 
     log_posterior_at_null = (
         -0.5 * n_extra * np.log(2 * np.pi)
@@ -305,6 +352,12 @@ def worker(Ry_tuple_sublist, model='agn', n_newton=5):
 
     cov_1, pd_1, keys = covar_func(lensing_parameters_1)
     cov_2, pd_2, _ = covar_func(lensing_parameters_2)
+    c1 = onp.asarray(cov_1)
+    batch_note = ''
+    if c1.ndim > 2:
+        batch_note = f' (first slice of {c1.shape[2:]} batch)'
+    print(f'===== cov_1 extra block{batch_note} =====')
+    print(_covariance_trailing_block_table(cov_1, keys, k=4))
 
     if model == 'agn':
         orig_snr_1 = net.SNR(lensing_parameters_1, res=1000)
@@ -377,7 +430,7 @@ if __name__ == '__main__':
     n_R = args.nR # Get n_R
     cores = args.cores # Get cores
     model = args.model # Get model
-    n_newton = 15
+    n_newton = 10
     label = f'B100-newcapped-newton{n_newton}'
 
     tic = time()
