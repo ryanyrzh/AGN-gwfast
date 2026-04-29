@@ -72,19 +72,6 @@ class AGNLensedGWSignal(GeneralLensedGWSignal):
         params_1, params_2 = get_agn_lensed_parameters(model_params)
 
         output_params = params_1.copy()
-        output_params.update({
-            'iota': params_1['iota'],
-            'delta_iota': params_2['iota'] - params_1['iota'],
-            'phase': params_1['phase'],
-            'delta_phase': params_2['phase'] - params_1['phase'],
-            'psi': params_1['psi'],
-            'delta_psi': params_2['psi'] - params_1['psi'],
-            'dL': params_1['dL'],
-            'relative_distance': params_2['dL'] / params_1['dL'],
-            'Mc': params_1['Mc'],
-            'relative_mass': params_2['Mc'] / params_1['Mc'],
-        })
-
         tcoal = params_1.get('tcoal', None)
         if tcoal is not None:
             output_params['tcoal'] = tcoal
@@ -93,5 +80,19 @@ class AGNLensedGWSignal(GeneralLensedGWSignal):
             tGPS = params_1.get('tGPS', None)
             output_params['tGPS'] = tGPS
             output_params['delta_time'] = params_2['tGPS'] - tGPS
+
+        output_params.update({
+            'dL': params_1['dL'],
+            'relative_distance': params_2['dL'] / params_1['dL'],
+            'iota': params_1['iota'],
+            'delta_iota': params_2['iota'] - params_1['iota'],
+            'phase': params_1['phase'],
+            'delta_phase': params_2['phase'] - params_1['phase'],
+            'psi': params_1['psi'],
+            'delta_psi': params_2['psi'] - params_1['psi'],
+            'Mc': params_1['Mc'],
+            'relative_mass': params_2['Mc'] / params_1['Mc'],
+        })
+
 
         return output_params

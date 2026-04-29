@@ -317,243 +317,58 @@ def high_dim_matmul(mat_1, mat_2):
     out = np.transpose(out, axes=(len(S1), len(S1) + 1, *range(0, len(S1))))
     return out
 
-# def high_dim_matmul(mat_1, mat_2):
-#     """
-#     Perform matrix multiplication for high-dimensional arrays.
-#     The first two dimensions of the input arrays are treated as matrices.
-#     """
-#     return np.einsum('ij...,jk...->ik...', mat_1, mat_2)
-
 def covariance_change_variable(
-        covariance_matrix, injection_parameters, transform, from_params
+        convariance_matrix, injection_parameters, transform, from_params
     ):
     """
-    Replace ``from_params`` in the covariance matrix with new parameters
-    produced by ``transform``, allowing len(output) != len(from_params).
+    Transform the covariance matrix according to a change of variable defined by the `transform` function.
 
-    ``transform`` receives the FULL ``injection_parameters`` dict so that
-    ``jacfwd`` captures derivatives w.r.t. *all* original parameters (not
-    only ``from_params``).  This is required whenever the transform outputs
-    depend on parameters that remain in the matrix (e.g. ``iota``, ``dL``).
-
-    Output ordering: [kept params in original order] + [new params].
-    Output shape: ``(N_kept + N_new, N_kept + N_new, ...)``.
-
-    :param array covariance_matrix: shape ``(N_orig, N_orig, ...)``.
-    :param dict injection_parameters: All original parameter values.
-    :param function transform: Receives dict of ALL parameters, returns dict
-        of new parameters.  Must be JAX-differentiable.
-    :param list from_params: Keys to REMOVE from output (replaced by the
-        transform outputs).
-    :return: ``(transformed_covariance, output_parameters_dict, output_keys)``
+    :param array convariance_matrix: Covariance matricies to be transformed, of shape :math:`(N_{\\rm parameters}`, :math:`N_{\\rm parameters}`, :math:`N_{\\rm events} ...)`.
+    :param dict injection_parameters: Dictionary containing the original sets of injected parameters, or the means of the parameters.
+    :param function transform: An N×N transformation function that takes a subset of injection parameters and transforms to a new set of parameters. Both the input and output must be dictionaries with same number of parameters.
+    :param list from_params: Sub-list of keys in `injection_parameters` that will be transformed. 
     """
-    N_orig = covariance_matrix.shape[0]
-    param_shape = covariance_matrix.shape[2:]
+    # Get the basic input and output shapes
+    full_rank = convariance_matrix.shape[0]
+    param_shape = convariance_matrix.shape[2:]
+    transform_dim = len(from_params)
     matrix_keys = list(injection_parameters.keys())
-    from_indices = set(matrix_keys.index(key) for key in from_params)
-    kept_indices = [i for i in range(N_orig) if i not in from_indices]
+    keys_indices = [matrix_keys.index(key) for key in from_params]
 
-    all_params = OrderedDict(
-        {key: np.atleast_1d(injection_parameters[key]).reshape(-1)
-         for key in matrix_keys}
+    # vmap cannot handle N-to-N transforms nicely, need to flatten the input first
+    sub_injection_parameters = OrderedDict(
+        {key: injection_parameters[key].reshape(-1) for key in from_params})
+    jacobian_dict = vmap(jacfwd(transform))(sub_injection_parameters)
+    # Need to re-order the output Jacobian dictionary to match with expectation
+    sub_transformed_parameters = transform(sub_injection_parameters)
+    jacobian_dict = OrderedDict(
+        {key: jacobian_dict[key] for key in sub_transformed_parameters.keys()}
     )
+    jacobian_mat = np.array(tree.leaves(jacobian_dict)).reshape(
+        transform_dim, transform_dim, *param_shape)
 
-    transformed_params = transform(OrderedDict(all_params))
-    out_keys = list(transformed_params.keys())
-
-    N_to = len(out_keys)
-    N_kept = len(kept_indices)
-    N_out = N_kept + N_to
-
-    kept_keys = [matrix_keys[i] for i in kept_indices]
-    output_keys = kept_keys + out_keys
-
-    if covariance_matrix.ndim == 2:
-        scalar_params = OrderedDict(
-            {k: all_params[k][0] for k in matrix_keys}
-        )
-        jac_pytree = jacfwd(transform)(scalar_params)
-
-        J = np.zeros((N_out, N_orig), dtype=covariance_matrix.dtype)
-        for out_row, in_col in enumerate(kept_indices):
-            J[out_row, in_col] = 1.0
-        for i, ok in enumerate(out_keys):
-            for j, ik in enumerate(matrix_keys):
-                J[N_kept + i, j] = np.asarray(jac_pytree[ok][ik])
-
-        transform_covar = J @ covariance_matrix @ J.T
-
-    else:
-        _scalar_keys = [k for k, v in all_params.items() if np.ndim(v) == 0]
-        if _scalar_keys:
-            raise ValueError(
-                f"Expected batched inputs, got scalars for keys={_scalar_keys}"
-            )
-
-        jac_pytree = vmap(jacfwd(transform))(all_params)
-
-        J = np.zeros((N_out, N_orig, *param_shape),
-                      dtype=covariance_matrix.dtype)
-        for out_row, in_col in enumerate(kept_indices):
-            J[out_row, in_col] = 1.0
-        for i, ok in enumerate(out_keys):
-            for j, ik in enumerate(matrix_keys):
-                J[N_kept + i, j] = np.asarray(
-                    jac_pytree[ok][ik]
-                ).reshape(*param_shape)
-
-        J_T = np.transpose(J, axes=(1, 0, *range(2, J.ndim)))
-        transform_covar = high_dim_matmul(
-            J, high_dim_matmul(covariance_matrix, J_T)
-        )
-
-    output_parameters = {}
-    for key in output_keys:
+    # Compute transformed Fisher matrix
+    full_jacobian_mat = np.zeros_like(convariance_matrix)
+    full_jacobian_mat[np.diag_indices(full_rank)] = 1.0
+    full_jacobian_mat[np.ix_(keys_indices, keys_indices)] = jacobian_mat
+    full_jacobian_mat_T = np.transpose(
+        full_jacobian_mat, axes=(1, 0, *range(2, full_jacobian_mat.ndim)))
+    transform_covar = high_dim_matmul(
+        full_jacobian_mat, high_dim_matmul(
+            convariance_matrix, full_jacobian_mat_T))
+    
+    # Compute transformed parameters and keys, maintaining the original order
+    transform_keys = matrix_keys
+    for idx, new_key_name in zip(keys_indices, sub_transformed_parameters.keys()):
+        transform_keys[idx] = new_key_name
+    transform_parameters = {}
+    for key in transform_keys:
         value = injection_parameters.get(key, None)
         if value is None:
-            value = transformed_params.get(key, None)
-        output_parameters[key] = (
-            np.asarray(value).reshape(*param_shape)
-            if covariance_matrix.ndim > 2 else value
-        )
+            value = sub_transformed_parameters.get(key, None)
+        transform_parameters[key] = value.reshape(*param_shape)
 
-    return transform_covar, output_parameters, output_keys
-
-# def covariance_change_variable(
-#         convariance_matrix, injection_parameters, transform, from_params
-#     ):
-#     full_rank = convariance_matrix.shape[0]
-#     param_shape = convariance_matrix.shape[2:]  # empty () if convariance_matrix is 2D
-#     matrix_keys = list(injection_parameters.keys())
-#     keys_indices = [matrix_keys.index(key) for key in from_params]
-#
-#     # Flatten inputs (support scalars too)
-#     sub_injection_parameters = OrderedDict(
-#         {key: np.atleast_1d(injection_parameters[key]).reshape(-1) for key in from_params}
-#     )
-#
-#     sub_transformed_parameters = transform(sub_injection_parameters)
-#     out_keys = list(sub_transformed_parameters.keys())
-#
-#     # Decide whether we have a batch axis to vmap over
-#     # If covariance is 2D, we treat it as a single event and DO NOT vmap.
-#     if convariance_matrix.ndim == 2:
-#         jacobian_pytree = jacfwd(transform)(OrderedDict(
-#             {k: sub_injection_parameters[k][0] for k in from_params}
-#         ))
-#         # jacobian_pytree[out][in] are scalars
-#         jacobian_mat = np.stack(
-#             [
-#                 np.stack([np.asarray(jacobian_pytree[ok][ik]) for ik in from_params], axis=0)
-#                 for ok in out_keys
-#             ],
-#             axis=0
-#         )  # (Nout, Nin)
-#
-#         full_jacobian_mat = np.eye(full_rank, dtype=convariance_matrix.dtype)
-#         full_jacobian_mat[np.ix_(keys_indices, keys_indices)] = jacobian_mat
-#
-#         J = full_jacobian_mat
-#         transform_covar = J @ convariance_matrix @ J.T
-#
-#     else:
-#         # Batched case: vmap over event axis
-#         # Ensure leaves are rank>=1 for vmap
-#         _scalar_keys = [k for k, v in sub_injection_parameters.items() if np.ndim(v) == 0]
-#         if _scalar_keys:
-#             raise ValueError(f"Expected batched inputs, got scalars for keys={_scalar_keys}")
-#
-#         jacobian_pytree = vmap(jacfwd(transform))(sub_injection_parameters)
-#         # dict[out][in] -> (Nflat,)
-#         jacobian_mat = np.stack(
-#             [
-#                 np.stack([np.asarray(jacobian_pytree[ok][ik]) for ik in from_params], axis=0)
-#                 for ok in out_keys
-#             ],
-#             axis=0
-#         ).reshape(len(out_keys), len(from_params), *param_shape)
-#
-#         full_jacobian_mat = np.zeros_like(convariance_matrix)
-#         full_jacobian_mat[np.diag_indices(full_rank)] = 1.0
-#         full_jacobian_mat[np.ix_(keys_indices, keys_indices)] = jacobian_mat
-#         full_jacobian_mat_moved = np.moveaxis(full_jacobian_mat, -1, 0)
-#         print(full_jacobian_mat_moved)
-#
-#         full_jacobian_mat_T = np.transpose(
-#             full_jacobian_mat, axes=(1, 0, *range(2, full_jacobian_mat.ndim))
-#         )
-#
-#         transform_covar = high_dim_matmul(
-#             full_jacobian_mat, high_dim_matmul(convariance_matrix, full_jacobian_mat_T)
-#         )
-#
-#     # Maintain original order of keys, replacing transformed subset
-#     transform_keys = list(matrix_keys)
-#     for idx, new_key_name in zip(keys_indices, out_keys):
-#         transform_keys[idx] = new_key_name
-#
-#     transform_parameters = {}
-#     for key in transform_keys:
-#         value = injection_parameters.get(key, None)
-#         if value is None:
-#             value = sub_transformed_parameters.get(key, None)
-#         # For 2D covariance, param_shape=() so reshape is a no-op for scalars/arrays
-#         transform_parameters[key] = np.asarray(value).reshape(*param_shape) if convariance_matrix.ndim > 2 else value
-#
-#     return transform_covar, transform_parameters, transform_keys
-
-# def covariance_change_variable(
-#         convariance_matrix, injection_parameters, transform, from_params
-#     ):
-#     """
-#     Transform the covariance matrix according to a change of variable defined by the `transform` function.
-
-#     :param array convariance_matrix: Covariance matricies to be transformed, of shape :math:`(N_{\\rm parameters}`, :math:`N_{\\rm parameters}`, :math:`N_{\\rm events} ...)`.
-#     :param dict injection_parameters: Dictionary containing the original sets of injected parameters, or the means of the parameters.
-#     :param function transform: An N×N transformation function that takes a subset of injection parameters and transforms to a new set of parameters. Both the input and output must be dictionaries with same number of parameters.
-#     :param list from_params: Sub-list of keys in `injection_parameters` that will be transformed. 
-#     """
-#     # Get the basic input and output shapes
-#     full_rank = convariance_matrix.shape[0]
-#     param_shape = convariance_matrix.shape[2:]
-#     transform_dim = len(from_params)
-#     matrix_keys = list(injection_parameters.keys())
-#     keys_indices = [matrix_keys.index(key) for key in from_params]
-
-#     # vmap cannot handle N-to-N transforms nicely, need to flatten the input first
-#     sub_injection_parameters = OrderedDict(
-#         {key: injection_parameters[key].reshape(-1) for key in from_params})
-#     jacobian_dict = vmap(jacfwd(transform))(sub_injection_parameters)
-#     # Need to re-order the output Jacobian dictionary to match with expectation
-#     sub_transformed_parameters = transform(sub_injection_parameters)
-#     jacobian_dict = OrderedDict(
-#         {key: jacobian_dict[key] for key in sub_transformed_parameters.keys()}
-#     )
-#     jacobian_mat = np.array(tree.leaves(jacobian_dict)).reshape(
-#         transform_dim, transform_dim, *param_shape)
-
-#     # Compute transformed Fisher matrix
-#     full_jacobian_mat = np.zeros_like(convariance_matrix)
-#     full_jacobian_mat[np.diag_indices(full_rank)] = 1.0
-#     full_jacobian_mat[np.ix_(keys_indices, keys_indices)] = jacobian_mat
-#     full_jacobian_mat_T = np.transpose(
-#         full_jacobian_mat, axes=(1, 0, *range(2, full_jacobian_mat.ndim)))
-#     transform_covar = high_dim_matmul(
-#         full_jacobian_mat, high_dim_matmul(
-#             convariance_matrix, full_jacobian_mat_T))
-    
-#     # Compute transformed parameters and keys, maintaining the original order
-#     transform_keys = matrix_keys
-#     for idx, new_key_name in zip(keys_indices, sub_transformed_parameters.keys()):
-#         transform_keys[idx] = new_key_name
-#     transform_parameters = {}
-#     for key in transform_keys:
-#         value = injection_parameters.get(key, None)
-#         if value is None:
-#             value = sub_transformed_parameters.get(key, None)
-#         transform_parameters[key] = value.reshape(*param_shape)
-
-#     return transform_covar, transform_parameters, transform_keys
+    return transform_covar, transform_parameters, transform_keys
 
 def covariance_change_variable_1(
         convariance_matrix, injection_parameters, target_keys, transform, from_params, to_params

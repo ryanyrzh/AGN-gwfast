@@ -274,7 +274,7 @@ def get_agn_lensed_parameters(unlensed_parameters):
     minus_image_params['Mc'] *= minus_redshift_factor
     minus_image_params['dL'] /= lensed_params['sqrt_mu_m']
     minus_image_params['dL'] *= (1 + lensed_params['z_rel_m']) * minus_redshift_factor
-    minus_image_params['tcoal'] += lensed_params['delta_time'] / DAY_TO_SEC  # days
+    minus_image_params['tcoal'] += lensed_params['delta_time']  # days
 
     return plus_image_params, minus_image_params
 
@@ -349,7 +349,7 @@ def compute_lensed_angles_approx(
     z_grav = gravitational_redshift(r_orbit)
 
     delta_time, mu_p, mu_m = PML_time_delay_magnification(beta, theta_E)
-    delta_time *= lens_mass_src * MTSUN_SI  # s
+    delta_time *= lens_mass_src * MTSUN_SI / DAY_TO_SEC  # days
     sqrt_mu_p = np.sqrt(np.abs(mu_p))
     sqrt_mu_m = np.sqrt(np.abs(mu_m))
 

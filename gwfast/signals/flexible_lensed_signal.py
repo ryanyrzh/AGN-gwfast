@@ -26,7 +26,7 @@ class GeneralLensedGWSignal(BasicGWSignal):
     There are 5 additional parameters that are added to the usual BBH waveform:
     * ``delta_iota``: change in inclination angle, in radians
     * ``delta_phase``: change in phase, in radians
-    * ``delta_time``: change in coalescence time, in seconds
+    * ``delta_time``: change in coalescence time, in days
     * ``relative_distance``: change in luminosity distance, dimensionless
     * ``relative_mass``: change in chirp mass, dimensionless
 
@@ -34,7 +34,7 @@ class GeneralLensedGWSignal(BasicGWSignal):
     * ``iota_1``, ``iota_2``: two different inclination angles, in radians
     * ``phase_1``, ``phase_2``: two different phases, in radians
     * ``tGPS_1``, ``tGPS_2``: two different GPS times, in seconds
-    * ``tcoal_1``, ``tcoal_2``: two different coalescence times, in seconds
+    * ``tcoal_1``, ``tcoal_2``: two different coalescence times, in days
     * ``dL_1``, ``dL_2``: two different luminosity distances, in meters
     * ``Mc_1``, ``Mc_2``: two different chirp masses, in solar masses
 
@@ -49,7 +49,7 @@ class GeneralLensedGWSignal(BasicGWSignal):
             'delta_iota': 0.5,   # radian
             'delta_phase': 0.5,  # radian
             'delta_psi': 0.5,  # radian
-            'delta_time': 1.0,   # seconds
+            'delta_time': 1.0 / DAY_TO_SEC,   # days
             'relative_distance': 1.0,   # dimensionless
             'relative_mass': 1.0,   # dimensionless
         }
