@@ -83,7 +83,7 @@ def Jacobian_covariance(lensing_parameters):
     # 4.c Reduce and compute covar
     covar_matrix, _ = compute_covariance_matrix(fisher_matrix, cores=1)
 
-    from_params = ['R_orbit', 'src_pos', 'M_lz']
+    from_params = ['R_orbit', 'src_pos', 'M_lz', 'iota', 'dL']
     transformed_cov_mat, transformed_parameters, transformed_keys = covariance_change_variable(
         covar_matrix, lensing_parameters, lensing_transform, from_params
     )
@@ -151,7 +151,8 @@ def lensing_transform(lensing_parameters):
     phenom_changes = {}
     phenom_changes['delta_iota'] = outputs['iota_m'] - outputs['iota_p']
     phenom_changes['delta_phase'] = outputs['phase_m'] - outputs['phase_p']
-    phenom_changes['delta_psi'] = outputs['psi_m'] - outputs['psi_p']
+    # Remove delta_psi bc it's very small and has been causing problems
+    # phenom_changes['delta_psi'] = outputs['psi_m'] - outputs['psi_p']
 
     # (Radial gravitational potential is cancelled)
     relative_magification = outputs['sqrt_mu_p'] / outputs['sqrt_mu_m']
@@ -276,7 +277,7 @@ def get_bayes_factor_capped(full_cov, full_params_dict, orig_keys, params_order,
         full_params_dict['relative_mass'] - 1.0,
         full_params_dict['delta_iota'],
         full_params_dict['delta_phase'],
-        full_params_dict['delta_psi'],
+        # full_params_dict['delta_psi'],
     ])
 
     full_cov = np.moveaxis(full_cov, -1, 0)   # (n, D, D)
@@ -335,17 +336,20 @@ def worker(Ry_tuple_sublist, model='agn', n_newton=5):
         net = HLV_Lensed
 
     order = [
-        'Mc', 'eta', 'iota', 'phase',
+        'Mc', 'eta', 'phase',
         'chi1z', 'chi2z', 'tcoal',
-        'dL', 'psi', 'theta', 'phi',
-        'delta_time', 'relative_distance', 'relative_mass', 'delta_iota', 'delta_phase', 'delta_psi'
+        'psi', 'theta', 'phi',
+        'delta_time', 'relative_distance', 'relative_mass', 'delta_iota', 'delta_phase', 
+        # 'delta_psi'
     ]
 
     relative_mass_prior_width = 1.0
     delta_iota_prior_width = 0.5
     delta_phase_prior_width = 0.5
-    delta_psi_prior_width = 0.5
-    prior_widths = np.array([relative_mass_prior_width, delta_iota_prior_width, delta_phase_prior_width, delta_psi_prior_width])
+    # delta_psi_prior_width = 0.5
+    prior_widths = np.array([relative_mass_prior_width, delta_iota_prior_width, delta_phase_prior_width, 
+                            # delta_psi_prior_width
+                            ])
 
     target_B = 1e2
     log_target_B = np.log(target_B)
@@ -430,8 +434,8 @@ if __name__ == '__main__':
     n_R = args.nR # Get n_R
     cores = args.cores # Get cores
     model = args.model # Get model
-    n_newton = 10
-    label = f'B100-newcapped-newton{n_newton}'
+    n_newton = 20
+    label = f'tdays'
 
     tic = time()
     # 1. Prepare matrix of (y, R)
