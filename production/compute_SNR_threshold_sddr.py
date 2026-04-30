@@ -66,10 +66,10 @@ HLV_Lensed = network.DetNet({'H1': H1_Lensed, 'L1': L1_Lensed, 'V1': V1_Lensed})
 reference_parameters = {
     'Mc': 30, 'eta': 0.24, 'iota': 0.99*np.pi/2, 'phase': 2,
     'chi1z': 0.3, 'chi2z': 0.5, 'tcoal': 0,
-    'R_orbit': 50, 'M_lz': 1e4, 'src_pos': 0.5,
+    'R_orbit': 50, 'log10_M_lz': 4.0, 'src_pos': 0.5,
     'dL': 1.0, 'psi': 1, 'theta': 1.87, 'phi': 2.66,
 }
-# reference_parameters['M_lz'] = 1e6
+# reference_parameters['log10_M_lz'] = 6.0
 # reference_parameters['iota'] = 0.999 * np.pi / 2
 reference_parameters_1 = reference_parameters.copy()
 reference_parameters_2 = reference_parameters.copy()
@@ -83,7 +83,7 @@ def Jacobian_covariance(lensing_parameters):
     # 4.c Reduce and compute covar
     covar_matrix, _ = compute_covariance_matrix(fisher_matrix, cores=1)
 
-    from_params = ['R_orbit', 'src_pos', 'M_lz', 'iota', 'dL']
+    from_params = ['R_orbit', 'src_pos', 'log10_M_lz', 'iota', 'dL']
     transformed_cov_mat, transformed_parameters, transformed_keys = covariance_change_variable(
         covar_matrix, lensing_parameters, lensing_transform, from_params
     )
@@ -145,8 +145,11 @@ def simple_lensing_covariance(lensing_parameters):
 
 def lensing_transform(lensing_parameters):
     # A fiducial phase which does not affect the Jacobian results
+    lensing_parameters = lensing_parameters.copy()
     lensing_parameters['phase'] = 0.0
     lensing_parameters['psi'] = 0.0
+    if 'log10_M_lz' in lensing_parameters:
+        lensing_parameters['M_lz'] = np.power(10.0, lensing_parameters.pop('log10_M_lz'))
     outputs = compute_lensed_angles_approx(lensing_parameters)
     phenom_changes = {}
     phenom_changes['delta_iota'] = outputs['iota_m'] - outputs['iota_p']
@@ -435,7 +438,7 @@ if __name__ == '__main__':
     cores = args.cores # Get cores
     model = args.model # Get model
     n_newton = 20
-    label = f'tdays'
+    label = f'tdays-logMlz'
 
     tic = time()
     # 1. Prepare matrix of (y, R)

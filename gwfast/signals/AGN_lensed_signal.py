@@ -5,6 +5,7 @@
 #    license that can be found in the LICENSE file.
 
 from jax import config
+import jax.numpy as jnp
 # Enable 64bit on JAX, fundamental
 config.update("jax_enable_x64", True)
 
@@ -20,7 +21,7 @@ class AGNLensedGWSignal(GeneralLensedGWSignal):
 
     Other than the standard binary parameters, this class adds the following parameters:
     * ``R_orbit``: orbital radius of the binary, in :math:`\\rm R_{\\odot}`
-    * ``M_lz``: mass of the AGN, in :math:`\\rm M_{\\odot}`
+    * ``log10_M_lz``: base-10 logarithm of the AGN lens mass, in :math:`\\rm M_{\\odot}`
     * ``src_pos``: position of the source in the accretion disk, in :math:`\\rm R_{\\odot}`
 
     Other than the additional parameters, the rest of this class behaves like a standard GW signal class:
@@ -33,7 +34,7 @@ class AGNLensedGWSignal(GeneralLensedGWSignal):
 
         additional_params = {
             'R_orbit': 100,
-            'M_lz': 1e6,
+            'log10_M_lz': 6.0,
             'src_pos': 0.1
         }
         # Use the base class constructor
@@ -69,6 +70,9 @@ class AGNLensedGWSignal(GeneralLensedGWSignal):
             Dictionary containing the AGN lensed parameters.
         """
         model_params = get_model_parameters(agn_lensed_params, self.strain_model_keys, reference_frequency)
+        if 'log10_M_lz' in model_params:
+            model_params = model_params.copy()
+            model_params['M_lz'] = jnp.power(10.0, model_params.pop('log10_M_lz'))
         params_1, params_2 = get_agn_lensed_parameters(model_params)
 
         output_params = params_1.copy()
