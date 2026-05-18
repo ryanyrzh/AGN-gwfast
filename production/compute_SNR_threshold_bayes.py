@@ -8,7 +8,7 @@ from functools import partial
 from multiprocessing import Pool, set_start_method
 
 import numpy as onp
-from jax import config
+from jax import config, jacfwd
 import jax.numpy as np
 from jax.lax import integer_pow
 config.update("jax_enable_x64", True)
@@ -41,6 +41,10 @@ parser.add_argument('--cores', type=int, default=4,
 parser.add_argument('--model', type=str, default='agn',
                     choices=['agn', 'generic', 'agn_intrinsic'],
                     help='Which model to use for covariance calculation.')
+parser.add_argument('--jacobian-diagnostics', action='store_true',
+                    help='Print Jacobian singular values/condition numbers and exit.')
+parser.add_argument('--log10-mlz-prior-sigma', type=float, default=1.0,
+                    help='Gaussian prior sigma on log10_M_lz (dex); set <=0 to disable.')
 
 # Set up detectors
 H1 = Detector('H1', **det_dict['H1'],
@@ -90,9 +94,41 @@ reference_parameters_2['Mc'] = 80.0
 #     )
 #     return transformed_cov_mat, transformed_parameters, transformed_keys
 
-def Jacobian_covariance(lensing_parameters):
+def _apply_log10_mlz_prior(fisher_matrix, keys, log10_sigma, mlz_values=None):
+    if log10_sigma is None or log10_sigma <= 0:
+        return fisher_matrix
+
+    if 'log10_M_lz' in keys:
+        idx = keys.index('log10_M_lz')
+        prior_val = 1.0 / (log10_sigma ** 2)
+        fisher_matrix = onp.array(fisher_matrix, copy=True)
+        if fisher_matrix.ndim == 2:
+            fisher_matrix[idx, idx] += prior_val
+        else:
+            fisher_matrix[idx, idx, ...] += prior_val
+        return fisher_matrix
+
+    if 'M_lz' in keys and mlz_values is not None:
+        idx = keys.index('M_lz')
+        mlz_vals = onp.asarray(mlz_values, dtype=onp.float64)
+        if fisher_matrix.ndim == 2:
+            mlz_vals = float(mlz_vals)
+        sigma_mlz = onp.log(10.0) * mlz_vals * log10_sigma
+        fisher_matrix = onp.array(fisher_matrix, copy=True)
+        if fisher_matrix.ndim == 2:
+            fisher_matrix[idx, idx] += 1.0 / (sigma_mlz ** 2)
+        else:
+            fisher_matrix[idx, idx, ...] += 1.0 / (sigma_mlz ** 2)
+    return fisher_matrix
+
+
+def Jacobian_covariance(lensing_parameters, log10_mlz_prior_sigma=None):
     # 4.b Compute the Fisher
     fisher_matrix = HLV_AGN.FisherMatr(lensing_parameters, res=100)
+    fisher_keys = list(lensing_parameters.keys())
+    fisher_matrix = _apply_log10_mlz_prior(
+        fisher_matrix, fisher_keys, log10_mlz_prior_sigma
+    )
     
     # Diagnostics: original determinants
     flat_fisher_mat = onp.asarray(
@@ -138,11 +174,14 @@ def Jacobian_covariance(lensing_parameters):
     return transformed_cov_mat, transformed_parameters, transformed_keys
 
 
-def direct_covariance(lensing_parameters):
+def direct_covariance(lensing_parameters, log10_mlz_prior_sigma=None):
     model_parameters = L1_AGN.convert_to_general_lensed_parameters(lensing_parameters)
     keys = list(model_parameters.keys()).copy()
 
     lensed_HLV_fisher = HLV_Lensed.FisherMatr(model_parameters, res=200)
+    lensed_HLV_fisher = _apply_log10_mlz_prior(
+        lensed_HLV_fisher, keys, log10_mlz_prior_sigma, model_parameters.get('M_lz')
+    )
 
     # If some of the events is nan, then the reduce matrix won't work
     cleaned_lensed_HLV_fisher = np.nan_to_num(lensed_HLV_fisher, nan=0.0)
@@ -152,7 +191,7 @@ def direct_covariance(lensing_parameters):
     lensed_cov_mats, _ = compute_covariance_matrix(lensed_fisher_mat, cores=1)
     return lensed_cov_mats, model_parameters, keys
 
-def simple_lensing_covariance(lensing_parameters):
+def simple_lensing_covariance(lensing_parameters, log10_mlz_prior_sigma=None):
     model_parameters = L1_AGN.convert_to_general_lensed_parameters(lensing_parameters)
     keys = list(model_parameters.keys()).copy()
 
@@ -164,6 +203,9 @@ def simple_lensing_covariance(lensing_parameters):
     model_parameters['relative_mass'] = np.full(shape, 1.0)
 
     simple_HLV_fisher = HLV_Lensed.FisherMatr(model_parameters, res=200)
+    simple_HLV_fisher = _apply_log10_mlz_prior(
+        simple_HLV_fisher, keys, log10_mlz_prior_sigma, model_parameters.get('M_lz')
+    )
     # If some of the events is nan, then the reduce matrix won't work
     cleaned_simple_HLV_fisher = np.nan_to_num(simple_HLV_fisher, nan=0.0)
 
@@ -194,6 +236,85 @@ def lensing_transform(lensing_parameters):
     phenom_changes['delta_time'] = outputs['delta_time']
 
     return phenom_changes
+
+
+def run_jacobian_diagnostics(x0=None, phase=0.3, psi=0.7):
+    if x0 is None:
+        x0 = np.array([
+            reference_parameters_1['R_orbit'],
+            reference_parameters_1['src_pos'],
+            reference_parameters_1['log10_M_lz'],
+            reference_parameters_1['iota'],
+            reference_parameters_1['dL'],
+        ], dtype=np.float64)
+
+    input_names = ['R_orbit', 'src_pos', 'log10_M_lz', 'iota', 'dL']
+    output_names_map = {
+        'raw': [
+            'iota_p', 'iota_m',
+            'phase_p', 'phase_m',
+            'z_rel_p', 'z_rel_m',
+            'sqrt_mu_p', 'sqrt_mu_m',
+            'delta_time',
+        ],
+        'full': [
+            'delta_iota', 'delta_phase',
+            'relative_distance', 'relative_mass',
+            'delta_time',
+        ],
+    }
+
+    def pack(params_vec):
+        return {
+            'R_orbit': params_vec[0],
+            'src_pos': params_vec[1],
+            'log10_M_lz': params_vec[2],
+            'iota': params_vec[3],
+            'dL': params_vec[4],
+            'phase': phase,
+            'psi': psi,
+        }
+
+    def full_transform_vec(params_vec):
+        outputs = lensing_transform(pack(params_vec))
+        return np.array([
+            outputs['delta_iota'],
+            outputs['delta_phase'],
+            outputs['relative_distance'],
+            outputs['relative_mass'],
+            outputs['delta_time'],
+        ], dtype=np.float64)
+
+    def raw_outputs_vec(params_vec):
+        params = pack(params_vec)
+        params['M_lz'] = np.power(10.0, params.pop('log10_M_lz'))
+        outputs = compute_lensed_angles_approx(params)
+        return np.array([
+            outputs['iota_p'], outputs['iota_m'],
+            outputs['phase_p'], outputs['phase_m'],
+            outputs['z_rel_p'], outputs['z_rel_m'],
+            outputs['sqrt_mu_p'], outputs['sqrt_mu_m'],
+            outputs['delta_time'],
+        ], dtype=np.float64)
+
+    for name, func in [('raw', raw_outputs_vec), ('full', full_transform_vec)]:
+        jac = jacfwd(func)(x0)
+        jac_np = onp.asarray(jac, dtype=onp.float64)
+        u_mat, sing_vals_np, vh_mat = onp.linalg.svd(jac_np, full_matrices=False)
+        cond = sing_vals_np[0] / sing_vals_np[-1] if sing_vals_np[-1] != 0 else onp.inf
+        print(f'{name} singular values:', sing_vals_np)
+        print(f'{name} condition number:', cond)
+
+        smallest_right = vh_mat[-1, :]
+        print(f'{name} smallest right singular vector (inputs):')
+        for key, val in zip(input_names, smallest_right):
+            print(f'  {key}: {val:+.6e}')
+
+        output_names = output_names_map[name]
+        smallest_left = u_mat[:, -1]
+        print(f'{name} smallest left singular vector (outputs):')
+        for key, val in zip(output_names, smallest_left):
+            print(f'  {key}: {val:+.6e}')
 
 def reorder_covariance(cov, keys, desired_order):
     idx = [keys.index(k) for k in desired_order]
@@ -262,7 +383,8 @@ def get_bayes_factor(full_cov, full_params_dict, simple_cov, simple_params_dict,
 
 
 
-def worker(Ry_tuple_sublist, model='agn', loop=2, actual_snr=False):
+def worker(Ry_tuple_sublist, model='agn', loop=2, actual_snr=False,
+           log10_mlz_prior_sigma=None):
     '''
     Performance comment (2025/08/21)
     * Looping is recommended, but one loop is sufficient to bring the
@@ -282,16 +404,20 @@ def worker(Ry_tuple_sublist, model='agn', loop=2, actual_snr=False):
     lensing_parameters_2['src_pos'] = Ry_tuple_sublist[:, 1]
 
     if model == 'agn':
-        covar_func = Jacobian_covariance
+        covar_func = partial(Jacobian_covariance, log10_mlz_prior_sigma=log10_mlz_prior_sigma)
         network = HLV_AGN
     elif model == 'generic':
-        covar_func = direct_covariance
+        covar_func = partial(direct_covariance, log10_mlz_prior_sigma=log10_mlz_prior_sigma)
         network = HLV_Lensed
     covariance_mat_1, params_dict_1, full_keys = covar_func(lensing_parameters_1)
     covariance_mat_2, params_dict_2, _ = covar_func(lensing_parameters_2)
     try:
-        simple_cov_mats_1, simple_params_dict_1, simple_keys = simple_lensing_covariance(lensing_parameters_1)
-        simple_cov_mats_2, simple_params_dict_2, _ = simple_lensing_covariance(lensing_parameters_2)
+        simple_cov_mats_1, simple_params_dict_1, simple_keys = simple_lensing_covariance(
+            lensing_parameters_1, log10_mlz_prior_sigma=log10_mlz_prior_sigma
+        )
+        simple_cov_mats_2, simple_params_dict_2, _ = simple_lensing_covariance(
+            lensing_parameters_2, log10_mlz_prior_sigma=log10_mlz_prior_sigma
+        )
     except ValueError:
         print('simple_lensing_covariance failed, returning nans')
         return np.full(shape, np.nan), np.full(shape, np.nan)
@@ -367,7 +493,9 @@ def worker(Ry_tuple_sublist, model='agn', loop=2, actual_snr=False):
             new_parameters['dL'] += scale
             try:
                 new_covariance_mat, new_params_dict, keys = covar_func(new_parameters)
-                new_simple_cov_mats, new_simple_params_dict, _ = simple_lensing_covariance(new_parameters)
+                new_simple_cov_mats, new_simple_params_dict, _ = simple_lensing_covariance(
+                    new_parameters, log10_mlz_prior_sigma=log10_mlz_prior_sigma
+                )
                 new_B = get_bayes_factor(new_covariance_mat, new_params_dict,
                                         new_simple_cov_mats, new_simple_params_dict,
                                         full_keys, simple_keys, order, simple_order, prior_widths)
@@ -420,6 +548,11 @@ if __name__ == '__main__':
     cores = args.cores # Get cores
     model = args.model # Get model
     label = f'tdays-logMlz'
+    log10_mlz_prior_sigma = args.log10_mlz_prior_sigma
+
+    if args.jacobian_diagnostics:
+        run_jacobian_diagnostics()
+        raise SystemExit(0)
 
     tic = time()
     # 1. Prepare matrix of (y, R)
@@ -430,7 +563,10 @@ if __name__ == '__main__':
     Ry_tuple_list = np.vstack([R_orbit_mesh.flatten(), y_Rorbit_mesh.flatten()]).T
 
     # Custom settings go here
-    the_worker = partial(worker, model=model, loop=3, actual_snr=False)
+    the_worker = partial(
+        worker, model=model, loop=3, actual_snr=False,
+        log10_mlz_prior_sigma=log10_mlz_prior_sigma
+    )
 
     with Pool(cores) as p:
         results = p.map(the_worker, np.array_split(Ry_tuple_list, cores))
