@@ -6,6 +6,7 @@ import argparse
 from pathlib import Path
 from functools import partial
 from multiprocessing import Pool, set_start_method
+from collections import OrderedDict
 
 import numpy as onp
 from jax import config
@@ -87,6 +88,12 @@ def Jacobian_covariance(lensing_parameters):
     transformed_cov_mat, transformed_parameters, transformed_keys = covariance_change_variable(
         covar_matrix, lensing_parameters, lensing_transform, from_params
     )
+    # Sanity checks: key order must match matrix indexing
+    assert transformed_cov_mat.shape[0] == transformed_cov_mat.shape[1] == len(transformed_keys)
+    assert list(transformed_parameters.keys()) == list(transformed_keys)
+    assert len(set(transformed_keys)) == len(transformed_keys), (
+        f"Duplicate keys produced by transform: {transformed_keys}"
+    )
     return transformed_cov_mat, transformed_parameters, transformed_keys
 
 
@@ -151,19 +158,56 @@ def lensing_transform(lensing_parameters):
     if 'log10_M_lz' in lensing_parameters:
         lensing_parameters['M_lz'] = np.power(10.0, lensing_parameters.pop('log10_M_lz'))
     outputs = compute_lensed_angles_approx(lensing_parameters)
-    phenom_changes = {}
-    phenom_changes['delta_iota'] = outputs['iota_m'] - outputs['iota_p']
-    phenom_changes['delta_phase'] = outputs['phase_m'] - outputs['phase_p']
-    # Remove delta_psi bc it's very small and has been causing problems
-    # phenom_changes['delta_psi'] = outputs['psi_m'] - outputs['psi_p']
-
-    # (Radial gravitational potential is cancelled)
+    # NOTE: `covariance_change_variable()` assumes a deterministic output order.
+    # Use an OrderedDict with an explicit key order to avoid accidental reordering.
     relative_magification = outputs['sqrt_mu_p'] / outputs['sqrt_mu_m']
-    phenom_changes['relative_distance'] = relative_magification * integer_pow((1 + outputs['z_rel_m']) / (1 + outputs['z_rel_p']), 2)
-    phenom_changes['relative_mass'] = (1 + outputs['z_rel_m']) / (1 + outputs['z_rel_p'])
-    phenom_changes['delta_time'] = outputs['delta_time']
+    relative_distance = relative_magification * integer_pow(
+        (1 + outputs['z_rel_m']) / (1 + outputs['z_rel_p']), 2
+    )
+    relative_mass = (1 + outputs['z_rel_m']) / (1 + outputs['z_rel_p'])
+    delta_iota = outputs['iota_m'] - outputs['iota_p']
+    delta_phase = outputs['phase_m'] - outputs['phase_p']
+    delta_time = outputs['delta_time']
 
-    return phenom_changes
+    return OrderedDict([
+        ('delta_time', delta_time),
+        ('relative_distance', relative_distance),
+        ('relative_mass', relative_mass),
+        ('delta_iota', delta_iota),
+        ('delta_phase', delta_phase),
+        # Remove delta_psi bc it's very small and has been causing problems
+        # ('delta_psi', outputs['psi_m'] - outputs['psi_p']),
+    ])
+
+
+def _batched_slogdet_stats(square_mat):
+    """Return (first_sign, first_logdet, mean_logdet, min_logdet, max_logdet).
+
+    Accepts a square matrix with optional batch dims (n, n, ...).
+    """
+    a = onp.asarray(square_mat)
+    if a.ndim == 2:
+        mats = a[None, :, :]
+    else:
+        # (n, n, ...batch...) -> (...batch..., n, n) -> (N, n, n)
+        mats = onp.moveaxis(a, (0, 1), (-2, -1))
+        mats = mats.reshape(-1, mats.shape[-2], mats.shape[-1])
+
+    sign, logdet = onp.linalg.slogdet(mats)
+
+    if onp.all(onp.isnan(logdet)):
+        mean_ld = min_ld = max_ld = onp.nan
+    else:
+        mean_ld = onp.nanmean(logdet)
+        min_ld = onp.nanmin(logdet)
+        max_ld = onp.nanmax(logdet)
+    return (
+        float(sign[0]),
+        float(logdet[0]),
+        float(mean_ld),
+        float(min_ld),
+        float(max_ld),
+    )
 
 def reorder_covariance(cov, keys, desired_order):
     idx = [keys.index(k) for k in desired_order]
@@ -359,12 +403,26 @@ def worker(Ry_tuple_sublist, model='agn', n_newton=5):
 
     cov_1, pd_1, keys = covar_func(lensing_parameters_1)
     cov_2, pd_2, _ = covar_func(lensing_parameters_2)
-    c1 = onp.asarray(cov_1)
+
+    # Print the covariance block used by SDDR: the trailing (n_extra x n_extra)
+    # block after reordering to `order`.
+    n_extra = int(prior_widths.shape[0])
+    cov_1_reordered, keys_reordered = reorder_covariance(cov_1, keys, order)
+    c1 = onp.asarray(cov_1_reordered)
     batch_note = ''
     if c1.ndim > 2:
         batch_note = f' (first slice of {c1.shape[2:]} batch)'
-    print(f'===== cov_1 extra block{batch_note} =====')
-    print(_covariance_trailing_block_table(cov_1, keys, k=4))
+    print(f'===== cov_1 SDDR extra block{batch_note} =====')
+    print(_covariance_trailing_block_table(cov_1_reordered, keys_reordered, k=n_extra))
+
+    extra_block = cov_1_reordered[-n_extra:, -n_extra:]
+    first_sign, first_logdet, mean_logdet, min_logdet, max_logdet = _batched_slogdet_stats(extra_block)
+    first_det = first_sign * onp.exp(first_logdet)
+    print(
+        '===== cov_1 extra block det/logdet =====: '
+        f'det(first)={first_det:+.6e}, logdet(first)={first_logdet:+.6g}, sign(first)={first_sign:+.0f}; '
+        f'logdet(mean/min/max)={mean_logdet:+.6g}/{min_logdet:+.6g}/{max_logdet:+.6g}'
+    )
 
     if model == 'agn':
         orig_snr_1 = net.SNR(lensing_parameters_1, res=1000)
