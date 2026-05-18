@@ -64,17 +64,17 @@ HLV_Lensed = network.DetNet({'H1': H1_Lensed, 'L1': L1_Lensed, 'V1': V1_Lensed})
 
 
 reference_parameters = {
-    'Mc': 30, 'eta': 0.24, 'iota': 0.99*np.pi/2, 'phase': 2,
+    'Mc': 30.0, 'eta': 0.24, 'iota': 0.99*np.pi/2, 'phase': 2.0,
     'chi1z': 0.3, 'chi2z': 0.5, 'tcoal': 0,
-    'R_orbit': 50, 'M_lz': 1e4, 'src_pos': 0.5,
-    'dL': 0.5, 'psi': 1, 'theta': 1.87, 'phi': 2.66,
+    'R_orbit': 50, 'log10_M_lz': 4.0, 'src_pos': 0.5,
+    'dL': 1.0, 'psi': 1.0, 'theta': 1.87, 'phi': 2.66,
 }
 # reference_parameters['M_lz'] = 1e6
 # reference_parameters['iota'] = 0.999 * np.pi / 2
 reference_parameters_1 = reference_parameters.copy()
 reference_parameters_2 = reference_parameters.copy()
-reference_parameters_1['Mc'] = 30
-reference_parameters_2['Mc'] = 80
+reference_parameters_1['Mc'] = 30.0
+reference_parameters_2['Mc'] = 80.0
 
 
 # def Jacobian_covariance(lensing_parameters):
@@ -93,23 +93,48 @@ reference_parameters_2['Mc'] = 80
 def Jacobian_covariance(lensing_parameters):
     # 4.b Compute the Fisher
     fisher_matrix = HLV_AGN.FisherMatr(lensing_parameters, res=100)
+    
+    # Diagnostics: original determinants
+    flat_fisher_mat = onp.asarray(
+        fisher_matrix.reshape(fisher_matrix.shape[0], fisher_matrix.shape[1], -1),
+        dtype=onp.float64,
+    )
+    fisher_evt_first = onp.moveaxis(flat_fisher_mat, -1, 0)
+    fisher_sign, fisher_logdet = onp.linalg.slogdet(fisher_evt_first)
+    print('fisher slogdet sign:', fisher_sign)
+    print('fisher slogdet logdet:', fisher_logdet)
+    
     # 4.c Reduce and compute covar
     covar_matrix, _ = compute_covariance_matrix(fisher_matrix, cores=1)
-
-    # # lensing_transform is a 3-to-6 transform
-    # from_params = ['R_orbit', 'src_pos', 'M_lz']
-    # to_params = ['delta_iota', 'delta_phase', 'delta_psi', 'relative_distance', 'relative_mass', 'delta_time']
-    # fixed_params = [key for key in lensing_parameters.keys() if key not in from_params]
-    # target_keys = fixed_params + to_params
-    # transformed_cov_mat, transformed_parameters, transformed_keys = covariance_change_variable_1(
-    #     covar_matrix, lensing_parameters, target_keys, lensing_transform, from_params, to_params
-    # )
+    
+    flat_covar_mat = onp.asarray(
+        covar_matrix.reshape(covar_matrix.shape[0], covar_matrix.shape[1], -1),
+        dtype=onp.float64,
+    )
+    covar_evt_first = onp.moveaxis(flat_covar_mat, -1, 0)
+    covar_sign, covar_logdet = onp.linalg.slogdet(covar_evt_first)
+    print('covar slogdet sign:', covar_sign)
+    print('covar slogdet logdet:', covar_logdet)
 
     # original 5-to-5 transform
-    from_params = ['R_orbit', 'src_pos', 'M_lz', 'iota', 'dL']
+    from_params = ['R_orbit', 'src_pos', 'log10_M_lz', 'iota', 'dL']
     transformed_cov_mat, transformed_parameters, transformed_keys = covariance_change_variable(
         covar_matrix, lensing_parameters, lensing_transform, from_params
     )
+
+    # Diagnostics: transformed determinants
+    flat_trans_cov = onp.asarray(
+        transformed_cov_mat.reshape(transformed_cov_mat.shape[0], transformed_cov_mat.shape[1], -1),
+        dtype=onp.float64,
+    )
+    trans_evt_first = onp.moveaxis(flat_trans_cov, -1, 0)
+    trans_sign, trans_logdet = onp.linalg.slogdet(trans_evt_first)
+    print('transformed cov slogdet sign:', trans_sign)
+    print('transformed cov slogdet logdet:', trans_logdet)
+    # Force symmetrize
+    trans_sym = 0.5 * (trans_evt_first + onp.swapaxes(trans_evt_first, -1, -2))
+    trans_min_eig = onp.linalg.eigvalsh(trans_sym)[..., 0]
+    print('transformed cov min eig:', trans_min_eig)
     return transformed_cov_mat, transformed_parameters, transformed_keys
 
 
@@ -154,6 +179,8 @@ def lensing_transform(lensing_parameters):
     lensing_parameters['phase'] = 0.0
     lensing_parameters['psi'] = 0.0
     # lensing_parameters['dL'] = reference_parameters['dL'] # temporary fix
+    if 'log10_M_lz' in lensing_parameters:
+        lensing_parameters['M_lz'] = np.power(10.0, lensing_parameters.pop('log10_M_lz'))
     outputs = compute_lensed_angles_approx(lensing_parameters)
     phenom_changes = {}
     phenom_changes['delta_iota'] = outputs['iota_m'] - outputs['iota_p']
@@ -309,8 +336,8 @@ def worker(Ry_tuple_sublist, model='agn', loop=2, actual_snr=False):
     # Prior widths for old agn model
     R_orbit_prior_width = 50.
     src_pos_prior_width = 0.1
-    M_lz_prior_width = 1e5
-    prior_widths = np.array([R_orbit_prior_width, src_pos_prior_width, M_lz_prior_width])
+    log10_M_lz_prior_width = 4
+    prior_widths = np.array([R_orbit_prior_width, src_pos_prior_width, log10_M_lz_prior_width])
 
     B_1 = get_bayes_factor(covariance_mat_1, params_dict_1, simple_cov_mats_1, simple_params_dict_1, 
                            full_keys, simple_keys, order, simple_order, 
@@ -392,7 +419,7 @@ if __name__ == '__main__':
     n_R = args.nR # Get n_R
     cores = args.cores # Get cores
     model = args.model # Get model
-    label = 'old_small-3loops-logB3' # label for saving files and plots, e.g. 'old_small-3loops-logB3' or 'new_large-1loop-logB3'
+    label = f'tdays-logMlz'
 
     tic = time()
     # 1. Prepare matrix of (y, R)
@@ -461,24 +488,24 @@ if __name__ == '__main__':
     fig.savefig(f'plots/snr_threshold_bayes_{args.model}_{label}_Ry_plot.pdf')
 
 
-    # Now do a simpler example with no parallelisation and no grids. Just single value of (R, y) to test the code and understand the results. This is also useful for debugging and for understanding the behaviour of the Bayes factor as a function of SNR and lensing parameters. # Do NOT use worker function. Do NOT use the loop to adjust SNR. Just compute the Bayes factor for a single set of lensing parameters and a single SNR, and see how it compares to the target logB of 3. This will help us understand if the code is working as expected and if the Bayes factor is sensitive to the lensing parameters in the way we expect.
-    y_Eins_test = np.array([0.5])
-    R_orbit_test = np.array([50])
-    lensing_parameters_test = reference_parameters_1.copy()
-    lensing_parameters_test['R_orbit'] = R_orbit_test
-    lensing_parameters_test['src_pos'] = convert_y_from_Einstein_to_Rorbit(y_Eins_test, R_orbit_test)
-    # Convert all the lensing parameters to arrays (if not yet already) for compatibility with the covariance functions
-    for key in lensing_parameters_test.keys():
-        if not isinstance(lensing_parameters_test[key], np.ndarray):
-            lensing_parameters_test[key] = np.array([lensing_parameters_test[key]], dtype=np.float64)
-        else:
-            lensing_parameters_test[key] = lensing_parameters_test[key].astype(np.float64)
-    # Conv
-    covar_mat_test, params_dict_test, keys_test = Jacobian_covariance(lensing_parameters_test)
-    simple_cov_mats_test, simple_params_dict_test, simple_keys_test = simple_lensing_covariance(lensing_parameters_test)
-    B_test = get_bayes_factor(covar_mat_test, params_dict_test, simple_cov_mats_test, simple_params_dict_test, 
-                              keys_test, simple_keys_test, order, simple_order, 
-                              prior_widths)
-    logB_test = np.log10(B_test)
-    print('Test Bayes factor:', B_test)
-    print('Test log10(Bayes factor):', logB_test)
+    # # Now do a simpler example with no parallelisation and no grids. Just single value of (R, y) to test the code and understand the results. This is also useful for debugging and for understanding the behaviour of the Bayes factor as a function of SNR and lensing parameters. # Do NOT use worker function. Do NOT use the loop to adjust SNR. Just compute the Bayes factor for a single set of lensing parameters and a single SNR, and see how it compares to the target logB of 3. This will help us understand if the code is working as expected and if the Bayes factor is sensitive to the lensing parameters in the way we expect.
+    # y_Eins_test = np.array([0.5])
+    # R_orbit_test = np.array([50])
+    # lensing_parameters_test = reference_parameters_1.copy()
+    # lensing_parameters_test['R_orbit'] = R_orbit_test
+    # lensing_parameters_test['src_pos'] = convert_y_from_Einstein_to_Rorbit(y_Eins_test, R_orbit_test)
+    # # Convert all the lensing parameters to arrays (if not yet already) for compatibility with the covariance functions
+    # for key in lensing_parameters_test.keys():
+    #     if not isinstance(lensing_parameters_test[key], np.ndarray):
+    #         lensing_parameters_test[key] = np.array([lensing_parameters_test[key]], dtype=np.float64)
+    #     else:
+    #         lensing_parameters_test[key] = lensing_parameters_test[key].astype(np.float64)
+    # # Conv
+    # covar_mat_test, params_dict_test, keys_test = Jacobian_covariance(lensing_parameters_test)
+    # simple_cov_mats_test, simple_params_dict_test, simple_keys_test = simple_lensing_covariance(lensing_parameters_test)
+    # B_test = get_bayes_factor(covar_mat_test, params_dict_test, simple_cov_mats_test, simple_params_dict_test, 
+    #                           keys_test, simple_keys_test, order, simple_order, 
+    #                           prior_widths)
+    # logB_test = np.log10(B_test)
+    # print('Test Bayes factor:', B_test)
+    # print('Test log10(Bayes factor):', logB_test)
