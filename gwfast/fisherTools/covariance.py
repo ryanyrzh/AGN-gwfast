@@ -106,7 +106,7 @@ def compute_single_svd_reg(mpm_fisher_mat, svd_kwargs={}):
 
 
 def compute_single_covariance_matrix(
-        fisher_mat, inv_method='cho', alt_method='svd', svd_kwargs={}):
+        fisher_mat, inv_method='cho', alt_method='svd_reg', svd_kwargs={}):
     if np.all(np.isnan(fisher_mat)):
         return np.full(fisher_mat.shape, np.nan)
 
