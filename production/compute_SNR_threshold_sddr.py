@@ -391,8 +391,8 @@ def worker(Ry_tuple_sublist, model='agn', n_newton=5):
     ]
 
     relative_mass_prior_width = 1.0
-    delta_iota_prior_width = 0.5
-    delta_phase_prior_width = 0.5
+    delta_iota_prior_width = np.pi/2
+    delta_phase_prior_width = np.pi/2
     # delta_psi_prior_width = 0.5
     prior_widths = np.array([relative_mass_prior_width, delta_iota_prior_width, delta_phase_prior_width, 
                             # delta_psi_prior_width
