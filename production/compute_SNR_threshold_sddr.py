@@ -84,7 +84,7 @@ def Jacobian_covariance(lensing_parameters):
     # 4.c Reduce and compute covar
     covar_matrix, _ = compute_covariance_matrix(fisher_matrix, cores=1)
 
-    from_params = ['R_orbit', 'src_pos', 'log10_M_lz', 'iota', 'dL', 'phase']
+    from_params = ['R_orbit', 'src_pos', 'log10_M_lz', 'iota', 'dL']
     transformed_cov_mat, transformed_parameters, transformed_keys = covariance_change_variable(
         covar_matrix, lensing_parameters, lensing_transform, from_params
     )
@@ -151,8 +151,10 @@ def simple_lensing_covariance(lensing_parameters):
     return simple_cov_mats, model_parameters, keys
 
 def lensing_transform(lensing_parameters):
-    # Keep phase/psi from input to preserve Jacobian dependence
+    # A fiducial phase which does not affect the Jacobian results
     lensing_parameters = lensing_parameters.copy()
+    lensing_parameters['phase'] = 0.0
+    lensing_parameters['psi'] = 0.0
     if 'log10_M_lz' in lensing_parameters:
         lensing_parameters['M_lz'] = np.power(10.0, lensing_parameters.pop('log10_M_lz'))
     outputs = compute_lensed_angles_approx(lensing_parameters)
@@ -173,7 +175,6 @@ def lensing_transform(lensing_parameters):
         ('relative_mass', relative_mass),
         ('delta_iota', delta_iota),
         ('delta_phase', delta_phase),
-        ('phase', lensing_parameters['phase']),
         # Remove delta_psi bc it's very small and has been causing problems
         # ('delta_psi', outputs['psi_m'] - outputs['psi_p']),
     ])
@@ -495,7 +496,7 @@ if __name__ == '__main__':
     cores = args.cores # Get cores
     model = args.model # Get model
     n_newton = 20
-    label = f'redux'
+    label = f'psi-in-transform'
 
     tic = time()
     # 1. Prepare matrix of (y, R)
