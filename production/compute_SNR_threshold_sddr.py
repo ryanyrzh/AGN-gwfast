@@ -267,6 +267,18 @@ def _covariance_trailing_block_table(cov, keys, k=4, float_fmt='{: .6g}'):
 def reorder_params_dict(params_dict, desired_order):
     return {k: np.array(params_dict[k]) for k in desired_order}
 
+
+def _sigma_from_cov(cov, keys, key):
+    idx = keys.index(key)
+    c = onp.asarray(cov)
+    if c.ndim > 2:
+        val = onp.nanmean(c[idx, idx, ...])
+    else:
+        val = float(c[idx, idx])
+    if val < 0 or onp.isnan(val):
+        return onp.nan
+    return float(onp.sqrt(val))
+
 def get_bayes_factor(full_cov, full_params_dict, orig_keys, params_order, prior_widths):
     """Savage-Dickey density ratio: B_10 = p(psi_0|M1) / p(psi_0|d,M1)."""
     full_cov, _ = reorder_covariance(full_cov, orig_keys, params_order)
@@ -404,23 +416,37 @@ def worker(Ry_tuple_sublist, model='agn', n_newton=5):
     cov_1, pd_1, keys = covar_func(lensing_parameters_1)
     cov_2, pd_2, _ = covar_func(lensing_parameters_2)
 
-    # Print the covariance block used by SDDR: the trailing (n_extra x n_extra)
-    # block after reordering to `order`.
+    # Diagnostic: compare Jacobian vs direct sigmas at fiducial point
+    if model == 'agn':
+        direct_cov_1, direct_pd_1, direct_keys_1 = direct_covariance(lensing_parameters_1)
+        sig_jac_dp = _sigma_from_cov(cov_1, keys, 'delta_phase')
+        sig_dir_dp = _sigma_from_cov(direct_cov_1, direct_keys_1, 'delta_phase')
+        sig_jac_di = _sigma_from_cov(cov_1, keys, 'delta_iota')
+        sig_dir_di = _sigma_from_cov(direct_cov_1, direct_keys_1, 'delta_iota')
+        sig_jac_rm = _sigma_from_cov(cov_1, keys, 'relative_mass')
+        sig_dir_rm = _sigma_from_cov(direct_cov_1, direct_keys_1, 'relative_mass')
+        print(
+            '===== sigma comparison (Jacobian vs direct) =====\n'
+            f'delta_phase: {sig_jac_dp:.6g} vs {sig_dir_dp:.6g}, ratio={sig_jac_dp/sig_dir_dp:.6g}\n'
+            f'delta_iota:  {sig_jac_di:.6g} vs {sig_dir_di:.6g}, ratio={sig_jac_di/sig_dir_di:.6g}\n'
+            f'rel_mass:    {sig_jac_rm:.6g} vs {sig_dir_rm:.6g}, ratio={sig_jac_rm/sig_dir_rm:.6g}'
+        )
+
+    # Print the extra covariance block
     n_extra = int(prior_widths.shape[0])
     cov_1_reordered, keys_reordered = reorder_covariance(cov_1, keys, order)
     c1 = onp.asarray(cov_1_reordered)
     batch_note = ''
     if c1.ndim > 2:
         batch_note = f' (first slice of {c1.shape[2:]} batch)'
-    print(f'===== cov_1 SDDR extra block{batch_note} =====')
+    print(f'===== cov_1 extra block{batch_note} =====')
     print(_covariance_trailing_block_table(cov_1_reordered, keys_reordered, k=n_extra))
 
     extra_block = cov_1_reordered[-n_extra:, -n_extra:]
     first_sign, first_logdet, mean_logdet, min_logdet, max_logdet = _batched_slogdet_stats(extra_block)
-    first_det = first_sign * onp.exp(first_logdet)
     print(
         '===== cov_1 extra block det/logdet =====: '
-        f'det(first)={first_det:+.6e}, logdet(first)={first_logdet:+.6g}, sign(first)={first_sign:+.0f}; '
+        f'logdet(first)={first_logdet:+.6g}, sign(first)={first_sign:+.0f}; '
         f'logdet(mean/min/max)={mean_logdet:+.6g}/{min_logdet:+.6g}/{max_logdet:+.6g}'
     )
 
@@ -496,7 +522,7 @@ if __name__ == '__main__':
     cores = args.cores # Get cores
     model = args.model # Get model
     n_newton = 20
-    label = f'psi-in-transform'
+    label = f'diagnostic'
 
     tic = time()
     # 1. Prepare matrix of (y, R)
