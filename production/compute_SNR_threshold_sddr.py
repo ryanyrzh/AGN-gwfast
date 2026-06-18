@@ -42,14 +42,27 @@ parser.add_argument('--cores', type=int, default=4,
 parser.add_argument('--model', type=str, default='agn',
                     choices=['agn', 'generic', 'agn_intrinsic'],
                     help='Which model to use for covariance calculation.')
+parser.add_argument('--logB', type=float, required=True,
+                    help='Threshold log10(B) value for the SDDR Bayes factor.')
+parser.add_argument('--steps', type=int, required=True,
+                    help='Number of Newton steps for the dL search.')
+parser.add_argument('--label', type=str, default=None,
+                    help='Optional label appended to output filenames.')
 
-# Set up detectors
+# # Set up detectors
+# H1 = Detector('H1', **det_dict['H1'],
+#               noise_curve_path=Path(detPath)/'observing_scenarios_paper/AplusDesign.txt')
+# L1 = Detector('L1', **det_dict['L1'],
+#               noise_curve_path=Path(detPath)/'observing_scenarios_paper/AplusDesign.txt')
+# V1 = Detector('V1', **det_dict['Virgo'],
+#               noise_curve_path=Path(detPath)/'observing_scenarios_paper/avirgo_O5low_NEW.txt')
+# Try lower sensitivities
 H1 = Detector('H1', **det_dict['H1'],
-              noise_curve_path=Path(detPath)/'observing_scenarios_paper/AplusDesign.txt')
+              noise_curve_path=Path(detPath)/'LVC_O1O2O3/O3-H1-C01_CLEAN_SUB60HZ-1251752040.0_sensitivity_strain_asd.txt')
 L1 = Detector('L1', **det_dict['L1'],
-              noise_curve_path=Path(detPath)/'observing_scenarios_paper/AplusDesign.txt')
+              noise_curve_path=Path(detPath)/'LVC_O1O2O3/O3-L1-C01_CLEAN_SUB60HZ-1240573680.0_sensitivity_strain_asd.txt')
 V1 = Detector('V1', **det_dict['Virgo'],
-              noise_curve_path=Path(detPath)/'observing_scenarios_paper/avirgo_O5low_NEW.txt')
+              noise_curve_path=Path(detPath)/'LVC_O1O2O3/O3-V1_sensitivity_strain_asd.txt')
 
 wf_model = waveforms.IMRPhenomD()
 
