@@ -1,6 +1,11 @@
 #!/usr/local/bin/python3
 # import os
 # os.environ['XLA_FLAGS'] = '--xla_force_host_platform_device_count=8'
+import os
+os.environ['JAX_COMPILATION_CACHE_DIR'] = '/tmp/jax_cache_snr_threshold'
+# Also set this so JAX doesn't refuse to cache unless it saves enough time:
+os.environ['JAX_PERSISTENT_CACHE_MIN_COMPILE_TIME_SECS'] = '0'
+
 from time import time
 import argparse
 from pathlib import Path
@@ -389,7 +394,7 @@ def get_bayes_factor_capped(full_cov, full_params_dict, orig_keys, params_order,
     return log_B, chi2
 
 
-def worker(Ry_tuple_sublist, model='agn', n_newton=5):
+def worker(Ry_tuple_sublist, model='agn', n_newton=5, target_logB=2.0):
     input_len = Ry_tuple_sublist.shape[0]
     shape = (input_len)
     lensing_parameters_1 = {key: np.full(shape, val).astype(np.float64) for key, val in reference_parameters_1.items()}
@@ -423,8 +428,8 @@ def worker(Ry_tuple_sublist, model='agn', n_newton=5):
                             # delta_psi_prior_width
                             ])
 
-    target_B = 1e2
-    log_target_B = np.log(target_B)
+    target_B = 10 ** target_logB
+    log_target_B = target_logB
 
     cov_1, pd_1, keys = covar_func(lensing_parameters_1)
     cov_2, pd_2, _ = covar_func(lensing_parameters_2)
@@ -480,7 +485,6 @@ def worker(Ry_tuple_sublist, model='agn', n_newton=5):
     lnB_2, chi2_2 = bayes_func(cov_2, pd_2, keys, order, prior_widths)
     logB_1 = lnB_1 / np.log(10)
     logB_2 = lnB_2 / np.log(10)
-    target_logB = np.log10(target_B)
 
     scale_1 = 10 ** ((logB_1 - target_logB) / (chi2_1 - prior_widths.shape[0]))
     scale_2 = 10 ** ((logB_2 - target_logB) / (chi2_2 - prior_widths.shape[0]))
@@ -530,12 +534,13 @@ def worker(Ry_tuple_sublist, model='agn', n_newton=5):
 if __name__ == '__main__':
     set_start_method('spawn', force=True) # Multiprocessing
     args = parser.parse_args() # Get args
-    n_y = args.ny # Get n_y
-    n_R = args.nR # Get n_R
-    cores = args.cores # Get cores
-    model = args.model # Get model
-    n_newton = 20
-    label = f'diagnostic'
+    n_y = args.ny
+    n_R = args.nR
+    cores = args.cores
+    model = args.model
+    n_newton = args.steps
+    target_logB = args.logB
+    label = args.label
 
     tic = time()
     # 1. Prepare matrix of (y, R)
@@ -546,7 +551,7 @@ if __name__ == '__main__':
     Ry_tuple_list = np.vstack([R_orbit_mesh.flatten(), y_Rorbit_mesh.flatten()]).T
 
     # Custom settings go here
-    the_worker = partial(worker, model=model, n_newton=n_newton)
+    the_worker = partial(worker, model=model, n_newton=n_newton, target_logB=target_logB)
 
     with Pool(cores) as p:
         results = p.map(the_worker, np.array_split(Ry_tuple_list, cores))
@@ -564,7 +569,11 @@ if __name__ == '__main__':
 
     # Saving result for reproducibility
     print('Saving results')
-    np.savez(f'output/result_y{n_y:d}_R{n_R:d}_{model}_{label}',
+    _label_suffix = f'_{label}' if label is not None else ''
+    _logB_str = f'{target_logB:g}'
+    _job_id = os.environ.get('SLURM_JOB_ID', '')
+    _job_suffix = f'_{_job_id}' if _job_id else ''
+    np.savez(f'output/result_y{n_y:d}_R{n_R:d}_sddr_{model}_logB{_logB_str}_{n_newton}steps{_label_suffix}{_job_suffix}',
              y_Eins=y_Eins_mesh.flatten(),
              y_Rorb=y_Rorbit_mesh.flatten(),
              R_orbit=R_orbit_mesh.flatten(),
@@ -578,12 +587,11 @@ if __name__ == '__main__':
     ax.set_facecolor('lightgrey')
     cmap = plt.cm.plasma.copy()
     cmap.set_bad(color='lightgrey')
-    nans = np.isnan(log10_snr)
-    centre = np.mean(log10_snr[~nans])
-    _min, _max = np.min(log10_snr[~nans]), np.max(log10_snr[~nans])
+    centre = np.nanmean(log10_snr)
+    _min, _max = np.nanmin(log10_snr), np.nanmax(log10_snr)
     midpoint = (_max + _min) / 2
     half_range = (_max - _min) / 2 * 1.05
-    norm = colors.TwoSlopeNorm(vmin=midpoint - half_range, vcenter=centre, vmax=midpoint + half_range)
+    norm = colors.TwoSlopeNorm(vmin=midpoint - half_range, vcenter=midpoint, vmax=midpoint + half_range)
 
     im = ax.pcolormesh(R_orbit_array, y_Eins_array, log10_snr, cmap=cmap, norm=norm, shading='nearest')
     for snr_grid, color in zip([snr_grid_1, snr_grid_2], ['black', 'white']):
@@ -597,6 +605,6 @@ if __name__ == '__main__':
     ax.set_xscale('log')
     ax.set_xlabel(r'$R_{\rm orbit}\,/\,R_S$')
     ax.set_ylabel(r'$y\,\equiv\,\beta\,/\,\theta_{\rm E}$')
-    ax.set_title(r'$\rho$ required for $B > 100$')
+    ax.set_title(f'$\rho$ required for $B > {target_logB}$')
     fig.colorbar(im, ax=ax, label=r'$\log_{10}(\rho_{\rm opt})$')
-    fig.savefig(f'plots/snr_threshold_sddr_{args.model}_{label}_Ry_plot.pdf')
+    fig.savefig(f'plots/sddr_{model}_logB{_logB_str}_{n_newton}steps{_label_suffix}{_job_suffix}_Ryplot.pdf')
