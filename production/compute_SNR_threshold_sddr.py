@@ -54,20 +54,45 @@ parser.add_argument('--steps', type=int, required=True,
 parser.add_argument('--label', type=str, default=None,
                     help='Optional label appended to output filenames.')
 
-# # Set up detectors
-# H1 = Detector('H1', **det_dict['H1'],
-#               noise_curve_path=Path(detPath)/'observing_scenarios_paper/AplusDesign.txt')
-# L1 = Detector('L1', **det_dict['L1'],
-#               noise_curve_path=Path(detPath)/'observing_scenarios_paper/AplusDesign.txt')
-# V1 = Detector('V1', **det_dict['Virgo'],
-#               noise_curve_path=Path(detPath)/'observing_scenarios_paper/avirgo_O5low_NEW.txt')
-# Try lower sensitivities
+args = parser.parse_args()
+n_y = args.ny
+n_R = args.nR
+cores = args.cores
+model = args.model
+n_newton = args.steps
+target_logB = args.logB
+label = args.label
+
+print('ny, nR:', n_y, n_R)
+print('Cores:', cores)
+print('Model:', model)
+print('Target logB:', target_logB)
+print('Newton steps:', n_newton)
+print('Label:', label)
+
+reference_parameters = {
+    'Mc': 30, 'eta': 0.24, 'iota': 0.99*np.pi/2, 'phase': 2,
+    'chi1z': 0.3, 'chi2z': 0.5, 'tcoal': 0,
+    'R_orbit': 50, 'log10_M_lz': 4.0, 'src_pos': 0.5,
+    'dL': 1.0, 'psi': 1, 'theta': 1.87, 'phi': 2.66,
+}
+print('Reference parameters:', reference_parameters)
+
+
+# Set up detectors
 H1 = Detector('H1', **det_dict['H1'],
-              noise_curve_path=Path(detPath)/'LVC_O1O2O3/O3-H1-C01_CLEAN_SUB60HZ-1251752040.0_sensitivity_strain_asd.txt')
+              noise_curve_path=Path(detPath)/'observing_scenarios_paper/AplusDesign.txt')
 L1 = Detector('L1', **det_dict['L1'],
-              noise_curve_path=Path(detPath)/'LVC_O1O2O3/O3-L1-C01_CLEAN_SUB60HZ-1240573680.0_sensitivity_strain_asd.txt')
+              noise_curve_path=Path(detPath)/'observing_scenarios_paper/AplusDesign.txt')
 V1 = Detector('V1', **det_dict['Virgo'],
-              noise_curve_path=Path(detPath)/'LVC_O1O2O3/O3-V1_sensitivity_strain_asd.txt')
+              noise_curve_path=Path(detPath)/'observing_scenarios_paper/avirgo_O5low_NEW.txt')
+# # Try lower sensitivities
+# H1 = Detector('H1', **det_dict['H1'],
+#               noise_curve_path=Path(detPath)/'LVC_O1O2O3/O3-H1-C01_CLEAN_SUB60HZ-1251752040.0_sensitivity_strain_asd.txt')
+# L1 = Detector('L1', **det_dict['L1'],
+#               noise_curve_path=Path(detPath)/'LVC_O1O2O3/O3-L1-C01_CLEAN_SUB60HZ-1240573680.0_sensitivity_strain_asd.txt')
+# V1 = Detector('V1', **det_dict['Virgo'],
+#               noise_curve_path=Path(detPath)/'LVC_O1O2O3/O3-V1_sensitivity_strain_asd.txt')
 
 wf_model = waveforms.IMRPhenomD()
 
@@ -81,13 +106,6 @@ L1_Lensed = GeneralLensedGWSignal(wf_model=wf_model, detector=L1, fmin=10)
 V1_Lensed = GeneralLensedGWSignal(wf_model=wf_model, detector=V1, fmin=10)
 HLV_Lensed = network.DetNet({'H1': H1_Lensed, 'L1': L1_Lensed, 'V1': V1_Lensed})
 
-
-reference_parameters = {
-    'Mc': 30, 'eta': 0.24, 'iota': 0.99*np.pi/2, 'phase': 2,
-    'chi1z': 0.3, 'chi2z': 0.5, 'tcoal': 0,
-    'R_orbit': 50, 'log10_M_lz': 4.0, 'src_pos': 0.5,
-    'dL': 1.0, 'psi': 1, 'theta': 1.87, 'phi': 2.66,
-}
 # reference_parameters['log10_M_lz'] = 6.0
 # reference_parameters['iota'] = 0.999 * np.pi / 2
 reference_parameters_1 = reference_parameters.copy()
@@ -468,6 +486,30 @@ def worker(Ry_tuple_sublist, model='agn', n_newton=5, target_logB=2.0):
         f'logdet(mean/min/max)={mean_logdet:+.6g}/{min_logdet:+.6g}/{max_logdet:+.6g}'
     )
 
+    # Print minimum eigenvalue of the trailing block and the injected R_orbit
+    # sampled across several batch slices (R_orbit varies along the batch)
+    eb = onp.asarray(extra_block)
+    R_orbit_all = onp.asarray(lensing_parameters_1['R_orbit']).ravel()
+    if eb.ndim == 2:
+        mats = eb[None, :, :]
+    else:
+        # (n, n, ...batch...) -> (N, n, n)
+        mats = onp.moveaxis(eb, (0, 1), (-2, -1)).reshape(-1, eb.shape[0], eb.shape[1])
+    n_slices = min(4, mats.shape[0])
+    sample_idx = onp.linspace(0, mats.shape[0] - 1, n_slices).round().astype(int)
+    print('===== cov_1 extra block min eigenvalue / injected R_orbit =====')
+    for i in sample_idx:
+        m = mats[i]
+        if not onp.all(onp.isfinite(m)):
+            min_eig = onp.nan
+        else:
+            try:
+                min_eig = float(onp.min(onp.linalg.eigvalsh(m)))
+            except onp.linalg.LinAlgError:
+                min_eig = onp.nan
+        R_orbit_inj = float(R_orbit_all[i]) if i < R_orbit_all.size else onp.nan
+        print(f'  slice {i}: min_eig={min_eig:+.6g}, R_orbit={R_orbit_inj:.6g}')
+
     if model == 'agn':
         orig_snr_1 = net.SNR(lensing_parameters_1, res=1000)
         orig_snr_2 = net.SNR(lensing_parameters_2, res=1000)
@@ -532,20 +574,12 @@ def worker(Ry_tuple_sublist, model='agn', n_newton=5, target_logB=2.0):
     return result_snr_1, result_snr_2
 
 if __name__ == '__main__':
-    set_start_method('spawn', force=True) # Multiprocessing
-    args = parser.parse_args() # Get args
-    n_y = args.ny
-    n_R = args.nR
-    cores = args.cores
-    model = args.model
-    n_newton = args.steps
-    target_logB = args.logB
-    label = args.label
+    set_start_method('spawn', force=True)
 
     tic = time()
     # 1. Prepare matrix of (y, R)
     y_Eins_array = np.linspace(0.1, 1, n_y)  # in Einstein radii
-    R_orbit_array = np.geomspace(10, 2e3, n_R)
+    R_orbit_array = np.geomspace(10, 5e3, n_R)
     R_orbit_mesh, y_Eins_mesh = np.meshgrid(R_orbit_array, y_Eins_array, indexing='xy')
     y_Rorbit_mesh = convert_y_from_Einstein_to_Rorbit(y_Eins_mesh, R_orbit_mesh)
     Ry_tuple_list = np.vstack([R_orbit_mesh.flatten(), y_Rorbit_mesh.flatten()]).T
@@ -559,7 +593,6 @@ if __name__ == '__main__':
         results_1 = list(results_1)
         results_2 = list(results_2)
 
-    print('ny, nR, cores', n_y, n_R, cores)
     print('Elapsed Time (min):', (time() - tic) / 60)
 
     concat_result_1 = np.concatenate(results_1, axis=0)
@@ -594,17 +627,17 @@ if __name__ == '__main__':
     norm = colors.TwoSlopeNorm(vmin=midpoint - half_range, vcenter=midpoint, vmax=midpoint + half_range)
 
     im = ax.pcolormesh(R_orbit_array, y_Eins_array, log10_snr, cmap=cmap, norm=norm, shading='nearest')
-    for snr_grid, color in zip([snr_grid_1, snr_grid_2], ['black', 'white']):
-        log10_snr = np.log10(snr_grid)
-        cont_snrs = [10, 50, 100]
-        cont = ax.contour(R_orbit_array, y_Eins_array, log10_snr, colors=[color], levels=cont_snrs)
-        labels = {lvl: f'{snr:d}' for lvl, snr in zip(cont.levels, cont_snrs)}
-        ax.clabel(cont, fmt=labels, fontsize=10)
+    # for snr_grid, color in zip([snr_grid_1, snr_grid_2], ['black', 'white']):
+    #     log10_snr = np.log10(snr_grid)
+    #     cont_snrs = [10, 50, 100]
+    #     cont = ax.contour(R_orbit_array, y_Eins_array, log10_snr, colors=[color], levels=cont_snrs)
+    #     labels = {lvl: f'{snr:d}' for lvl, snr in zip(cont.levels, cont_snrs)}
+    #     ax.clabel(cont, fmt=labels, fontsize=10)
     ax.tick_params(which='both', direction='out')
 
     ax.set_xscale('log')
     ax.set_xlabel(r'$R_{\rm orbit}\,/\,R_S$')
     ax.set_ylabel(r'$y\,\equiv\,\beta\,/\,\theta_{\rm E}$')
-    ax.set_title(f'$\rho$ required for $B > {target_logB}$')
+    ax.set_title(f'$\\rho$ required for $\\log B > {target_logB}$')
     fig.colorbar(im, ax=ax, label=r'$\log_{10}(\rho_{\rm opt})$')
     fig.savefig(f'plots/sddr_{model}_logB{_logB_str}_{n_newton}steps{_label_suffix}{_job_suffix}_Ryplot.pdf')
