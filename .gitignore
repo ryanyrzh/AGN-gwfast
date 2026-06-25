@@ -1,9 +1,10 @@
 .DS_Store
-*__pycache__
-*.ipynb_checkpoints/
-*.png
-*.pdf
-*.log
+**__pycache__
+**.vscode/
+**.ipynb_checkpoints/
+**.png
+**.pdf
+**.log
 
 data/
 results/
