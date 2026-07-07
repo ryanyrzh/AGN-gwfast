@@ -304,6 +304,23 @@ def reorder_params_dict(params_dict, desired_order):
     return {k: np.array(params_dict[k]) for k in desired_order}
 
 
+def _newton_step_converged(scale, rtol):
+    """True when max |scale - 1| over finite events is within rtol."""
+    s = onp.asarray(scale).ravel()
+    finite = onp.isfinite(s)
+    if not onp.any(finite):
+        return False
+    max_err = onp.max(onp.abs(s[finite] - 1.0))
+    return bool(max_err <= rtol)
+
+
+def _newton_dL_scale(logB, chi2, target_logB, n_extra, damping=0.5):
+    """Multiplicative Newton step in dL, damped to suppress limit cycles."""
+    scale = 10 ** ((logB - target_logB) / (chi2 - n_extra))
+    scale = np.clip(scale, 1e-3, 1e3)
+    return 1.0 + damping * (scale - 1.0)
+
+
 def _sigma_from_cov(cov, keys, key):
     idx = keys.index(key)
     c = onp.asarray(cov)
@@ -528,8 +545,9 @@ def worker(Ry_tuple_sublist, model='agn', n_newton=5, target_logB=2.0):
     logB_1 = lnB_1 / np.log(10)
     logB_2 = lnB_2 / np.log(10)
 
-    scale_1 = 10 ** ((logB_1 - target_logB) / (chi2_1 - prior_widths.shape[0]))
-    scale_2 = 10 ** ((logB_2 - target_logB) / (chi2_2 - prior_widths.shape[0]))
+    newton_damping = 0.5
+    scale_1 = _newton_dL_scale(logB_1, chi2_1, target_logB, n_extra, newton_damping)
+    scale_2 = _newton_dL_scale(logB_2, chi2_2, target_logB, n_extra, newton_damping)
     print(f'initial logB: mean {np.nanmean(logB_1):.4f} / {np.nanmean(logB_2):.4f}')
     print(f'initial chi2: mean {np.nanmean(chi2_1):.4f} / {np.nanmean(chi2_2):.4f},  '
           f'min {np.nanmin(chi2_1):.4f} / {np.nanmin(chi2_2):.4f},  '
@@ -537,6 +555,8 @@ def worker(Ry_tuple_sublist, model='agn', n_newton=5, target_logB=2.0):
     print(f'initial scale: mean {np.nanmean(scale_1):.6f} / {np.nanmean(scale_2):.6f}')
 
     n_loops = n_newton
+    newton_converge_rtol = 0.03
+    newton_converge_steps = 3
     def snr_loop(old_parameters, scale, target_logB, label=''):
         new_parameters = old_parameters.copy()
         new_parameters['dL'] *= scale
@@ -544,7 +564,9 @@ def worker(Ry_tuple_sublist, model='agn', n_newton=5, target_logB=2.0):
             new_cov, new_pd, ks = covar_func(new_parameters)
             new_lnB, new_chi2 = bayes_func(new_cov, new_pd, ks, order, prior_widths)
             new_logB = new_lnB / np.log(10)
-            new_scale = 10 ** ((new_logB - target_logB) / (new_chi2 - prior_widths.shape[0]))
+            new_scale = _newton_dL_scale(
+                new_logB, new_chi2, target_logB, n_extra, newton_damping,
+            )
             mask = ~np.isnan(new_chi2)
             print(f'  [{label}] logB:  mean {np.nanmean(new_logB):.4f},  '
                   f'min {np.nanmin(new_logB):.4f},  max {np.nanmax(new_logB):.4f}')
@@ -558,6 +580,7 @@ def worker(Ry_tuple_sublist, model='agn', n_newton=5, target_logB=2.0):
         return new_scale, new_parameters
 
     looped = 0
+    consecutive_converged = 0
     while looped < n_loops:
         scale_1, lensing_parameters_1 = snr_loop(lensing_parameters_1, scale_1, target_logB, label=f'Mc30 step{looped+1}')
         scale_2, lensing_parameters_2 = snr_loop(lensing_parameters_2, scale_2, target_logB, label=f'Mc80 step{looped+1}')
@@ -567,6 +590,18 @@ def worker(Ry_tuple_sublist, model='agn', n_newton=5, target_logB=2.0):
         frac_1 = frac_1[~np.isnan(frac_1)]
         frac_2 = frac_2[~np.isnan(frac_2)]
         print(f'Loop {looped:d} scale v.s. 1: {np.mean(frac_1):.6f} and {np.mean(frac_2):.6f}, std: {np.std(frac_1):.8f} and {np.std(frac_2):.8f}')
+
+        if (_newton_step_converged(scale_1, newton_converge_rtol)
+                and _newton_step_converged(scale_2, newton_converge_rtol)):
+            consecutive_converged += 1
+            if consecutive_converged >= newton_converge_steps:
+                print(
+                    f'Newton early stop after {looped} steps '
+                    f'(3 consecutive with max |scale-1| <= {newton_converge_rtol})'
+                )
+                break
+        else:
+            consecutive_converged = 0
 
     result_snr_1 = orig_snr_1 / lensing_parameters_1['dL'] * ref_dL_1
     result_snr_2 = orig_snr_2 / lensing_parameters_2['dL'] * ref_dL_2
