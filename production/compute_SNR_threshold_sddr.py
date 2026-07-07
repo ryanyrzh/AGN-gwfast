@@ -20,6 +20,7 @@ from jax.lax import integer_pow
 config.update("jax_enable_x64", True)
 import matplotlib.pyplot as plt
 from matplotlib import colors
+from matplotlib.lines import Line2D
 
 from gwfast.gwfastGlobals import detectors as det_dict, detPath
 import gwfast.waveforms as waveforms
@@ -614,7 +615,7 @@ if __name__ == '__main__':
     tic = time()
     # 1. Prepare matrix of (y, R)
     y_Eins_array = np.linspace(0.1, 1, n_y)  # in Einstein radii
-    R_orbit_array = np.geomspace(10, 5e3, n_R)
+    R_orbit_array = np.geomspace(10, 2e3, n_R)
     R_orbit_mesh, y_Eins_mesh = np.meshgrid(R_orbit_array, y_Eins_array, indexing='xy')
     y_Rorbit_mesh = convert_y_from_Einstein_to_Rorbit(y_Eins_mesh, R_orbit_mesh)
     Ry_tuple_list = np.vstack([R_orbit_mesh.flatten(), y_Rorbit_mesh.flatten()]).T
@@ -662,17 +663,23 @@ if __name__ == '__main__':
     norm = colors.TwoSlopeNorm(vmin=midpoint - half_range, vcenter=midpoint, vmax=midpoint + half_range)
 
     im = ax.pcolormesh(R_orbit_array, y_Eins_array, log10_snr, cmap=cmap, norm=norm, shading='nearest')
-    # for snr_grid, color in zip([snr_grid_1, snr_grid_2], ['black', 'white']):
-    #     log10_snr = np.log10(snr_grid)
-    #     cont_snrs = [10, 50, 100]
-    #     cont = ax.contour(R_orbit_array, y_Eins_array, log10_snr, colors=[color], levels=cont_snrs)
-    #     labels = {lvl: f'{snr:d}' for lvl, snr in zip(cont.levels, cont_snrs)}
-    #     ax.clabel(cont, fmt=labels, fontsize=10)
-    ax.tick_params(which='both', direction='out')
+    legend_handles = []
+    for snr_grid, color, contour_label in zip(
+            [snr_grid_1, snr_grid_2],
+            ['black', 'white'],
+            [r'$\mathcal{M}_c = 30\,M_\odot$', r'$\mathcal{M}_c = 80\,M_\odot$']):
+        log10_snr = np.log10(snr_grid)
+        cont_snrs = [0.5, 1.0, 1.5, 2.0]
+        cont = ax.contour(R_orbit_array, y_Eins_array, log10_snr, colors=[color], levels=cont_snrs)
+        labels = {lvl: f'{snr}' for lvl, snr in zip(cont.levels, cont_snrs)}
+        ax.clabel(cont, fmt=labels, fontsize=10)
+        legend_handles.append(Line2D([0], [0], color=color, linewidth=1.5, label=contour_label))
+    ax.legend(handles=legend_handles, loc='lower right', fontsize=10, frameon=False)
+    ax.tick_params(which='both', direction='in')
 
     ax.set_xscale('log')
     ax.set_xlabel(r'$R_{\rm orbit}\,/\,R_S$')
     ax.set_ylabel(r'$y\,\equiv\,\beta\,/\,\theta_{\rm E}$')
-    ax.set_title(f'$\\rho$ required for $\\log B > {target_logB}$')
-    fig.colorbar(im, ax=ax, label=r'$\log_{10}(\rho_{\rm opt})$')
+    # ax.set_title(f'$\\rho$ required for $\\log B > {target_logB}$')
+    fig.colorbar(im, ax=ax, label=r'$\log_{10}(\rho_{\rm req})$')
     fig.savefig(f'plots/sddr_{model}_logB{_logB_str}_{n_newton}steps{_label_suffix}{_job_suffix}_Ryplot.pdf')
