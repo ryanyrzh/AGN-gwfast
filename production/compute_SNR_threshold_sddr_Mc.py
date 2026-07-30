@@ -78,7 +78,7 @@ reference_parameters = {
     'dL': 1.0, 'psi': 1, 'theta': 1.87, 'phi': 2.66,
 }
 print('Reference parameters:', reference_parameters)
-y_Eins_1 = 0.99
+y_Eins_1 = 0.7
 y_Eins_2 = 0.2
 
 
@@ -672,13 +672,13 @@ if __name__ == '__main__':
             ['black', 'white'],
             [rf'$y = {y_Eins_1:g}$', rf'$y = {y_Eins_2:g}$']):
         log10_snr = np.log10(snr_grid)
-        cont_snrs = [0.5, 1.0, 1.5, 2.0, 2.5]
+        cont_snrs = [0.0, 0.5, 1.0, 1.5, 2.0, 2.5]
         cont = ax.contour(R_orbit_array, Mc_array, log10_snr, colors=[color], levels=cont_snrs)
         labels = {lvl: f'{snr}' for lvl, snr in zip(cont.levels, cont_snrs)}
         ax.clabel(cont, fmt=labels, fontsize=10)
         legend_handles.append(Line2D([0], [0], color=color, linewidth=1.5, label=contour_label))
     ax.legend(handles=legend_handles, loc='lower left', fontsize=10)
-    ax.tick_params(which='both', direction='in')
+    ax.tick_params(which='both', direction='in', colors='white', labelcolor='black')
 
     ax.set_xscale('log')
     ax.set_xlabel(r'$R_{\rm orbit}\,/\,R_S$')
