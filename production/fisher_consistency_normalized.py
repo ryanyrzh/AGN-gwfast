@@ -10,6 +10,10 @@ I.e., sampling of the 1-sigma surface is done in normalized coordinates theta_i 
 degenerate directions are identified and removed based on the normalized eigenvalues,
 and the remaining displacement is then converted back to dimensional to be applied to the waveform.
 
+SNR is varied by an overall amplitude rescaling at fixed geometric ``dL``
+(Fisher/covariance computed once, then Cov → Cov / amp^2 and strains → amp * h).
+This avoids changing lens angles / redshift when scanning SNR.
+
 In the perturbative regime, δθ falls roughly as SNR^-1, 
 so the residual δh ~ ∂^2h/∂θ^2 (δθ)^2 ~ SNR^-1.
 Then |log r| = 1/2 <δh|δh> falls roughly as SNR^-2.
@@ -31,7 +35,6 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as onp
-import jax.numpy as np
 
 import fisher_consistency_test_mp as base
 
@@ -163,11 +166,15 @@ def main():
         description='Vallisneri Fisher consistency test with a unit-free '
                     'degeneracy cut (normalised covariance spectrum).',
     )
-    parser.add_argument('--model', choices=['generic', 'agn'], default='generic')
+    parser.add_argument('--model', choices=['generic', 'agn', 'agn_intrinsic'],
+                        default='generic')
     parser.add_argument('--block', choices=['extra', 'full'], default='full')
     parser.add_argument('--R-orbit', type=float, default=100)
     parser.add_argument('--y-eins', type=float, default=0.5)
     parser.add_argument('--Mc', type=float, default=30.0)
+    parser.add_argument('--dL', type=float, default=1.0,
+                        help='Fixed geometric luminosity distance (Gpc). '
+                             'SNR is varied by amplitude rescaling only.')
     parser.add_argument('--res', type=int, default=200)
     parser.add_argument('--n-directions', type=int, default=256)
     parser.add_argument('--snr-min', type=float, default=3.0)
@@ -202,29 +209,42 @@ def main():
     print(f'Cores: {cores}')
 
     l1_agn, hlv_agn, hlv_lensed = base.build_networks()
+    use_agn_native = args.model == 'agn_intrinsic'
+    hlv_net = hlv_agn if use_agn_native else hlv_lensed
+    param_order = base.AGN_PARAM_ORDER if use_agn_native else base.PARAM_ORDER
+    extra_params = base.AGN_EXTRA_PARAMS if use_agn_native else base.EXTRA_PARAMS
     rng = onp.random.default_rng(args.seed)
 
-    lensing_params = base.build_injection(args.R_orbit, args.y_eins, args.Mc, dL=1.0)
+    lensing_params = base.build_injection(
+        args.R_orbit, args.y_eins, args.Mc, dL=args.dL,
+    )
     cov, _, keys = base.get_covariance(
         args.model, lensing_params, l1_agn, hlv_agn, hlv_lensed, args.res,
     )
-    cov, keys = base.reorder_covariance(cov, keys, base.PARAM_ORDER)
-    wf_params = base.extract_waveform_params(
-        hlv_lensed.signals['H1'],
-        l1_agn.convert_to_general_lensed_parameters(lensing_params),
-    )
+    cov, keys = base.reorder_covariance(cov, keys, param_order)
+    if use_agn_native:
+        wf_params = base.extract_waveform_params(
+            hlv_agn.signals['H1'], lensing_params,
+        )
+    else:
+        wf_params = base.extract_waveform_params(
+            hlv_lensed.signals['H1'],
+            l1_agn.convert_to_general_lensed_parameters(lensing_params),
+        )
 
     if args.block == 'extra':
-        block_keys = [k for k in base.EXTRA_PARAMS if k in keys]
+        block_keys = [k for k in extra_params if k in keys]
         cov_block = base.covariance_block(cov, keys, block_keys)
     else:
         block_keys = list(keys)
         cov_block = base.squeeze_covariance(cov)
 
-    snr_ref = base.snr_at_dL(hlv_lensed, wf_params, args.res)
+    snr_ref = base.snr_at_dL(hlv_net, wf_params, args.res)
     print(f'Model: {args.model}, block: {args.block} ({len(block_keys)} params)')
-    print(f'Injection: R_orbit={args.R_orbit}, y_Eins={args.y_eins}, Mc={args.Mc}')
-    print(f'Network SNR at dL=1 (reference): {snr_ref:.4g}')
+    print(f'Injection: R_orbit={args.R_orbit}, y_Eins={args.y_eins}, '
+          f'Mc={args.Mc}, dL={args.dL} (fixed geometry)')
+    print(f'Network SNR at amp=1 (reference): {snr_ref:.4g}')
+    print('SNR scan: amplitude rescaling only (geometric dL held fixed).')
     print(f'Block keys: {block_keys}')
 
     lam_raw = onp.linalg.eigvalsh(cov_block)
@@ -271,47 +291,43 @@ def main():
     median_log_r = onp.zeros_like(snr_grid)
 
     freqs = base.frequency_grid(
-        hlv_lensed.signals['H1'], base.to_event_params(wf_params), args.res,
+        hlv_net.signals['H1'], base.to_event_params(wf_params), args.res,
     )
+    # Geometry fixed: evaluate reference strains / derivatives once, then
+    # amplitude-rescale with SNR. Cov ∝ amp^{-2} under pure amplitude scaling.
+    h0_ref = base.collect_network_strains(hlv_net, freqs, wf_params)
+    derivs_ref = base.collect_param_derivatives(
+        hlv_net, freqs, wf_params, block_keys,
+    )
+    cov_block_ref = onp.asarray(cov_block, dtype=onp.float64)
 
     if cores > 1:
-        pool_ctx = Pool(cores, initializer=base._init_worker_pool)
+        pool_ctx = Pool(
+            cores,
+            initializer=base._init_worker_pool,
+            initargs=(args.model,),
+        )
     else:
-        base._HLV_LENSED = hlv_lensed
+        base._set_worker_network(hlv_net)
         pool_ctx = nullcontext()
 
     with pool_ctx as pool:
         for i_snr, snr_target in enumerate(snr_grid):
-            dL = snr_ref / snr_target
-            lp_scaled = lensing_params.copy()
-            lp_scaled['dL'] = np.array([dL], dtype=np.float64)
-            cov_s, _, keys_s = base.get_covariance(
-                args.model, lp_scaled, l1_agn, hlv_agn, hlv_lensed, args.res,
-            )
-            cov_s, keys_s = base.reorder_covariance(cov_s, keys_s, base.PARAM_ORDER)
-            wf_s = base.extract_waveform_params(
-                hlv_lensed.signals['H1'],
-                l1_agn.convert_to_general_lensed_parameters(lp_scaled),
-            )
-            if fixed_keys:
-                cov_block_s = condition_covariance(
-                    cov_s, keys_s, block_keys, fixed_keys,
-                )
-            elif args.block == 'extra':
-                cov_block_s = base.covariance_block(cov_s, keys_s, block_keys)
-            else:
-                cov_block_s = base.squeeze_covariance(cov_s)
+            amp = float(snr_target / snr_ref)
+            cov_block_s = cov_block_ref / (amp * amp)
             directions_s = directions_on_sigma_surface_normalized(
                 cov_block_s, args.n_directions, rng,
                 max_inflation=args.max_inflation,
                 min_eig=args.min_normalized_eig,
+                verbose=(i_snr == 0),
             )
 
-            h0 = base.collect_network_strains(hlv_lensed, freqs, wf_s)
-            derivs = base.collect_param_derivatives(hlv_lensed, freqs, wf_s, block_keys)
+            h0 = base.scale_strain_dict(h0_ref, amp)
+            derivs = base.scale_deriv_dict(derivs_ref, amp)
 
             log_r_vals = base._eval_log_r_values(
-                pool, directions_s, wf_s, block_keys, h0, derivs, freqs, cores,
+                pool, directions_s, wf_params, block_keys, h0, derivs, freqs,
+                cores, amplitude=amp,
             )
 
             finite = onp.isfinite(log_r_vals)
@@ -320,7 +336,7 @@ def main():
             )
             median_log_r[i_snr] = onp.nanmedian(log_r_vals)
             print(
-                f'SNR={snr_target:6.3g}  dL={dL:8.4g}  '
+                f'SNR={snr_target:6.3g}  amp={amp:8.4g}  dL={args.dL:g} (fixed)  '
                 f'frac(|log r|<{args.log_r_cut})={cdf_fractions[i_snr]:.3f}  '
                 f'median |log r|={median_log_r[i_snr]:.4g}'
             )
@@ -382,7 +398,8 @@ def main():
     fig.suptitle(
         f'Fisher consistency (unit-free cut): {args.model} / {args.block}  '
         f'($R_{{\\rm orb}}$={args.R_orbit:g}, $y$={args.y_eins:g}, '
-        f'$M_c$={args.Mc:g}, max inflation={args.max_inflation:g})',
+        f'$M_c$={args.Mc:g}, $d_L$={args.dL:g} fixed, amp-scaled SNR, '
+        f'max inflation={args.max_inflation:g})',
         fontsize=11,
     )
 
@@ -409,6 +426,8 @@ def main():
         R_orbit=args.R_orbit,
         y_eins=args.y_eins,
         Mc=args.Mc,
+        dL=args.dL,
+        snr_via_amplitude=True,
         model=args.model,
         block=args.block,
         cores=cores,
