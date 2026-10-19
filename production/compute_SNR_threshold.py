@@ -101,6 +101,7 @@ def Jacobian_covariance(lensing_parameters):
     transformed_cov_mat, transformed_parameters, transformed_keys = covariance_change_variable(
         covar_matrix, lensing_parameters, lensing_transform, from_params
     )
+    print('transformed_keys:', transformed_keys)
     return transformed_cov_mat, transformed_parameters, transformed_keys, ie
 
 
@@ -156,6 +157,7 @@ def worker(Ry_tuple_sublist, model='agn', loop=2, actual_snr=False):
     lensing_parameters = {key: np.full(shape, val).astype(np.float64) for key, val in reference_parameters.items()}
     lensing_parameters['R_orbit'] = Ry_tuple_sublist[:, 0]
     lensing_parameters['src_pos'] = Ry_tuple_sublist[:, 1]
+    print('original keys:', lensing_parameters.keys())
 
     if model == 'agn':
         covar_func = Jacobian_covariance
