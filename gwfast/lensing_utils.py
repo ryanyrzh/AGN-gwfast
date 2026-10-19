@@ -266,11 +266,13 @@ def get_agn_lensed_parameters(unlensed_parameters):
 
     plus_image_params['iota'] = lensed_params['iota_p']
     plus_image_params['phase'] = lensed_params['phase_p']
+    plus_image_params['psi'] = lensed_params['psi_p']
     plus_image_params['Mc'] *= plus_redshift_factor
     plus_image_params['dL'] /= lensed_params['sqrt_mu_p']
     plus_image_params['dL'] *= (1 + lensed_params['z_rel_p']) * plus_redshift_factor
     minus_image_params['iota'] = lensed_params['iota_m']
     minus_image_params['phase'] = lensed_params['phase_m']
+    minus_image_params['psi'] = lensed_params['psi_m']
     minus_image_params['Mc'] *= minus_redshift_factor
     minus_image_params['dL'] /= lensed_params['sqrt_mu_m']
     minus_image_params['dL'] *= (1 + lensed_params['z_rel_m']) * minus_redshift_factor
@@ -336,7 +338,7 @@ def compute_lensed_angles_approx(
     phi_p = phi_N + theta_bar_p * phi_term
     phi_m = phi_N - theta_bar_m * phi_term
     psi_p = psi + theta_bar_p / psi_term
-    psi_m = psi + theta_bar_m / psi_term
+    psi_m = psi - theta_bar_m / psi_term
 
     v_orb = Keplerian_speed(r_orbit)
     gamma = Lorentz_factor(v_orb)
