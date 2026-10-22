@@ -467,17 +467,17 @@ def worker(RMc_tuple_sublist, model='agn', n_newton=5, target_logB=2.0):
                             # delta_psi_prior_width
                             ])
 
-    cov_1, pd_1, keys = covar_func(lensing_parameters_1)
-    cov_2, pd_2, _ = covar_func(lensing_parameters_2)
+    cov_1, pd_1, keys_1 = covar_func(lensing_parameters_1)
+    cov_2, pd_2, keys_2 = covar_func(lensing_parameters_2)
 
     # Diagnostic: compare Jacobian vs direct sigmas at fiducial point
     if model == 'agn':
         direct_cov_1, direct_pd_1, direct_keys_1 = direct_covariance(lensing_parameters_1)
-        sig_jac_dp = _sigma_from_cov(cov_1, keys, 'delta_phase')
+        sig_jac_dp = _sigma_from_cov(cov_1, keys_1, 'delta_phase')
         sig_dir_dp = _sigma_from_cov(direct_cov_1, direct_keys_1, 'delta_phase')
-        sig_jac_di = _sigma_from_cov(cov_1, keys, 'delta_iota')
+        sig_jac_di = _sigma_from_cov(cov_1, keys_1, 'delta_iota')
         sig_dir_di = _sigma_from_cov(direct_cov_1, direct_keys_1, 'delta_iota')
-        sig_jac_rm = _sigma_from_cov(cov_1, keys, 'relative_mass')
+        sig_jac_rm = _sigma_from_cov(cov_1, keys_1, 'relative_mass')
         sig_dir_rm = _sigma_from_cov(direct_cov_1, direct_keys_1, 'relative_mass')
         print(
             '===== sigma comparison (Jacobian vs direct) =====\n'
@@ -488,7 +488,7 @@ def worker(RMc_tuple_sublist, model='agn', n_newton=5, target_logB=2.0):
 
     # Print the extra covariance block
     n_extra = int(prior_widths.shape[0])
-    cov_1_reordered, keys_reordered = reorder_covariance(cov_1, keys, order)
+    cov_1_reordered, keys_reordered = reorder_covariance(cov_1, keys_1, order)
     c1 = onp.asarray(cov_1_reordered)
     batch_note = ''
     if c1.ndim > 2:
@@ -541,8 +541,8 @@ def worker(RMc_tuple_sublist, model='agn', n_newton=5, target_logB=2.0):
     # --- Newton method with capped marginals ---
     bayes_func = get_bayes_factor_capped
 
-    lnB_1, chi2_1 = bayes_func(cov_1, pd_1, keys, order, prior_widths)
-    lnB_2, chi2_2 = bayes_func(cov_2, pd_2, keys, order, prior_widths)
+    lnB_1, chi2_1 = bayes_func(cov_1, pd_1, keys_1, order, prior_widths)
+    lnB_2, chi2_2 = bayes_func(cov_2, pd_2, keys_2, order, prior_widths)
     logB_1 = lnB_1 / np.log(10)
     logB_2 = lnB_2 / np.log(10)
 
