@@ -467,9 +467,6 @@ def worker(RMc_tuple_sublist, model='agn', n_newton=5, target_logB=2.0):
                             # delta_psi_prior_width
                             ])
 
-    target_B = 10 ** target_logB
-    log_target_B = target_logB
-
     cov_1, pd_1, keys = covar_func(lensing_parameters_1)
     cov_2, pd_2, _ = covar_func(lensing_parameters_2)
 
