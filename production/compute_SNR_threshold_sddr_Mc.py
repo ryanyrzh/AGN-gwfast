@@ -97,7 +97,7 @@ V1 = Detector('V1', **det_dict['Virgo'],
 # V1 = Detector('V1', **det_dict['Virgo'],
 #               noise_curve_path=Path(detPath)/'LVC_O1O2O3/O3-V1_sensitivity_strain_asd.txt')
 
-wf_model = waveforms.IMRPhenomD()
+wf_model = waveforms.IMRPhenomHM()
 
 H1_AGN = AGNLensedGWSignal(wf_model=wf_model, detector=H1, fmin=10)
 L1_AGN = AGNLensedGWSignal(wf_model=wf_model, detector=L1, fmin=10)
@@ -252,6 +252,27 @@ def reorder_covariance(cov, keys, desired_order):
     cov_reordered = np.take(np.take(cov.astype(np.float64), idx_arr, axis=0), idx_arr, axis=1)
     new_keys = [keys[i] for i in idx]
     return cov_reordered, new_keys
+
+
+def _missing_expected_keys(keys, expected_order):
+    """Return expected keys that are absent from the Fisher key list."""
+    present = set(keys)
+    return [key for key in expected_order if key not in present]
+
+
+def _report_skipped_missing_keys(
+        R_orbit_batch, Mc_batch, missing_keys, present_keys, expected_order, which=''):
+    """Print which (R, Mc) points were skipped because Fisher keys were incomplete."""
+    which_note = f' ({which})' if which else ''
+    print(f'===== SKIPPED{which_note}: expected Fisher keys missing =====')
+    print(f'  missing:  {missing_keys}')
+    print(f'  present:  {list(present_keys)}')
+    print(f'  expected: {list(expected_order)}')
+    print('  points (R_orbit, Mc):')
+    for R_val, Mc_val in zip(
+            onp.asarray(R_orbit_batch).ravel(),
+            onp.asarray(Mc_batch).ravel()):
+        print(f'    R={float(R_val):.6g}, Mc={float(Mc_val):.6g}')
 
 
 def _covariance_matrix_table(cov, labels, float_fmt='{: .6g}'):
@@ -470,6 +491,19 @@ def worker(RMc_tuple_sublist, model='agn', n_newton=5, target_logB=2.0):
     cov_1, pd_1, keys_1 = covar_func(lensing_parameters_1)
     cov_2, pd_2, keys_2 = covar_func(lensing_parameters_2)
 
+    # Fisher reduction can drop expected parameters; skip those batches as NaN
+    missing_1 = _missing_expected_keys(keys_1, order)
+    missing_2 = _missing_expected_keys(keys_2, order)
+    if missing_1 or missing_2:
+        if missing_1:
+            _report_skipped_missing_keys(
+                R_orbit_batch, Mc_batch, missing_1, keys_1, order, which='y1')
+        if missing_2:
+            _report_skipped_missing_keys(
+                R_orbit_batch, Mc_batch, missing_2, keys_2, order, which='y2')
+        nan_snr = np.full(input_len, np.nan)
+        return nan_snr, nan_snr
+
     # Diagnostic: compare Jacobian vs direct sigmas at fiducial point
     if model == 'agn':
         direct_cov_1, direct_pd_1, direct_keys_1 = direct_covariance(lensing_parameters_1)
@@ -563,6 +597,13 @@ def worker(RMc_tuple_sublist, model='agn', n_newton=5, target_logB=2.0):
         new_parameters['dL'] *= scale
         try:
             new_cov, new_pd, ks = covar_func(new_parameters)
+            missing_ks = _missing_expected_keys(ks, order)
+            if missing_ks:
+                _report_skipped_missing_keys(
+                    new_parameters['R_orbit'], new_parameters['Mc'],
+                    missing_ks, ks, order, which=f'{label} newton')
+                new_scale = np.full_like(scale, np.nan)
+                return new_scale, new_parameters
             new_lnB, new_chi2 = bayes_func(new_cov, new_pd, ks, order, prior_widths)
             new_logB = new_lnB / np.log(10)
             new_scale = _newton_dL_scale(
@@ -614,7 +655,7 @@ if __name__ == '__main__':
 
     tic = time()
     # 1. Prepare matrix of (Mc, R)
-    Mc_array = np.linspace(10, 100, n_Mc)
+    Mc_array = np.linspace(20, 80, n_Mc)
     R_orbit_array = np.geomspace(10, 2e3, n_R)
     R_orbit_mesh, Mc_mesh = np.meshgrid(R_orbit_array, Mc_array, indexing='xy')
     RMc_tuple_list = np.vstack([R_orbit_mesh.flatten(), Mc_mesh.flatten()]).T
@@ -653,6 +694,7 @@ if __name__ == '__main__':
     print('Start plotting')
     fig, ax = plt.subplots(1, 1, figsize=(5.5, 4), constrained_layout=True)
     log10_snr = np.log10(snr_grid_1)
+    log10_snr = log10_snr.at[log10_snr < -3].set(np.nan)
     ax.set_facecolor('lightgrey')
     cmap = plt.cm.plasma.copy()
     cmap.set_bad(color='lightgrey')
