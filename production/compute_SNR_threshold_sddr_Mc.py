@@ -9,7 +9,6 @@ os.environ['JAX_PERSISTENT_CACHE_MIN_COMPILE_TIME_SECS'] = '0'
 from time import time
 import argparse
 from pathlib import Path
-from functools import partial
 from multiprocessing import Pool, set_start_method
 from collections import OrderedDict
 
@@ -650,6 +649,37 @@ def worker(RMc_tuple_sublist, model='agn', n_newton=5, target_logB=2.0):
 
     return result_snr_1, result_snr_2
 
+
+def _atomic_savez(path, **arrays):
+    """Write npz via a temp file then rename so partial writes are never loaded."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_name(path.name + '.tmp')
+    with open(tmp_path, 'wb') as tmp_file:
+        onp.savez(tmp_file, **arrays)
+    os.replace(tmp_path, path)
+
+
+def _process_and_cache_chunk(chunk_payload):
+    """Compute one Mc-row chunk and cache it before returning (resume-safe)."""
+    chunk_idx, RMc_sublist, cache_path, model_name, n_newton_steps, logB_target = chunk_payload
+    snr_1, snr_2 = worker(
+        RMc_sublist, model=model_name, n_newton=n_newton_steps, target_logB=logB_target,
+    )
+    snr_1_np = onp.asarray(snr_1)
+    snr_2_np = onp.asarray(snr_2)
+    RMc_np = onp.asarray(RMc_sublist)
+    _atomic_savez(
+        cache_path,
+        snr_1=snr_1_np,
+        snr_2=snr_2_np,
+        RMc=RMc_np,
+        chunk_idx=onp.asarray(chunk_idx),
+    )
+    print(f'Cached chunk {chunk_idx}', flush=True)
+    return chunk_idx, snr_1_np, snr_2_np
+
+
 if __name__ == '__main__':
     set_start_method('spawn', force=True)
 
@@ -660,28 +690,71 @@ if __name__ == '__main__':
     R_orbit_mesh, Mc_mesh = np.meshgrid(R_orbit_array, Mc_array, indexing='xy')
     RMc_tuple_list = np.vstack([R_orbit_mesh.flatten(), Mc_mesh.flatten()]).T
 
-    # Custom settings go here
-    the_worker = partial(worker, model=model, n_newton=n_newton, target_logB=target_logB)
+    # One chunk per Mc row: stable if --cores changes; flatten order is (Mc, R)
+    assert int(RMc_tuple_list.shape[0]) == n_Mc * n_R
+    row_chunks = [
+        onp.asarray(RMc_tuple_list[row_idx * n_R:(row_idx + 1) * n_R])
+        for row_idx in range(n_Mc)
+    ]
 
-    with Pool(cores) as p:
-        results = p.map(the_worker, np.array_split(RMc_tuple_list, cores))
-        results_1, results_2 = zip(*results)
-        results_1 = list(results_1)
-        results_2 = list(results_2)
+    _label_suffix = f'_{label}' if label is not None else ''
+    _logB_str = f'{target_logB:g}'
+    _job_id = os.environ.get('SLURM_JOB_ID', '')
+    _job_suffix = f'_{_job_id}' if _job_id else ''
+    cache_dir = Path(
+        f'output/cache_Mc{n_Mc:d}_R{n_R:d}_sddr_{model}_logB{_logB_str}_'
+        f'{n_newton}steps{_label_suffix}'
+    )
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    # Drop leftover partial writes from a killed job
+    for stale_tmp in cache_dir.glob('chunk_*.npz.tmp'):
+        stale_tmp.unlink()
+    print(f'Cache directory: {cache_dir}')
+
+    results_1 = [None] * n_Mc
+    results_2 = [None] * n_Mc
+    pending_chunks = []
+    for row_idx, row_chunk in enumerate(row_chunks):
+        chunk_path = cache_dir / f'chunk_{row_idx:04d}.npz'
+        if chunk_path.exists():
+            cached = onp.load(chunk_path)
+            cached_RMc = cached['RMc'] if 'RMc' in cached.files else None
+            if cached_RMc is not None and not onp.allclose(cached_RMc, row_chunk):
+                print(f'Cache mismatch for chunk {row_idx}, will recompute')
+                pending_chunks.append(
+                    (row_idx, row_chunk, str(chunk_path), model, n_newton, target_logB)
+                )
+            else:
+                results_1[row_idx] = onp.asarray(cached['snr_1'])
+                results_2[row_idx] = onp.asarray(cached['snr_2'])
+        else:
+            pending_chunks.append(
+                (row_idx, row_chunk, str(chunk_path), model, n_newton, target_logB)
+            )
+
+    n_cached = n_Mc - len(pending_chunks)
+    print(f'Resume: {n_cached}/{n_Mc} Mc-rows cached, {len(pending_chunks)} remaining')
+
+    if pending_chunks:
+        with Pool(cores) as p:
+            for chunk_idx, snr_1, snr_2 in p.imap_unordered(
+                    _process_and_cache_chunk, pending_chunks):
+                results_1[chunk_idx] = snr_1
+                results_2[chunk_idx] = snr_2
+
+    if any(result is None for result in results_1 + results_2):
+        raise RuntimeError('Some Mc-row chunks are still missing after the pool finished')
 
     print('Elapsed Time (min):', (time() - tic) / 60)
 
-    concat_result_1 = np.concatenate(results_1, axis=0)
-    concat_result_2 = np.concatenate(results_2, axis=0)
+    concat_result_1 = onp.concatenate(results_1, axis=0)
+    concat_result_2 = onp.concatenate(results_2, axis=0)
     snr_grid_1 = concat_result_1.reshape((n_Mc, n_R))
     snr_grid_2 = concat_result_2.reshape((n_Mc, n_R))
 
     # Saving result for reproducibility
     print('Saving results')
-    _label_suffix = f'_{label}' if label is not None else ''
-    _logB_str = f'{target_logB:g}'
-    _job_id = os.environ.get('SLURM_JOB_ID', '')
-    _job_suffix = f'_{_job_id}' if _job_id else ''
+    Path('output').mkdir(parents=True, exist_ok=True)
     np.savez(f'output/result_Mc{n_Mc:d}_R{n_R:d}_sddr_{model}_logB{_logB_str}_{n_newton}steps{_label_suffix}{_job_suffix}',
              Mc=Mc_mesh.flatten(),
              R_orbit=R_orbit_mesh.flatten(),
