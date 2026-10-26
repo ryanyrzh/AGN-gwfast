@@ -72,14 +72,14 @@ print('Newton steps:', n_newton)
 print('Label:', label)
 
 reference_parameters = {
-    'Mc': 30, 'eta': 0.24, 'iota': 0.99*np.pi/2, 'phase': 2,
+    'Mc': 30, 'eta': 0.24, 'iota': 0.999*np.pi/2, 'phase': 2,
     'chi1z': 0.3, 'chi2z': 0.5, 'tcoal': 0,
     'R_orbit': 50, 'log10_M_lz': 4.0, 'src_pos': 0.5,
     'dL': 1.0, 'psi': 1, 'theta': 1.87, 'phi': 2.66,
 }
 print('Reference parameters:', reference_parameters)
-y_Eins_1 = 0.7
-y_Eins_2 = 0.2
+y_Eins_1 = 0.5
+y_Eins_2 = 1.0
 
 
 # Set up detectors
