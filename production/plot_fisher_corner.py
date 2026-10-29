@@ -188,7 +188,7 @@ def main():
 
     fig = plot_corners(
         cov_plot, plot_keys, indices,
-        event=event, labels=LABELS, color=color,
+        event=event, labels=LABELS, color=color, fontsize=20,
     )
 
     args.outdir.mkdir(parents=True, exist_ok=True)

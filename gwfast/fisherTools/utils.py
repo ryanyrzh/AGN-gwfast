@@ -284,6 +284,7 @@ def plot_corners(
                  {parameters: the_labels}
     """
     color = kwargs.get("color", "C3")
+    fontsize = kwargs.get("fontsize", 15)
     # Style for null-hypothesis crosshairs on generic extra parameters
     null_color = kwargs.get("null_color", "black")
     null_linestyle = kwargs.get("null_linestyle", ":")
@@ -314,7 +315,7 @@ def plot_corners(
             null_y = _null_value(key2)
 
             if row == n_params - 1:
-                ax.set_xlabel(labels.get(key1, key1), fontsize=15)
+                ax.set_xlabel(labels.get(key1, key1), fontsize=fontsize)
 
             if row == col:
                 # For this part, we use float64 for plotting purpose
@@ -329,7 +330,7 @@ def plot_corners(
                 # Make use of the symmetric property here
                 CI_90 = norm_rv.ppf([0.05, 0.5, 0.95])
                 interval = np.diff(CI_90)[0]
-                ax.set_title(rf"${mu:.3f} \pm {interval:.3f}$")
+                ax.set_title(rf"${mu:.3f} \pm {interval:.3f}$", fontsize=fontsize)
 
                 ax.axvline(CI_90[0], ls="--", color="coral")
                 ax.axvline(CI_90[2], ls="--", color="coral")
@@ -373,7 +374,7 @@ def plot_corners(
                     zorder=0,
                 )
             if col == 0:
-                ax.set_ylabel(labels.get(key2, key2), fontsize=15)
+                ax.set_ylabel(labels.get(key2, key2), fontsize=fontsize)
             else:
                 ax.set_yticklabels([])
             if row != col:
