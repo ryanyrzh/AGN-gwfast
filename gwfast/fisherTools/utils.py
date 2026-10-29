@@ -252,6 +252,23 @@ def compute_localization_region(Cov, parNum, thFid, perc_level=90, units="SqDeg"
 import matplotlib.pyplot as plt
 
 
+# Null-hypothesis values for generic extra (lensing) parameters.
+# Delta parameters vanish under no relative change; fractional ones are unity.
+_GENERIC_EXTRA_NULL = {
+    "delta_iota": 0.0,
+    "delta_phase": 0.0,
+    "delta_psi": 0.0,
+    "delta_time": 0.0,
+    "relative_mass": 1.0,
+    "relative_distance": 1.0,
+}
+
+
+def _null_value(parameter_name):
+    """Return the null-hypothesis value for a generic extra parameter, else None."""
+    return _GENERIC_EXTRA_NULL.get(parameter_name)
+
+
 def plot_corners(
     covariance, parameters: list, indices: list, event=None, labels={}, **kwargs
 ):
@@ -267,6 +284,10 @@ def plot_corners(
                  {parameters: the_labels}
     """
     color = kwargs.get("color", "C3")
+    # Style for null-hypothesis crosshairs on generic extra parameters
+    null_color = kwargs.get("null_color", "black")
+    null_linestyle = kwargs.get("null_linestyle", ":")
+    null_linewidth = kwargs.get("null_linewidth", 1.0)
 
     n_params = len(parameters)
     assert len(parameters) == len(indices), "Number of parameters and indices not match"
@@ -289,6 +310,8 @@ def plot_corners(
             # We want lower-triangle
             ax = axes[row, col]
             idx_pair = (idx, jdx)
+            null_x = _null_value(key1)
+            null_y = _null_value(key2)
 
             if row == n_params - 1:
                 ax.set_xlabel(labels.get(key1, key1), fontsize=15)
@@ -308,8 +331,17 @@ def plot_corners(
                 interval = np.diff(CI_90)[0]
                 ax.set_title(rf"${mu:.3f} \pm {interval:.3f}$")
 
-                ax.axvline(CI_90[0], ls="--", color="grey")
-                ax.axvline(CI_90[2], ls="--", color="grey")
+                ax.axvline(CI_90[0], ls="--", color="coral")
+                ax.axvline(CI_90[2], ls="--", color="coral")
+                # Mark null (0 for deltas, 1 for relative_*) on 1D panels
+                if null_x is not None:
+                    ax.axvline(
+                        null_x,
+                        ls=null_linestyle,
+                        color=null_color,
+                        lw=null_linewidth,
+                        zorder=0,
+                    )
                 ax.set_yticks([])
                 continue
 
@@ -323,6 +355,23 @@ def plot_corners(
             )
 
             ax.scatter(event[key1], event[key2], c="red", s=3)
+            # Crosshairs at null for generic extras (delta -> 0, relative -> 1)
+            if null_x is not None:
+                ax.axvline(
+                    null_x,
+                    ls=null_linestyle,
+                    color=null_color,
+                    lw=null_linewidth,
+                    zorder=0,
+                )
+            if null_y is not None:
+                ax.axhline(
+                    null_y,
+                    ls=null_linestyle,
+                    color=null_color,
+                    lw=null_linewidth,
+                    zorder=0,
+                )
             if col == 0:
                 ax.set_ylabel(labels.get(key2, key2), fontsize=15)
             else:
